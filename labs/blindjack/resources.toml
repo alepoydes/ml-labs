@@ -3,8 +3,8 @@ revision = "pilot-2"
 
 [archive]
 url = "https://github.com/alepoydes/ml-labs/releases/download/blindjack-pilot-2/blindjack-data.zip"
-sha256 = "268bd662e01050d4153a7f657cd0a01194e3893dae77fe5998d7aeb67be97e9e"
-size = 20494793
+sha256 = "66273f84ae4c54a77d637f58b8f4a0e429171c535da17f9a4eb7bf2f3811df66"
+size = 20512750
 
 [[files]]
 path = "dataset.json"
@@ -13,8 +13,8 @@ size = 147
 
 [[files]]
 path = "index.html"
-sha256 = "c732e1ccb7d46aefdfd094ca887521104bb2645a419026ce4d6ddb26e10766b8"
-size = 35340
+sha256 = "20e7a95f33235c9ac138dedd38e35469569f91ba32091ab36169eec715dc011e"
+size = 35388
 
 [[files]]
 path = "train/images-0000.png"
@@ -27,9 +27,9 @@ sha256 = "7ac89b8c9ad9ee6d37a351e4b05d7850bb6fb7f4ea562e1ea823639c6475e958"
 size = 24297
 
 [[files]]
-path = "validation/hands.npz"
-sha256 = "fbec532f675861e71a407fde6b81a99e36c9d3e0059dd4527e9a5cdee304c1df"
-size = 12506
+path = "validation/hands.csv"
+sha256 = "b3fc9676ecc41028b37537e32a65acae45e14267703f9e31e9b8fec01a1a9b7a"
+size = 192106
 
 [[files]]
 path = "validation/images-0000.png"

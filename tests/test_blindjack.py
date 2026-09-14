@@ -13,6 +13,7 @@ from coursekit.labs.blindjack import (
     reward,
     validate_images,
     validate_mask,
+    write_hands,
     write_labels,
 )
 
@@ -73,6 +74,20 @@ def test_sheet_boundary_roundtrip(tmp_path):
     loaded, loaded_labels = load_split(tmp_path, ".")
     np.testing.assert_array_equal(loaded_labels, labels)
     np.testing.assert_array_equal(loaded[indices], images[indices])
+    hand = [0, 31, 32, 1024, 2, 3, 4]
+    hands = np.array([hand, hand[::-1]], dtype=np.int64)
+    write_hands(tmp_path, hands)
+    _, _, restored = benchmark(tmp_path, ".")
+    np.testing.assert_array_equal(restored, hands)
+    with (tmp_path / "hands.csv").open(newline="") as stream:
+        cards = list(csv.DictReader(stream))
+    assert cards[3] == {
+        "hand": "1",
+        "card": "4",
+        "sheet": "images-0001.png",
+        "row": "1",
+        "column": "1",
+    }
 
 
 @pytest.mark.parametrize(
@@ -105,3 +120,51 @@ def test_benchmark_has_distinct_values(data):
     assert hands.shape == (330, 7)
     assert np.all(np.diff(np.sort(labels[hands], axis=1), axis=1) > 0)
     assert images[hands[0]].shape == (7, 128, 128, 3)
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "header",
+        "hand",
+        "card",
+        "order",
+        "incomplete",
+        "empty",
+        "sheet",
+        "row",
+        "column",
+        "padding",
+        "duplicate",
+    ],
+)
+def test_hand_csv_rejects_invalid_cards(data, damage):
+    path = data / "validation/hands.csv"
+    with path.open(newline="") as stream:
+        rows = list(csv.reader(stream))
+    if damage == "header":
+        rows[0][0] = "index"
+    elif damage == "hand":
+        rows[1][0] = "0"
+    elif damage == "card":
+        rows[1][1] = "8"
+    elif damage == "order":
+        rows[1], rows[2] = rows[2], rows[1]
+    elif damage == "incomplete":
+        rows.pop()
+    elif damage == "empty":
+        rows = rows[:1]
+    elif damage == "sheet":
+        rows[1][2] = "images-0001.png"
+    elif damage == "row":
+        rows[1][3] = "0"
+    elif damage == "column":
+        rows[1][4] = "33"
+    elif damage == "padding":
+        rows[1][3:] = ["1", "12"]
+    else:
+        rows[2][2:] = rows[1][2:]
+    with path.open("w", newline="") as stream:
+        csv.writer(stream).writerows(rows)
+    with pytest.raises(CourseError):
+        benchmark(data)

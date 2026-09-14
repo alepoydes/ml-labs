@@ -50,6 +50,17 @@ def write_labels(directory: Path, labels: np.ndarray) -> None:
         writer.writerows((*image_location(i), int(label)) for i, label in enumerate(labels))
 
 
+def write_hands(directory: Path, hands: np.ndarray) -> None:
+    with (directory / "hands.csv").open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(("hand", "card", "sheet", "row", "column"))
+        writer.writerows(
+            (h + 1, c + 1, *image_location(int(index)))
+            for h, hand in enumerate(hands)
+            for c, index in enumerate(hand)
+        )
+
+
 def load_split(data: Path, split: str):
     meta = json.loads((data / "dataset.json").read_text())
     if meta["tile_size"] != 128 or meta["columns"] != 32:
@@ -76,17 +87,23 @@ def load_split(data: Path, split: str):
 
 def benchmark(data: Path, split: str = "validation"):
     images, labels = load_split(data, split)
-    with np.load(data / split / "hands.npz", allow_pickle=False) as arrays:
-        hands = arrays["hands"]
-    if (
-        hands.ndim != 2
-        or hands.shape[1] != 7
-        or hands.dtype.kind not in "iu"
-        or not len(hands)
-    ):
-        raise CourseError("Invalid benchmark hand array.")
-    if np.any(hands < 0) or np.any(hands >= len(labels)):
-        raise CourseError("Benchmark image index out of range.")
+    locations = {tuple(map(str, image_location(i))): i for i in range(len(labels))}
+    indices = []
+    with (data / split / "hands.csv").open(newline="", encoding="utf-8") as stream:
+        rows = csv.reader(stream)
+        if next(rows, None) != ["hand", "card", "sheet", "row", "column"]:
+            raise CourseError("Expected CSV header: hand,card,sheet,row,column.")
+        for i, row in enumerate(rows):
+            if (
+                len(row) != 5
+                or row[:2] != [str(i // 7 + 1), str(i % 7 + 1)]
+                or tuple(row[2:]) not in locations
+            ):
+                raise CourseError(f"Invalid card in {split}/hands.csv, line {i + 2}.")
+            indices.append(locations[tuple(row[2:])])
+    if not indices or len(indices) % 7:
+        raise CourseError("Expected complete seven-card hands in hands.csv.")
+    hands = np.array(indices, dtype=np.int64).reshape(-1, 7)
     if np.any(np.diff(np.sort(labels[hands], axis=1), axis=1) == 0):
         raise CourseError("Hand values must be distinct.")
     return images, labels, hands

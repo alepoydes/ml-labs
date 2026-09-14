@@ -99,16 +99,30 @@ These are illustrative rows. `sheet` names the PNG in the same directory; `row`
 and `column` start at **1**, from the top left. `label` is the image's value, 0–10.
 Open the actual CSV in a text editor or spreadsheet alongside the PNG sheets.
 
-Validation also has `hands.npz` with integer image indices of shape `(M,7)`.
+Validation also has `hands.csv`, with one row per card:
+
+```csv
+hand,card,sheet,row,column
+1,1,images-0000.png,3,18
+1,2,images-0000.png,4,11
+```
+
+`hand` identifies the deal, `card` its position (1–7), and the remaining columns
+locate the image in a validation PNG. All four numeric columns start at 1. Records
+follow hand order, then card order, with exactly seven records per hand. Values
+are not duplicated: look them up by the same coordinates in `labels.csv`.
+The loader rejects missing or reordered cards, invalid coordinates (including
+padding), and repeated values within a hand. It returns zero-based image indices
+of shape `(M,7)` in memory.
 Validation has one third as many images as training.
 
 Each sheet has 32 columns and at most 32 rows of original 128×128 images. Read tiles
 left to right, row by row, then continue with the next sheet. The metadata gives
 the valid image count; white cells beyond that count are padding, not examples.
 CSV records follow that order. Their positions (excluding the header) define the
-zero-based image indices used in code and `hands.npz`. The loader checks each CSV
+zero-based image indices used in code. The loader checks each CSV
 coordinate and the label count, so reordered or missing rows cannot silently shift
-labels. No duplicate image arrays are stored. NPZ is loaded with pickling disabled.
+labels. No duplicate image arrays are stored; both labels and hands use plain CSV.
 
 ### Explore and play without code
 

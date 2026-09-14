@@ -6,7 +6,7 @@ import pytest
 
 from coursekit.common import write_json
 from coursekit.images import write_images
-from coursekit.labs.blindjack import make_hands, write_labels
+from coursekit.labs.blindjack import make_hands, write_hands, write_labels
 from coursekit.training import train
 
 
@@ -28,10 +28,7 @@ def data(tmp_path):
     for split in ("train", "validation", "hidden"):
         write_images(root / split, images)
         write_labels(root / split, labels)
-        np.savez_compressed(
-            root / split / "hands.npz",
-            hands=make_hands(labels, 1, np.random.default_rng(7)),
-        )
+        write_hands(root / split, make_hands(labels, 1, np.random.default_rng(7)))
     write_json(
         root / "dataset.json",
         {
