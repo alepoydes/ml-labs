@@ -1,11 +1,17 @@
 schema_version = 1
-revision = "pilot-1"
+revision = "pilot-1-csv"
 
 [[files]]
 path = "dataset.json"
 url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/dataset.json"
-sha256 = "9cc55c5f3e253ee5e7891e19bbffdd6def894bd9407344f78a6a35647210d8a9"
-size = 147
+sha256 = "92358b34d79c50a9f1f83e6fa5e5ad699f3c087030aafaefd69c57e53dde01fe"
+size = 151
+
+[[files]]
+path = "index.html"
+url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/index.html"
+sha256 = "219dfb2de60218c9f13520d7b12dcae9459d2a7e0d7a66a8021250bd32663190"
+size = 35329
 
 [[files]]
 path = "train/images-0000.png"
@@ -14,10 +20,10 @@ sha256 = "f441a4ab9bc3a797531ff401ac579b9b31a6798d6a6eeff2e88b497c2dc60d7a"
 size = 7208146
 
 [[files]]
-path = "train/labels.npz"
-url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/train/labels.npz"
-sha256 = "c46b47e65a8b0fdf11770c0dbc8b1730d70fe86b6de83a7ab4743f413e730d01"
-size = 746
+path = "train/labels.csv"
+url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/train/labels.csv"
+sha256 = "11e83174ae41f1e99dbf9bacb0b54b4fc63fb395a08eb103016acb7684fd7436"
+size = 24297
 
 [[files]]
 path = "validation/hands.npz"
@@ -32,7 +38,7 @@ sha256 = "e471c1f445e0743b4bd37b27823248973ac09438d77398729a12dbe242c3d262"
 size = 2403345
 
 [[files]]
-path = "validation/labels.npz"
-url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/validation/labels.npz"
-sha256 = "766fb6b65639b7ee757a85c735ae97df90eab836a10415062aa74cdbe1237a87"
-size = 407
+path = "validation/labels.csv"
+url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/validation/labels.csv"
+sha256 = "62f3b57875286f39f2fcac1096412f1aa445ed72508847b4b3dbd2b4ac72fed3"
+size = 7917

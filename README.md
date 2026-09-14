@@ -25,8 +25,10 @@ so course updates do not conflict with your changes.
 
 Read [the Blindjack statement](labs/blindjack/README.md), then inspect `train.py`,
 `solution.py`, and `config.toml` in `work/blindjack/baseline/`.
-Open `data/blindjack/train/images-0000.png` in an ordinary image viewer to inspect
-the training data.
+Open `data/blindjack/index.html` in a browser to explore labeled examples and try
+the validation hands yourself while the model trains. It works offline, without
+Python or a server. You can also open `train/labels.csv` and the PNG sheets under
+`data/blindjack/` directly; CSV coordinates count rows and columns from 1.
 
 Create your own variant from the minimal starter:
 

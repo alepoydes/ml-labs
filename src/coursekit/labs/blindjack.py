@@ -1,3 +1,4 @@
+import csv
 import itertools
 import json
 from pathlib import Path
@@ -5,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from coursekit.common import CourseError, file_hashes, fingerprint
-from coursekit.images import ImageSet
+from coursekit.images import ImageSet, image_location
 
 COMPOSITIONS = np.array(list(itertools.combinations(range(11), 7)), dtype=np.int64)
 
@@ -42,19 +43,34 @@ def make_hands(labels: np.ndarray, cycles: int, rng: np.random.Generator) -> np.
     return hands
 
 
+def write_labels(directory: Path, labels: np.ndarray) -> None:
+    with (directory / "labels.csv").open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(("sheet", "row", "column", "label"))
+        writer.writerows((*image_location(i), int(label)) for i, label in enumerate(labels))
+
+
 def load_split(data: Path, split: str):
     meta = json.loads((data / "dataset.json").read_text())
     if meta["tile_size"] != 128 or meta["columns"] != 32:
         raise CourseError("Unsupported image sheet format.")
-    with np.load(data / split / "labels.npz", allow_pickle=False) as arrays:
-        labels = arrays["labels"]
-    if (
-        labels.shape != (meta["counts"][split],)
-        or labels.dtype.kind not in "iu"
-        or np.any(labels > 10)
-        or np.any(labels < 0)
-    ):
-        raise CourseError("Invalid dataset labels or count.")
+    labels = []
+    values = {str(value) for value in range(11)}
+    with (data / split / "labels.csv").open(newline="", encoding="utf-8") as stream:
+        rows = csv.reader(stream)
+        if next(rows, None) != ["sheet", "row", "column", "label"]:
+            raise CourseError("Expected CSV header: sheet,row,column,label.")
+        for i, row in enumerate(rows):
+            if len(row) != 4 or row[:3] != list(map(str, image_location(i))):
+                raise CourseError(
+                    f"Invalid image location in {split}/labels.csv, line {i + 2}."
+                )
+            if row[3] not in values:
+                raise CourseError(f"Invalid label in {split}/labels.csv, line {i + 2}.")
+            labels.append(int(row[3]))
+    labels = np.array(labels, dtype=np.uint8)
+    if labels.shape != (meta["counts"][split],):
+        raise CourseError("Invalid dataset label count.")
     return ImageSet(data / split, len(labels)), labels
 
 

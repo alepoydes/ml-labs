@@ -1,16 +1,19 @@
+import csv
 import itertools
 
 import numpy as np
 import pytest
 
-from coursekit.common import CourseError
+from coursekit.common import CourseError, write_json
 from coursekit.images import ImageSet, write_images
 from coursekit.labs.blindjack import (
     COMPOSITIONS,
     benchmark,
+    load_split,
     reward,
     validate_images,
     validate_mask,
+    write_labels,
 )
 
 
@@ -51,6 +54,50 @@ def test_sheet_boundary_roundtrip(tmp_path):
     np.testing.assert_array_equal(stored[indices], images[indices])
     with pytest.raises(CourseError):
         stored[np.array([1025])]
+    labels = np.arange(len(images)) % 11
+    write_labels(tmp_path, labels)
+    write_json(
+        tmp_path / "dataset.json",
+        {"tile_size": 128, "columns": 32, "counts": {".": len(images)}},
+    )
+    with (tmp_path / "labels.csv").open(newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert [(rows[i]["sheet"], rows[i]["row"], rows[i]["column"]) for i in indices] == [
+        ("images-0000.png", "1", "1"),
+        ("images-0000.png", "1", "32"),
+        ("images-0000.png", "2", "1"),
+        ("images-0000.png", "32", "32"),
+        ("images-0001.png", "1", "1"),
+        ("images-0000.png", "1", "1"),
+    ]
+    loaded, loaded_labels = load_split(tmp_path, ".")
+    np.testing.assert_array_equal(loaded_labels, labels)
+    np.testing.assert_array_equal(loaded[indices], images[indices])
+
+
+@pytest.mark.parametrize(
+    "damage", ["header", "location", "label", "count", "order", "duplicate"]
+)
+def test_csv_rejects_misaligned_or_invalid_labels(data, damage):
+    path = data / "train/labels.csv"
+    with path.open(newline="") as stream:
+        rows = list(csv.reader(stream))
+    if damage == "header":
+        rows[0][0] = "image"
+    elif damage == "location":
+        rows[1][1] = "0"
+    elif damage == "label":
+        rows[1][3] = "256"
+    elif damage == "count":
+        rows.pop()
+    elif damage == "order":
+        rows[1], rows[2] = rows[2], rows[1]
+    else:
+        rows[2] = rows[1]
+    with path.open("w", newline="") as stream:
+        csv.writer(stream).writerows(rows)
+    with pytest.raises(CourseError):
+        load_split(data, "train")
 
 
 def test_benchmark_has_distinct_values(data):

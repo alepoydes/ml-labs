@@ -9,6 +9,8 @@ editing it. The working copy keeps the template's name unless a name is supplied
 Include reproducible training, all inference artifacts, and an honest AI-use
 declaration. Inference must run on CPU without network access.
 
-Images are stored once in lossless PNG sheets. Other numeric data use compressed
-NPZ with pickling disabled. Preserve image indices and labels when loading sheets.
+Images are stored once in lossless PNG sheets. Labels use CSV with the PNG filename
+and one-based row/column; other numeric arrays use compressed NPZ with pickling
+disabled. Preserve zero-based image indices and label alignment when loading sheets.
+Open `data/blindjack/index.html` to explore examples and play validation hands offline.
 Run `uv run --locked pytest` for public package tests.

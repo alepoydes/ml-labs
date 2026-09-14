@@ -11,6 +11,13 @@ COLUMNS = 32
 PER_SHEET = COLUMNS**2
 
 
+def image_location(index: int) -> tuple[str, int, int]:
+    """PNG filename and one-based row/column for a zero-based image index."""
+    sheet, tile = divmod(index, PER_SHEET)
+    row, column = divmod(tile, COLUMNS)
+    return f"images-{sheet:04d}.png", row + 1, column + 1
+
+
 def write_images(directory: Path, images: np.ndarray) -> None:
     if images.dtype != np.uint8 or images.shape[1:] != (SIZE, SIZE, 3):
         raise CourseError("Images must have shape (N,128,128,3) and dtype uint8.")
