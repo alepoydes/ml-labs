@@ -1,0 +1,2 @@
+#!/bin/sh
+exec uv run --directory "$(dirname "$0")" --locked python -m coursekit.cli evaluate "$@"

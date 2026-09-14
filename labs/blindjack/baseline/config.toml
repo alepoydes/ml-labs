@@ -1,0 +1,7 @@
+# Pilot candidate: small MLP with white-centered pixels.
+resolution = 32
+hidden_units = 64
+max_iter = 300
+learning_rate = 0.0003
+patience = 30
+activation = "tanh"

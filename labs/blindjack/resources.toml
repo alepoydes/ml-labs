@@ -1,0 +1,38 @@
+schema_version = 1
+revision = "pilot-1"
+
+[[files]]
+path = "dataset.json"
+url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/dataset.json"
+sha256 = "9cc55c5f3e253ee5e7891e19bbffdd6def894bd9407344f78a6a35647210d8a9"
+size = 147
+
+[[files]]
+path = "train/images-0000.png"
+url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/train/images-0000.png"
+sha256 = "f441a4ab9bc3a797531ff401ac579b9b31a6798d6a6eeff2e88b497c2dc60d7a"
+size = 7208146
+
+[[files]]
+path = "train/labels.npz"
+url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/train/labels.npz"
+sha256 = "c46b47e65a8b0fdf11770c0dbc8b1730d70fe86b6de83a7ab4743f413e730d01"
+size = 746
+
+[[files]]
+path = "validation/hands.npz"
+url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/validation/hands.npz"
+sha256 = "99b8f7fd65da5d9e6658c77495a2b750409e37e016b4b0e160f5f50b38e9eb2c"
+size = 12485
+
+[[files]]
+path = "validation/images-0000.png"
+url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/validation/images-0000.png"
+sha256 = "e471c1f445e0743b4bd37b27823248973ac09438d77398729a12dbe242c3d262"
+size = 2403345
+
+[[files]]
+path = "validation/labels.npz"
+url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/validation/labels.npz"
+sha256 = "766fb6b65639b7ee757a85c735ae97df90eab836a10415062aa74cdbe1237a87"
+size = 407
