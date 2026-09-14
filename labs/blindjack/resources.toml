@@ -1,44 +1,42 @@
 schema_version = 1
 revision = "pilot-2"
 
+[archive]
+url = "https://github.com/alepoydes/ml-labs/releases/download/blindjack-pilot-2/blindjack-data.zip"
+sha256 = "268bd662e01050d4153a7f657cd0a01194e3893dae77fe5998d7aeb67be97e9e"
+size = 20494793
+
 [[files]]
 path = "dataset.json"
-url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/dataset.json"
 sha256 = "2446e60effea57b34b67ac67e529dbd744f4cf9317c45ad13aff21568dc9a9bb"
 size = 147
 
 [[files]]
 path = "index.html"
-url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/index.html"
 sha256 = "c732e1ccb7d46aefdfd094ca887521104bb2645a419026ce4d6ddb26e10766b8"
 size = 35340
 
 [[files]]
 path = "train/images-0000.png"
-url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/train/images-0000.png"
 sha256 = "f2eff9c837549e1b2ddbdddad9d58ebf1b1992fc2e88d1dbc23d15469b2efa7c"
 size = 15352976
 
 [[files]]
 path = "train/labels.csv"
-url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/train/labels.csv"
 sha256 = "7ac89b8c9ad9ee6d37a351e4b05d7850bb6fb7f4ea562e1ea823639c6475e958"
 size = 24297
 
 [[files]]
 path = "validation/hands.npz"
-url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/validation/hands.npz"
 sha256 = "fbec532f675861e71a407fde6b81a99e36c9d3e0059dd4527e9a5cdee304c1df"
 size = 12506
 
 [[files]]
 path = "validation/images-0000.png"
-url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/validation/images-0000.png"
 sha256 = "096bfe1d0f5fa502fac145b23e60f0abaa85658efdeadf3385ea471d18893658"
 size = 5109262
 
 [[files]]
 path = "validation/labels.csv"
-url = "file:///home/dhwty/Data/Activity/mlcourse/teacher/generated/blindjack/public/validation/labels.csv"
 sha256 = "1668dc48eeefe22715c12964e7c78f637199b98b011fb6df31cafebd8721c6aa"
 size = 7917

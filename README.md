@@ -80,6 +80,9 @@ git pull --ff-only
 The resource updater does not pull Git changes. It validates SHA-256 hashes, replaces
 changed resources, and removes obsolete course-managed files. Interrupted updates
 must be rerun before training or evaluation.
+Release datasets arrive in a ZIP: the updater verifies the archive and each
+extracted file, then removes the downloaded ZIP. Unchanged data are not downloaded
+again. PNG sheets remain directly viewable under `data/`.
 
 Keep your variants and models under `work/`, experiments and logs under `runs/`, and
 packaged archives under `dist/`. These directories are ignored by Git and reserved
