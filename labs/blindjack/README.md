@@ -16,6 +16,51 @@ score = 100 * sum(rewards) / (21 * M)
 Every allowed hand admits a subset summing to 21, so the maximum score is 100.
 Different masks can be equally good. Selecting a zero-valued card has no effect.
 
+## Templates, working copies, and submissions
+
+Paths below are relative to the student project root:
+
+| Path | Purpose |
+| --- | --- |
+| `labs/blindjack/starter/` | Minimal example of the solution format and API. |
+| `labs/blindjack/baseline/` | Naive, trainable solution supplied by the instructor. |
+| `work/blindjack/<name>/` | Your working copy: edit code, train, and test here. |
+| `dist/blindjack-<name>-<hash>.zip` | Packaged solution to check and submit. |
+
+Before running a template, copy it into `work/`. Keep the tracked course files,
+including the templates in `labs/`, unchanged to avoid conflicts with course
+updates. Your ignored working copies are independent of those templates.
+
+From the student project root, choose a template and optionally name the copy:
+
+```sh
+./step_1_new_solution blindjack
+# labs/blindjack/starter -> work/blindjack/starter
+
+./step_1_new_solution blindjack --template baseline
+# labs/blindjack/baseline -> work/blindjack/baseline
+
+./step_1_new_solution blindjack my-model --template baseline
+# labs/blindjack/baseline -> work/blindjack/my-model
+```
+
+Without an explicit name, the copy keeps the template's name. Without `--template`,
+the source is `starter`. Existing working directories are never overwritten.
+
+For a working copy named `my-model`:
+
+```sh
+./step_2_train work/blindjack/my-model
+./step_3_evaluate work/blindjack/my-model
+./step_4_pack work/blindjack/my-model
+./step_5_check_submission dist/blindjack-my-model-<hash>.zip
+```
+
+`step_3_evaluate` tests the working copy on public validation data.
+`step_4_pack` prints the archive filename; use it in `step_5_check_submission` to
+test a fresh extraction in the reference container. Submit that ZIP through the
+instructor's designated channel.
+
 ## Interface
 
 ```python
@@ -34,8 +79,10 @@ evaluation. Model probabilities and the selection algorithm are your choices.
 Training implements `train(data_dir: Path, output_dir: Path, config: dict, seed: int)`
 in `train.py`. It must build or adjust a recognizer from labeled data. Conventional
 learners, neural networks, learned analytic features, calibration, and discovery of
-an exact rule are all acceptable. Include every inference dependency in `artifacts/`
-or local code. Final inference runs on CPU without external services.
+an exact rule are all acceptable. Save the trained model and any learned
+preprocessing parameters in `work/blindjack/<name>/artifacts/`. Keep helper code in
+that working copy's `lib/` directory. Libraries are provided by the shared course
+environment. Final inference runs on CPU without external services.
 
 ## Data
 
@@ -72,8 +119,7 @@ predicts each image's most likely value and greedily considers cards from larges
 predicted value to smallest. It skips a card that does not fit and continues.
 Recognition, uncertainty handling, and selection all leave room for improvement.
 
-Follow the commands in the project README to copy, train, evaluate, and package
-either template. If you change source or configuration, rerun training before
+If you change source or configuration in your working copy, rerun training before
 packaging so provenance matches your submitted procedure.
 
 ## Augmentation and evaluation

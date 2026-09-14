@@ -19,10 +19,17 @@ def main():
     )
     commands = parser.add_subparsers(dest="step", required=True)
     commands.add_parser("update")
-    new = commands.add_parser("new")
+    new = commands.add_parser("new", help="Copy a lab template into work/.")
     new.add_argument("lab")
-    new.add_argument("variant")
-    new.add_argument("--template", choices=["starter", "baseline"], default="starter")
+    new.add_argument(
+        "variant", nargs="?", help="Name of the working copy (default: template name)."
+    )
+    new.add_argument(
+        "--template",
+        choices=["starter", "baseline"],
+        default="starter",
+        help="Template to copy from labs/<lab>/ (default: %(default)s).",
+    )
     for step in ("train", "evaluate", "pack", "check"):
         command = commands.add_parser(step)
         command.add_argument("path", type=Path)
@@ -40,13 +47,14 @@ def main():
         if args.step == "new":
             require_lab(args.lab)
             template = root / "labs" / args.lab / args.template
+            variant = args.template if args.variant is None else args.variant
             raw = (
                 (template / "submission.toml")
                 .read_text()
-                .replace('variant = "template"', f'variant = "{args.variant}"')
+                .replace('variant = "template"', f"variant = {json.dumps(variant)}")
             )
             submissions.metadata(raw.encode())
-            destination = root / "work" / args.lab / args.variant
+            destination = root / "work" / args.lab / variant
             if destination.exists():
                 raise CourseError(f"Solution already exists: {destination}")
             shutil.copytree(

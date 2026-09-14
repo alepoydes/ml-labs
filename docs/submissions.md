@@ -1,5 +1,10 @@
 # Submission format
 
+Develop and test a working copy under `work/<lab>/<name>/`, created from a template
+in `labs/` with `step_1_new_solution`. Keep tracked course files unchanged so they
+can be updated without conflicts. `step_4_pack` packages the working copy into
+`dist/`; submit the resulting ZIP, not the template or working directory.
+
 One ZIP contains one variant of one lab, with files directly at its root:
 
 ```text
