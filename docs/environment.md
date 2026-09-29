@@ -3,6 +3,7 @@
 Python 3.12.14 and dependencies are frozen by `.python-version` and `uv.lock`.
 Training and local evaluation use `uv run --locked` in this project. The environment
 includes NumPy, SciPy, scikit-learn, joblib, Pillow, Matplotlib, and CPU PyTorch.
+It also includes marimo for the [baseline development notebook](notebook.md).
 Per-submission dependency installation and network services are unsupported.
 
 Build the reference image from the student project root:
@@ -32,6 +33,8 @@ errors, protocol errors, timeouts, output limits, and memory/process failures ar
 reported as failed attempts with no partial score. Infrastructure failures are
 retryable and are never silently scored zero. Local working-directory evaluation
 is convenient during development but is not isolated; use it only on your own code.
+Evaluation and archive checks print the original worker traceback on failure and
+save bounded logs under `runs/<lab>/<variant>/evaluate.log` and `check.log`.
 
 The two-machine comparison and Windows execution checks remain release validation
 tasks; the primary development checks run on a Linux CPU host.

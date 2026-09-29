@@ -73,6 +73,7 @@ def main():
         try:
             mask = instance.select(images)
         except MemoryError:
+            traceback.print_exc()
             send({"id": expected, "error": "memory_or_process_limit"})
             return
         except BaseException as exc:
@@ -93,6 +94,7 @@ def main():
         try:
             validate_mask(mask)
         except Exception:
+            traceback.print_exc()
             send({"id": expected, "error": "invalid_output"})
             return
         send({"id": expected, "mask": mask.tolist()})

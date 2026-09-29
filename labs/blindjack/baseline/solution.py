@@ -1,18 +1,15 @@
 from pathlib import Path
 
-import joblib
 import numpy as np
-from lib.features import pixels
+from lib.model import load_model, predict_classes
 
 
 class Solution:
     def __init__(self, artifact_dir: Path, config: dict, seed: int) -> None:
-        self.resolution, self.model = joblib.load(artifact_dir / "model.joblib")
+        self.resolution, self.model = load_model(artifact_dir)
 
     def select(self, images: np.ndarray) -> np.ndarray:
-        values = self.model.classes_[
-            self.model.predict_proba(pixels(images, self.resolution)).argmax(axis=1)
-        ]
+        values = predict_classes(self.model, images, self.resolution)
         mask, remaining = np.zeros(7, dtype=bool), 21
         for i in np.argsort(-values.astype(int), kind="stable"):
             if values[i] <= remaining:

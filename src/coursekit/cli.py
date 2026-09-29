@@ -1,7 +1,9 @@
 import argparse
 import json
 import shutil
+import sys
 import tempfile
+import traceback
 from pathlib import Path
 
 from filelock import FileLock, Timeout
@@ -10,7 +12,7 @@ from coursekit import resources, submissions, training
 from coursekit.common import CourseError, write_json
 from coursekit.labs import require_lab
 from coursekit.labs.blindjack import evaluate
-from coursekit.runtime import Worker
+from coursekit.runtime import EvaluationError, Worker
 
 
 def main():
@@ -66,6 +68,9 @@ def main():
         if args.step == "pack":
             submissions.pack(args.path, root / "dist")
             return
+        if args.step == "train":
+            training.train_local(args.path, root, args.seed)
+            return
         with tempfile.TemporaryDirectory(prefix="course-check-") as temporary:
             solution = (
                 Path(temporary) / "solution"
@@ -79,11 +84,15 @@ def main():
             )
             data = root / "data" / info["lab"]
             spec = resources.manifest(root / "labs" / info["lab"] / "resources.toml")
+            run_dir = root / "runs" / info["lab"] / info["variant"]
+            run_dir.mkdir(parents=True, exist_ok=True)
+            result_path = run_dir / f"{args.step}.json"
+            result_path.unlink(missing_ok=True)
             with FileLock(str(data / ".update.lock"), timeout=0):
                 resource_hash = resources.ready(data, spec)
-                if args.step == "train":
-                    training.train(solution, data, resource_hash, args.seed)
-                else:
+                worker, log = None, b""
+                log_path = run_dir / f"{args.step}.log"
+                try:
                     with Worker(
                         solution,
                         args.seed,
@@ -91,18 +100,27 @@ def main():
                         image=getattr(args, "image", "mlcourse-reference:local"),
                     ) as worker:
                         result = evaluate(worker, data)
-                    result["resource_hash"] = resource_hash
-                    write_json(
-                        root / "runs" / info["lab"] / info["variant"] / f"{args.step}.json",
-                        result,
-                    )
-                    print(json.dumps(result, indent=2))
-                    print(
-                        "Submission check passed."
-                        if args.step == "check"
-                        else "Local evaluation complete (not isolated)."
-                    )
+                except EvaluationError as exc:
+                    log = f"{exc.kind}: {exc}\n".encode() + exc.log
+                    if exc.log:
+                        sys.stderr.write(exc.log.decode(errors="replace"))
+                    raise
+                finally:
+                    if not log and worker is not None:
+                        log = bytes(worker.log)
+                    log_path.write_bytes(log)
+                    print(f"Worker log: {log_path}", file=sys.stderr)
+                result["resource_hash"] = resource_hash
+                write_json(result_path, result)
+                print(json.dumps(result, indent=2))
+                print(
+                    "Submission check passed."
+                    if args.step == "check"
+                    else "Local evaluation complete (not isolated)."
+                )
     except (CourseError, OSError, ValueError, KeyError, Timeout) as exc:
+        if args.step == "train" and not isinstance(exc, (CourseError, Timeout)):
+            traceback.print_exc()
         parser.exit(1, f"Error: {exc}\n")
 
 

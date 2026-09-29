@@ -1,24 +1,21 @@
 from pathlib import Path
 
-import joblib
 import numpy as np
 from lib.features import pixels
-from sklearn.neural_network import MLPClassifier
+from lib.model import create_model, save_model
 
 from coursekit.labs.blindjack import load_split
 
 
-def train(data_dir: Path, output_dir: Path, config: dict, seed: int) -> None:
+def train(data_dir: Path, output_dir: Path, config: dict, seed: int) -> dict:
     images, labels = load_split(data_dir, "train")
     features = pixels(images[np.arange(len(images))], config["resolution"])
-    model = MLPClassifier(
-        hidden_layer_sizes=(config["hidden_units"],),
-        early_stopping=True,
-        random_state=seed,
-        max_iter=config["max_iter"],
-        learning_rate_init=config["learning_rate"],
-        n_iter_no_change=config.get("patience", 10),
-        activation=config.get("activation", "relu"),
-    )
+    model = create_model(config, seed)
     model.fit(features, labels)
-    joblib.dump((config["resolution"], model), output_dir / "model.joblib")
+    save_model(output_dir, config["resolution"], model)
+    return {
+        "epoch": np.arange(1, model.n_iter_ + 1),
+        "loss": np.asarray(model.loss_curve_),
+        # This is the internal training holdout, not the public benchmark.
+        "validation_accuracy": np.asarray(model.validation_scores_),
+    }

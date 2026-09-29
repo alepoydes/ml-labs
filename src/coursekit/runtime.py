@@ -30,6 +30,7 @@ DEFAULT_LIMITS = {
 class EvaluationError(CourseError):
     def __init__(self, kind: str, message: str = ""):
         self.kind = kind
+        self.log = b""
         super().__init__(message or kind.replace("_", " "))
 
 
@@ -171,9 +172,9 @@ class Worker:
             if response != {"id": -1, "status": "ready"}:
                 raise EvaluationError("protocol_failure")
         except BaseException as exc:
+            self.close()
             if isinstance(exc, EvaluationError):
                 exc.log = bytes(self.log)
-            self.close()
             raise
 
     def _response(self, expected, timeout):
@@ -294,3 +295,5 @@ class Worker:
 
     def __exit__(self, exc_type, exc, traceback):
         self.close(graceful=exc_type is None)
+        if isinstance(exc, EvaluationError):
+            exc.log = bytes(self.log)

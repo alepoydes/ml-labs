@@ -163,6 +163,17 @@ predicts each image's most likely value and greedily considers cards from larges
 predicted value to smallest. It skips a card that does not fit and continues.
 Recognition, uncertainty handling, and selection all leave room for improvement.
 
+The baseline's `notebook.py` demonstrates loading and visualizing data, plotting
+saved learning curves, predicting classes, and testing a hand. Its training call
+is commented out by default; uncomment it to train from scratch, or use
+`step_2_train`. The notebook and scripts share `train.py` and `lib/` code.
+See the [notebook workflow](../../docs/notebook.md).
+
+Training may return a dictionary of finite numeric NumPy arrays for diagnostics
+(the baseline returns `epoch`, `loss`, and `validation_accuracy`). The course
+training entry point stores them in `runs/blindjack/<name>/training.npz`, with
+configuration and provenance in `training.json`. Returning `None` remains supported.
+
 If you change source or configuration in your working copy, rerun training before
 packaging so provenance matches your submitted procedure.
 

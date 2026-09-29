@@ -30,6 +30,17 @@ the validation hands yourself while the model trains. It works offline, without
 Python or a server. You can also open `train/labels.csv` and the PNG sheets under
 `data/blindjack/` directly; CSV coordinates count rows and columns from 1.
 
+For interactive development, the baseline also includes a small marimo notebook:
+
+```sh
+uv run --locked marimo edit work/blindjack/baseline/notebook.py
+```
+
+It reads saved training results to plot learning curves, inspect class predictions,
+and test a hand. Training is commented out by default. Parameters are ordinary
+assignments; model and learning code stay in the working copy's Python modules.
+See [the notebook workflow](docs/notebook.md) for first training and saved files.
+
 Create your own variant from the minimal starter:
 
 ```sh
