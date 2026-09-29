@@ -1,73 +1,67 @@
+import os
+import subprocess
 import sys
 
 import pytest
 
-from coursekit import cli
-from coursekit.runtime import Worker
 from coursekit.submissions import pack
 from coursekit.training import train
 
 
 @pytest.mark.parametrize("step", ["evaluate", "check"])
 @pytest.mark.parametrize(
-    "source,kind,detail",
+    "source,detail,traceback",
     [
         (
             "raise ImportError('missing student dependency')\n",
-            "model_loading_failure",
             "missing student dependency",
+            True,
         ),
         (
             "class Solution:\n def __init__(self,*args):\n"
             "  print('loading artifacts')\n  raise ValueError('bad artifact shape')\n",
-            "model_loading_failure",
             "bad artifact shape",
+            True,
         ),
         (
             "class Solution:\n def __init__(self,*args): pass\n"
             " def select(self,images):\n  print('selecting cards')\n"
             "  raise RuntimeError('cannot predict these images')\n",
-            "runtime_exception",
             "cannot predict these images",
+            True,
         ),
         (
             "class Solution:\n def __init__(self,*args): pass\n"
             " def select(self,images): return [True] * 7\n",
-            "invalid_output",
             "Boolean NumPy array",
+            False,
         ),
     ],
 )
-def test_cli_reports_worker_traceback(
-    student_project, solution, monkeypatch, capsys, step, source, kind, detail
+def test_cli_reports_original_error(
+    student_project, solution, step, source, detail, traceback
 ):
     (solution / "solution.py").write_text(source)
     train(solution, student_project / "data/blindjack", "fixture", 0)
     path = pack(solution, student_project / "dist") if step == "check" else solution
-    containers = []
-
-    def local_worker(*args, container, **kwargs):
-        # Exercise extraction and the real subprocess protocol without a daemon.
-        containers.append(container)
-        return Worker(*args, container=False, **kwargs)
-
-    monkeypatch.setattr(cli, "Worker", local_worker)
-    monkeypatch.chdir(student_project)
-    monkeypatch.setattr(sys, "argv", ["coursekit", step, str(path)])
     run_dir = student_project / "runs/blindjack/template"
     run_dir.mkdir(parents=True)
-    result = run_dir / f"{step}.json"
-    result.write_text('{"score": 100}')
-    with pytest.raises(SystemExit) as error:
-        cli.main()
-    assert error.value.code == 1
-    stderr = capsys.readouterr().err
-    assert "Traceback (most recent call last)" in stderr
-    assert detail in stderr
-    assert "Worker log:" in stderr
-    assert "solution.py" in stderr or kind == "invalid_output"
-    log = (run_dir / f"{step}.log").read_text()
-    assert detail in log and kind in log
-    assert "Traceback (most recent call last)" in log
-    assert containers == [step == "check"]
-    assert not result.exists()
+    result_path = run_dir / f"{step}.json"
+    result_path.write_text('{"score": 100}')
+    result = subprocess.run(
+        [sys.executable, "-m", "coursekit.cli", step, str(path)],
+        cwd=student_project,
+        # The ordinary Python entry point needs no commands from PATH.
+        env=os.environ | {"PATH": "", "PYTHONDONTWRITEBYTECODE": "1"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 1
+    assert detail in result.stderr
+    if traceback:
+        assert "Traceback (most recent call last)" in result.stderr
+        assert "solution.py" in result.stderr
+    if "print(" in source:
+        assert "loading artifacts" in result.stdout or "selecting cards" in result.stdout
+    assert not result_path.exists()

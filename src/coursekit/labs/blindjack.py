@@ -115,11 +115,13 @@ def data_fingerprint(data: Path) -> str:
     )
 
 
-def evaluate(worker, data: Path, split: str = "validation") -> dict:
+def evaluate(solution, data: Path, split: str = "validation") -> dict:
+    """Call select() for every hand and compute the score from validated masks."""
     images, labels, hands = benchmark(data, split)
     rewards, busts = [], 0
     for hand in hands:
-        mask = worker.select(images[hand])
+        mask = solution.select(images[hand])
+        validate_mask(mask)
         values = labels[hand]
         busts += int(values[mask].sum() > 21)
         rewards.append(reward(values, mask))

@@ -58,7 +58,7 @@ For a working copy named `my-model`:
 
 `step_3_evaluate` tests the working copy on public validation data.
 `step_4_pack` prints the archive filename; use it in `step_5_check_submission` to
-test a fresh extraction in the reference container. Submit that ZIP through the
+test a fresh extraction in your Python environment. Submit that ZIP through the
 instructor's designated channel.
 
 ## Interface

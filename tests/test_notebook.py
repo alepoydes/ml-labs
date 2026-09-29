@@ -15,7 +15,7 @@ def command(project, *args):
     return subprocess.run(
         [sys.executable, *args],
         cwd=project,
-        env=os.environ | {"MPLBACKEND": "Agg", "PYTHONDONTWRITEBYTECODE": "1"},
+        env=os.environ | {"MPLBACKEND": "Agg", "PYTHONDONTWRITEBYTECODE": "1", "PATH": ""},
         capture_output=True,
         text=True,
         timeout=60,
@@ -63,7 +63,6 @@ import sys
 import numpy as np
 from coursekit import training
 from coursekit.labs.blindjack import benchmark
-from coursekit.runtime import Worker
 
 def forbidden(*args, **kwargs):
     raise AssertionError('Opening a notebook must not train')
@@ -75,8 +74,8 @@ images, labels, hands = benchmark(values['data_dir'])
 predict = values['predict_classes']
 expected = predict(solution.model, images[np.arange(len(images))], solution.resolution)
 np.testing.assert_array_equal(values['predictions'], expected)
-with Worker(values['solution_dir'], container=False) as worker:
-    np.testing.assert_array_equal(values['mask'], worker.select(images[hands[0]]))
+reloaded = training.load_solution(values['solution_dir'])
+np.testing.assert_array_equal(values['mask'], reloaded.select(images[hands[0]]))
 print('Notebook analysis passed')
 """
     result = command(student_project, "-c", analysis, str(baseline / "notebook.py"))
@@ -93,9 +92,13 @@ print('Notebook analysis passed')
     extract(archive, extracted)
     assert not (extracted / "notebook.py").exists()
     assert not (extracted / "training.npz").exists()
-    result = command(student_project, "-m", "coursekit.cli", "evaluate", str(extracted))
+    result = command(student_project, "-m", "coursekit.cli", "evaluate", str(baseline))
     assert result.returncode == 0, result.stderr
-    assert json.loads((run_dir / "evaluate.json").read_text())["hands"] == 330
+    expected = json.loads((run_dir / "evaluate.json").read_text())
+    result = command(student_project, "-m", "coursekit.cli", "check", str(archive))
+    assert result.returncode == 0, result.stderr
+    assert json.loads((run_dir / "check.json").read_text()) == expected
+    assert expected["hands"] == 330
 
 
 def test_untrained_notebook_gives_instructions(student_project, baseline):
@@ -107,14 +110,13 @@ def test_untrained_notebook_gives_instructions(student_project, baseline):
     assert not (student_project / "runs").exists()
 
 
-@pytest.mark.parametrize("changed", ["history", "model", "config"])
+@pytest.mark.parametrize("changed", ["history", "model"])
 def test_saved_results_are_not_silently_mixed(student_project, baseline, changed):
     train_local(baseline, student_project)
     run_dir = student_project / "runs/blindjack/experiment"
     path = {
         "history": run_dir / "training.npz",
         "model": baseline / "artifacts/model.joblib",
-        "config": baseline / "config.toml",
     }[changed]
     path.write_bytes(path.read_bytes() + b"\n")
     with pytest.raises(CourseError, match="changed"):
@@ -135,6 +137,27 @@ def test_failed_retraining_invalidates_completion(student_project, baseline):
         pack(baseline, student_project / "dist")
 
 
+def test_source_edits_allow_analysis_but_require_retraining_for_pack(
+    student_project, baseline, capsys
+):
+    train_local(baseline, student_project)
+    run_dir = student_project / "runs/blindjack/experiment"
+    before, saved = load_training(baseline, run_dir)
+    config = baseline / "config.toml"
+    config.write_text(config.read_text().replace("resolution = 4", "resolution = 8"))
+    source = baseline / "solution.py"
+    source.write_text(source.read_text() + "\n# An experiment with the selection code.\n")
+    history, restored = load_training(baseline, run_dir)
+    assert "changed since training" in capsys.readouterr().out
+    assert restored == saved and restored["config"]["resolution"] == 4
+    np.testing.assert_array_equal(history["loss"], before["loss"])
+    result = command(student_project, str(baseline / "notebook.py"))
+    assert result.returncode == 0, result.stderr
+    assert "Public validation accuracy" in result.stdout
+    with pytest.raises(CourseError, match="changed"):
+        pack(baseline, student_project / "dist")
+
+
 def test_another_variant_loads_its_own_helpers(tmp_path):
     for name in ("first", "second"):
         solution = tmp_path / name
@@ -143,45 +166,3 @@ def test_another_variant_loads_its_own_helpers(tmp_path):
         (solution / "lib/model.py").write_text(f"value = {name!r}\n")
         (solution / "solution.py").write_text("from lib.model import value\n")
         assert load_module(solution, "solution").value == name
-
-
-@pytest.mark.skipif(
-    os.environ.get("COURSE_TEST_CONTAINERS") != "1",
-    reason="Set COURSE_TEST_CONTAINERS=1 after building the reference image",
-)
-def test_baseline_archive_in_container(student_project, baseline):
-    train_local(baseline, student_project)
-    archive = pack(baseline, student_project / "dist")
-    result = command(
-        student_project,
-        "-m",
-        "coursekit.cli",
-        "check",
-        str(archive),
-        "--image",
-        os.environ.get("COURSE_TEST_IMAGE", "mlcourse-reference:local"),
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "Submission check passed" in result.stdout
-    run_dir = student_project / "runs/blindjack/experiment"
-    assert json.loads((run_dir / "check.json").read_text())["hands"] == 330
-    # The packaged model loads only in the actual isolated worker.
-    assert (run_dir / "check.log").is_file()
-
-    (baseline / "solution.py").write_text("raise ValueError('broken container import')\n")
-    train_local(baseline, student_project)
-    archive = pack(baseline, student_project / "dist")
-    result = command(
-        student_project,
-        "-m",
-        "coursekit.cli",
-        "check",
-        str(archive),
-        "--image",
-        os.environ.get("COURSE_TEST_IMAGE", "mlcourse-reference:local"),
-    )
-    assert result.returncode == 1
-    assert "Traceback (most recent call last)" in result.stderr
-    assert "ValueError: broken container import" in result.stderr
-    assert "broken container import" in (run_dir / "check.log").read_text()
-    assert not (run_dir / "check.json").exists()

@@ -21,6 +21,8 @@ from coursekit.submissions import metadata
 
 
 def load_module(solution: Path, name: str):
+    """Import one of your working copy's Python files in the current process."""
+    solution = solution.resolve()
     # A notebook can load another variant or rerun after editing its helpers.
     for key in list(sys.modules):
         if key in {"train", "solution", "lib"} or key.startswith("lib."):
@@ -34,6 +36,15 @@ def load_module(solution: Path, name: str):
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def load_solution(solution: Path, seed: int = 0):
+    """Create your solution directly, with its saved artifacts and configuration."""
+    solution = solution.resolve()
+    module = load_module(solution, "solution")
+    return module.Solution(
+        solution / "artifacts", read_toml(solution / "config.toml"), seed
+    )
 
 
 def source_hash(solution: Path) -> str:
@@ -148,7 +159,7 @@ def train_local(solution: Path, project: Path, seed: int = 0) -> None:
 
 
 def load_training(solution: Path, run_dir: Path):
-    """Read saved diagnostics, checking that they describe the current model."""
+    """Read saved diagnostics; source edits do not prevent exploring a saved model."""
     if not (run_dir / "training.json").is_file():
         raise CourseError(
             "No saved training result. Run step_2_train or uncomment train_local(...) "
@@ -158,11 +169,19 @@ def load_training(solution: Path, run_dir: Path):
     artifacts = file_hashes(solution / "artifacts")
     artifacts.pop("provenance.json", None)
     if (
-        saved["provenance"] != check_provenance(solution)
+        saved["provenance"]
+        != json.loads((solution / "artifacts/provenance.json").read_text())
         or saved["artifacts"] != artifacts
         or saved["history_hash"] != digest(run_dir / "training.npz")
     ):
         raise CourseError("Saved training history/model changed; rerun step_2_train.")
+    if saved["provenance"]["source_hash"] != source_hash(solution) or saved["provenance"][
+        "config_hash"
+    ] != digest(solution / "config.toml"):
+        print(
+            "Source or configuration changed since training. Analysis uses the saved "
+            "model and training settings; retrain before packaging."
+        )
     with np.load(run_dir / "training.npz", allow_pickle=False) as source:
         history = dict(source)
     return history, saved

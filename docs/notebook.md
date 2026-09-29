@@ -66,9 +66,13 @@ model implementation needs to be copied into notebook cells.
 These files describe the latest training run of a variant. Create another variant
 to keep a separate experiment. At the start of retraining, completion metadata is
 invalidated; interrupted or failed training cannot be packaged as complete.
-The loader rejects changed source/configuration and mismatched history or model
-files, with instructions to retrain. Saved seed/configuration are shown explicitly;
-changing the notebook's seed alone does not change an already saved model.
+The loader verifies that provenance, history, and model files belong together.
+Editing source or configuration does not prevent viewing saved results: a notice
+explains that analysis uses the saved model and training settings. Inference uses
+your current Python code, so keep it compatible with the saved model or retrain.
+Packaging still requires training with the current source and configuration.
+Saved seed/configuration are shown explicitly; changing the notebook's seed alone
+does not change an already saved model.
 
 The notebook can analyze results after a restart, with no in-memory training state.
 It can also execute without a browser:
@@ -84,9 +88,11 @@ evaluation, packaging, and archive-check commands.
 
 ## Errors in evaluation
 
-`step_3_evaluate` and `step_5_check_submission` print the worker's traceback on
-failure, including errors while importing the solution or loading its model.
-They save bounded worker output to `runs/<lab>/<variant>/evaluate.log` or
-`check.log`, and print the path. Output from successful runs is also saved there.
-Each command replaces its previous log and result; a failed attempt leaves no
-successful result JSON for that command.
+All local commands call your Python code directly. `print()` output appears in the
+terminal; exceptions retain their original traceback, including import and model
+loading failures. In marimo, inspect the exception in the cell that failed.
+Use your editor's debugger or add ordinary Python calls as shown in
+[developing a solution](development.md). No container or special debug mode is needed.
+Successful evaluations save JSON under `runs/<lab>/<variant>/`; a failed attempt
+removes the previous result for that command. Console output is not captured in a
+separate log; redirect it yourself when needed.

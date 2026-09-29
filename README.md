@@ -39,7 +39,8 @@ uv run --locked marimo edit work/blindjack/baseline/notebook.py
 It reads saved training results to plot learning curves, inspect class predictions,
 and test a hand. Training is commented out by default. Parameters are ordinary
 assignments; model and learning code stay in the working copy's Python modules.
-See [the notebook workflow](docs/notebook.md) for first training and saved files.
+See [the notebook workflow](docs/notebook.md) for first training and saved files,
+and [developing a solution](docs/development.md) for direct Python calls and debugging.
 
 Create your own variant from the minimal starter:
 
@@ -53,9 +54,11 @@ Create your own variant from the minimal starter:
 
 Replace `<hash>` with the filename printed by packaging. `step_3_evaluate` tests
 the working directory on public validation data; `step_5_check_submission` tests
-the packaged ZIP. Edit and repeat training and evaluation as needed. The final
-check requires the [reference container](docs/environment.md).
-It extracts a fresh copy and finds dependencies on files outside your submission.
+the packaged ZIP. Edit and repeat training and evaluation as needed. Both commands
+run directly in your Python environment, with ordinary output and tracebacks.
+The ZIP check validates and extracts a fresh copy; it imposes no isolation or
+resource limits. No container tools are needed. See [environment](docs/environment.md)
+for the requirements that apply to instructor grading.
 Submit the resulting ZIP from `dist/` through the instructor's designated channel.
 Do not submit the template in `labs/` or the working directory itself; packaging
 does not upload anything.

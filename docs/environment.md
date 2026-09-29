@@ -1,40 +1,34 @@
-# Environment and archive checks
+# Python environment
 
 Python 3.12.14 and dependencies are frozen by `.python-version` and `uv.lock`.
-Training and local evaluation use `uv run --locked` in this project. The environment
-includes NumPy, SciPy, scikit-learn, joblib, Pillow, Matplotlib, and CPU PyTorch.
-It also includes marimo for the [baseline development notebook](notebook.md).
-Per-submission dependency installation and network services are unsupported.
+Run commands with `uv run --locked` from the student project root, or use the
+numbered wrappers. The first run prepares the environment automatically.
+The environment includes NumPy, SciPy, scikit-learn, joblib, Pillow, Matplotlib,
+CPU PyTorch, and marimo for the [development notebook](notebook.md).
 
-Build the reference image from the student project root:
+Training, notebooks, evaluation, and ZIP checks run directly in your Python
+environment. You do not need Docker or Podman. There are no course-imposed network,
+filesystem, time, or memory restrictions on these local runs. Prints and exceptions
+behave as in any Python program, and you can use an ordinary editor debugger.
+Choose this project's `.venv/bin/python` as its interpreter (`.venv\Scripts\python.exe`
+on Windows). See [developing a solution](development.md) for direct Python examples.
 
-```sh
-docker build -t mlcourse-reference:local .
-```
+`step_5_check_submission` validates a ZIP, extracts a fresh copy, and evaluates it
+in the same Python environment. This catches missing packaged files when your code
+uses paths relative to the supplied `artifact_dir`. It does not block access to
+files elsewhere on your computer or reproduce instructor resource limits.
+Run local commands only on code and models you trust.
 
-Podman uses the equivalent command. Set `COURSE_CONTAINER_ENGINE` to select one
-explicitly if both are installed. Linux with functioning cgroup CPU, memory and
-process limits is the reference host. Docker Desktop supplies a Linux environment
-on Windows/macOS. Windows wrapper syntax is `.\step_5_check_submission.cmd ...`.
+## Requirements for submitted inference
 
-The check starts a fresh container, mounts only your extracted submission read-only,
-disables networking, and supplies temporary writable storage. It loads the model
-once and receives one seven-image observation at a time. Logs are separate from
-protocol output; scores are computed outside the worker.
+The instructor evaluates submissions separately with protections. Final inference
+must use the locked libraries, run on CPU without network services, and read model
+files relative to `artifact_dir`. The submission directory is read-only; temporary
+files may be written under `/tmp`. Only submitted files and the installed environment
+are available. Dependencies cannot be installed during grading.
 
 Current **pilot** limits: 2 CPU quota, 2048 MiB memory, 128 processes, one BLAS/OpenMP
 thread, 60 seconds initialization, 5 seconds per hand, 300 seconds total, 64 KiB
-logs, 256 MiB temporary storage. ZIPs are limited to 256 MiB compressed, 512 MiB
-expanded, and 4096 files; selected model artifacts share that total limit.
-The exact host and image ID are part of the instructor's evaluation context.
-
-Invalid archives, unsupported APIs, model-loading failures, invalid masks, runtime
-errors, protocol errors, timeouts, output limits, and memory/process failures are
-reported as failed attempts with no partial score. Infrastructure failures are
-retryable and are never silently scored zero. Local working-directory evaluation
-is convenient during development but is not isolated; use it only on your own code.
-Evaluation and archive checks print the original worker traceback on failure and
-save bounded logs under `runs/<lab>/<variant>/evaluate.log` and `check.log`.
-
-The two-machine comparison and Windows execution checks remain release validation
-tasks; the primary development checks run on a Linux CPU host.
+logs, and 256 MiB temporary storage. ZIPs are limited to 256 MiB compressed,
+512 MiB expanded, and 4096 files. These grading limits do not constrain your local
+training or analysis.

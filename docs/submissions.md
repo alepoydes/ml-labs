@@ -34,7 +34,7 @@ Python and relevant library versions, and completion status. Failed training doe
 not leave successful provenance. It is reproducibility metadata, not an automatic
 proof of substantive learning or authorship.
 
-The fresh archive check evaluates only extracted files in the reference environment.
-Keep model paths relative to `artifact_dir`, not to your original working directory.
-Model deserialization takes place inside the worker. Do not load untrusted models
-manually in the instructor environment.
+The local archive check validates the ZIP and evaluates a fresh extraction in your
+normal Python environment. Keep model paths relative to `artifact_dir`, not to
+your original working directory. The check does not restrict filesystem or network
+access. Instructor grading has separate [environment requirements](environment.md).
