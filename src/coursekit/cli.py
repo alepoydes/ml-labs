@@ -8,8 +8,7 @@ from filelock import FileLock, Timeout
 
 from coursekit import resources, submissions, training
 from coursekit.common import CourseError, write_json
-from coursekit.labs import require_lab
-from coursekit.labs.blindjack import evaluate
+from coursekit.labs import get_lab, require_lab
 
 
 def main():
@@ -86,7 +85,7 @@ def main():
             with FileLock(str(data / ".update.lock"), timeout=0):
                 resource_hash = resources.ready(data, spec)
                 instance = training.load_solution(solution, args.seed)
-                result = evaluate(instance, data)
+                result = get_lab(info["lab"]).evaluate(instance, data)
                 result["resource_hash"] = resource_hash
                 write_json(result_path, result)
                 print(json.dumps(result, indent=2))

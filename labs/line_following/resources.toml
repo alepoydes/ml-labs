@@ -1,0 +1,20 @@
+schema_version = 1
+revision = "line-following-pilot-1"
+
+[[files]]
+path = "courses.npz"
+source = "resources/courses.npz"
+size = 44883
+sha256 = "1a4676288e6da4ee1be00e5a49f53e7c44d6f7c865421629b8a1c9178cac8b3a"
+
+[[files]]
+path = "train.csv"
+source = "resources/train.csv"
+size = 137
+sha256 = "fdecfa180d8f5167cab77c5de4044ea1fff20f3968f041991046a3688611226d"
+
+[[files]]
+path = "validation.csv"
+source = "resources/validation.csv"
+size = 117
+sha256 = "0bb68708cd27be2fc26ca2b7b0a40a8cdbe9bb495ab093ce7b1fc6f024f9f42b"

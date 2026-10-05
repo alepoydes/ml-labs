@@ -19,3 +19,7 @@ all one-based; values are not duplicated. Other numeric arrays use compressed NP
 disabled. Preserve zero-based image indices and label alignment when loading sheets.
 Open `data/blindjack/index.html` to explore examples and play validation hands offline.
 Run `uv run --locked pytest` for public package tests.
+
+GUI worker completions must enter a queued QObject slot before updating widgets.
+Keep one QApplication alive throughout GUI tests and finish workers before
+destroying their windows.

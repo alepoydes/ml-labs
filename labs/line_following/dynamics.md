@@ -1,10 +1,11 @@
 # Robot dynamics
 
-The dynamics prototype is a single [public PyTorch module](../../src/coursekit/labs/line_following.py).
-Instructor experiments import this same module. It needs no additional Python
-dependencies. This is the mechanical core, not yet a complete lab environment:
-tracks, observations, route coverage, parameter sampling, and scoring are pending.
-The nominal robot and numerical settings are illustrative, not assessment limits.
+The dynamics core is a single [public PyTorch module](../../src/coursekit/labs/line_following.py).
+The training environment and instructor evaluator import this same module. It needs
+no additional Python dependencies. Course geometry, observations, route coverage,
+parameter sampling and scoring live in the adjacent public modules; see the
+[lab statement and environment API](README.md). The current robot and numerical
+settings are a pilot profile awaiting broader controller calibration.
 
 ## Coordinates and energy
 

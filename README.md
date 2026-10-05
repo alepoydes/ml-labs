@@ -1,8 +1,8 @@
 # Machine learning course
 
 Five substantial labs connect machine learning methods with complete working
-solutions. Blindjack is available first; [four more labs](docs/planned-labs.md)
-are planned.
+solutions. Blindjack and [Line Following](labs/line_following/README.md) are available
+with pilot settings; [three more labs](docs/planned-labs.md) are planned.
 
 ## Start here
 
@@ -68,6 +68,19 @@ All paths are relative to the student project root, or absolute. The wrappers us
 their own directory even when called from somewhere else.
 
 ## Copy a template
+
+The same workflow supports the robot lab:
+
+```sh
+./step_1_new_solution line_following --template baseline
+./step_2_train work/line_following/baseline
+./view_lab line_following
+```
+
+`./view_lab blindjack` opens solution inspection, manual play, or human/model
+comparison. Both viewers can save and open recordings with controller diagnostics.
+The launcher installs the optional Qt and ModernGL dependencies. See
+[graphical inspection](docs/development.md#graphical-inspection-and-manual-play).
 
 The copy keeps the selected template's name unless you supply a new name.
 `--template` chooses the source; the optional name chooses the destination.

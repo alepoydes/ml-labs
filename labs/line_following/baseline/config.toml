@@ -1,0 +1,6 @@
+# A deliberately simple supported controller, not a trained policy.
+throttle = 0.09
+kp = 2.0
+kd = 0.45
+yaw_damping = 0.02
+search_turn = 0.08

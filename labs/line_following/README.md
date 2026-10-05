@@ -1,16 +1,16 @@
 # Line Following
 
-Train a controller for a simulated robot that follows a line to a marked endpoint,
-turns around, and returns to the start as quickly as possible. The whole journey
+Train a controller for a simulated robot that follows a line to a marked endpoint
+and returns to the start as quickly as possible. The whole journey
 is timed, including both directions, the turnaround, stops, and recovery from
 mistakes. The robot must remain upright and cover every part of the route in
 order.
 
-This is the design description for the second laboratory. A public dynamics
-prototype is available in the accompanying [mechanics guide](dynamics.md).
-Tracks, sensors, training resources, and evaluation are not yet implemented.
-Final numerical settings, the controller interface, and the grading formula
-will be supplied before the assessed release.
+The public dynamics are described in the [mechanics guide](dynamics.md). Prepared
+practice courses, a batched environment, and a slow baseline are available.
+The current settings are a pilot profile; controller performance and the full
+parameter family still need calibration before the assessed release. The local
+viewer and isolated instructor evaluation use this same public environment.
 
 ## What you will learn
 
@@ -45,14 +45,14 @@ braking, and turning share the available traction. Motors also have finite
 capabilities. Wheel rotation measured by an encoder may differ from actual
 movement over the ground.
 
-The physical model and allowed parameter ranges will be public. The actual
+The physical model and pilot parameter ranges are public. The actual
 parameters are chosen at the start of each episode and are not supplied to your
 controller. They stay unchanged for the complete outward and return journey.
 You can adapt using the robot's observed response to your actions.
 
 ## Observations and control
 
-Your controller will receive one transverse row of 16 colour measurements from
+Your controller receives one transverse row of 16 colour measurements from
 under the chassis, together with gyroscope, accelerometer, and wheel-encoder
 readings. Each optical sector reports the average RGB colour over its sensing
 area. The line has a fixed physical width, intended to span approximately two
@@ -64,8 +64,8 @@ estimate the local direction of the line, motion, and dynamics.
 
 The controller commands the left and right drives. Its memory and internal
 estimates persist through the turnaround and return journey, and are reset
-between independent episodes. Exact sensor and action units, rates, and limits
-will be specified with the simulator.
+between independent episodes. Sensor/action units, rates, and pilot limits appear
+below with the simulator API.
 
 During evaluation, the controller is not told its true position, distance along
 the route, sampled physical parameters, which branch the judge is tracking, or
@@ -80,11 +80,12 @@ corners, sections that pass close to one another, and self-intersections.
 At a crossing, follow the smooth continuation of the branch on which you arrived.
 The crossing angle is sufficiently large to distinguish the branches, and both
 branches are smooth in a neighbourhood of the crossing. Sharp corners are kept
-outside that neighbourhood. Precise geometric bounds will be published before
-assessment.
+outside that neighbourhood. The pilot requires crossing angles of at least 50°
+and keeps marked corners at least 0.2 m from crossings.
 
 Distinct coloured sections of the line mark the start and the far endpoint.
-At the far endpoint, turn the robot around and follow the same route back. The
+At the far endpoint, follow the same route back. Driving forward or backward is
+allowed on either leg; rotating the body is optional. The
 colours identify endpoints, not directions at crossings or future manoeuvres.
 
 You will receive several prepared practice courses with varied geometry. Hidden
@@ -127,14 +128,31 @@ turning time counts too.
 
 Falling fails the episode and ends simulation immediately. Ordinary contact with
 the support sphere is allowed. Falling forward or sideways is not a recovery
-technique. The exact fall boundary and episode time limit will be published with
-the physical settings.
+technique. The pilot fall boundary and episode time limit are specified below.
 
-The objective is a reliably completed journey with a short total time. Evaluation
-will record completion, elapsed time, accepted progress, and failure outcomes.
-An incomplete journey is not a successful finish. The numerical treatment of
-failures, aggregation across courses, and academic grade thresholds remain to be
-defined before assessment.
+For a completed journey taking simulated time $T$, the episode score is
+
+$$
+S = \min\left(100,\;100\frac{T_{100}}{T}\right).
+$$
+
+Here $T_{100}$ is a mechanical reference time for the course and sampled robot.
+It uses full knowledge of the route and dynamics to estimate fast travel along
+the line's centre, accounting for speed and acceleration limits, curvature,
+both directions, and the turnaround. It includes no cost for discovering the
+route or identifying the robot. The public `reference_time` function implements
+this approximation. Its settings will be frozen for the assessed version.
+
+The reference is an approximate normalisation. Legal corner cutting within the
+coverage rule or useful sliding may beat it; the score is capped at 100. Taking
+$1.67\,T_{100}$ earns approximately 60 points; taking $2.5\,T_{100}$ earns 40.
+
+A fall or failure to complete the journey before the episode time limit earns
+zero. Partial progress earns no points. The final score is the mean over all
+scheduled evaluation episodes, including failed episodes. Thus faster successful
+journeys can compensate for some failures. Simulator and infrastructure failures
+are reported separately; an interrupted evaluation does not yield an official
+aggregate. Academic grade thresholds remain to be defined before assessment.
 
 ## Training and reporting
 
@@ -144,8 +162,12 @@ rewards can guide optimisation, but accepted progress and rewards are not part
 of the acting controller's evaluation observations. Within an episode, adaptation
 must use its permitted observations and action history.
 
-A simple conservative reference controller is planned to provide a starting
-comparison. Its performance has not yet been measured. You should measure your
+A simple supported reference controller is provided as `baseline`. It follows
+the optical centroid slowly, uses elementary line recovery, and returns in
+reverse. Its preparation function saves hand-tuned settings; it is not a learned
+solution. In a four-episode practice probe it completed two straight and two smooth
+courses, earning 9.16–10.57 points. This does not establish performance on sharp
+corners, crossings, or the complete benchmark. You should measure your
 own completion rate and journey time, including recovery costs, and compare
 performance on familiar and unfamiliar courses. Separate outward and return
 times can show whether experience from the first leg helps.
@@ -154,3 +176,103 @@ Submit a self-contained solution with reproducible training, inference and all
 required artifacts, an explanation of the learned component and experiments,
 and an honest declaration of AI assistance. Final inference and adaptation run
 on CPU without network access, within limits to be published before release.
+
+## Running and writing a solution
+
+From the student project root:
+
+```sh
+./step_0_update_resources
+./step_1_new_solution line_following my-controller --template baseline
+./step_2_train work/line_following/my-controller
+./step_3_evaluate work/line_following/my-controller
+./step_4_pack work/line_following/my-controller
+./view_lab line_following --solution work/line_following/my-controller
+```
+
+The small course collection is bundled with this pilot and copied into `data/`
+with the same size/hash checks as downloaded resources. Use the `.cmd` scripts
+on Windows. Replace the baseline's preparation procedure with your own learning
+or fitting. `starter` demonstrates the smallest interface and commands zero
+motor effort.
+
+The viewer supports pause, one physical step, one controller interval, speed control,
+batch-row selection, and rewind of recorded history. Resuming returns to the live
+simulation state. Optional `debug(index=0)` diagnostics are copied after each action;
+see [graphical inspection](../../docs/development.md#graphical-inspection-and-manual-play).
+
+The constructor is `Solution(artifact_dir, config, seed)`. Inference is
+`act(observation, reset)`: observations are float32 PyTorch tensors with a leading
+batch dimension, even for one robot. Return float32 commands `(B, 2)` in `[-1, 1]`.
+Positive equal commands drive forward. The Boolean mask `reset` has shape `(B,)`;
+clear the indicated rows of controller memory before processing their inputs.
+Memory persists across the far endpoint. Reset must restore the episode's initial
+controller state, including any within-episode adaptation.
+
+| Observation | Shape | Meaning |
+| --- | --- | --- |
+| `time` | `(B,)` | Simulated seconds since the episode began |
+| `rgb` | `(B, 16, 3)` | RGB averages in `[0, 1]`, sectors ordered from body right to left |
+| `gyro` | `(B, 3)` | Body-frame angular velocity in rad/s |
+| `accel` | `(B, 3)` | Body-frame specific acceleration at the axle centre in m/s² |
+| `encoders` | `(B, 2)` | Left/right wheel angles relative to the body in radians |
+
+The current CPU environment uses float64 physics at 1 ms and observations/actions
+every 20 ms. The first compiled step includes compiler startup; reuse an environment
+and its batch size. Use `compiled=False` for ordinary Python debugging. Never wrap
+the simulator in `torch.inference_mode()`; its kinematics uses differentiation.
+
+```python
+from pathlib import Path
+from coursekit.labs.line_following_env import Environment
+from coursekit.labs.line_following_task import benchmark
+from coursekit.training import load_solution
+
+cases = benchmark(Path("data/line_following"), "train")
+env = Environment([c for c, seed in cases], [seed for c, seed in cases])
+controller = load_solution(Path("work/line_following/my-controller"))
+observation = env.observe()
+action = controller.act(observation, env.first)
+observation, reward, terminated, truncated, info = env.step(action)
+done = terminated | truncated
+if done.any():
+    observation = env.reset(done)
+```
+
+`step` holds each action for one control interval and freezes finished rows.
+`terminated` identifies completion or falling; `truncated` identifies the time
+limit, which scores zero. The final observation is retained until explicit reset.
+`reset(mask)` samples a new episode only for the selected rows. Supply `courses`
+and `seeds` for those rows to reproduce particular episodes. Environment randomness
+is independent between rows and from policy randomness.
+
+The default training reward is newly accepted distance divided by the full
+out-and-back distance. It is zero on retraced ground. Construct your own reward
+using `info` if useful. `info` contains true pose, progress, leg, outcome, timing,
+reference time, and score; it is never passed to evaluated `act` calls.
+
+## Pilot geometry and parameter settings
+
+The canonical course is an ordered polyline. Optical sectors average 4×4 samples
+over rectangles in one transverse row, 128 mm wide and 8 mm deep. Line width is
+16 mm. The first and last 120 mm of line are blue and red. The chassis footprint
+is the ground projection of a body-fixed 140×128 mm rectangle at the axle centre.
+Coverage uses a conservative inner approximation to its swept region at each
+physical step, including the endpoint footprints and a certified translation
+sweep. It never substitutes the convex hull of two rotated footprints. See the
+small public `line_following_course` module for the calculation.
+
+The reference profile starts at rest, stops to reverse travel at the far endpoint,
+and allows a moving finish. Marked sharp corners include a stop and an in-place
+change of heading; independent drive, traction, and yaw limits give an optimistic
+speed profile on the remaining line. Legal driving may beat this approximation.
+
+`sample_robot` publishes the complete pilot distribution. Component masses and
+their inertias scale together by 0.85–1.15; body centre-of-mass height scales by
+0.9–1.1 with consistent inertia scaling. Wheel friction lies in 0.65–0.95, support
+friction in 0.45–0.75, motor stall torque in 0.065–0.095 N m, no-load speed in
+38–52 rad/s, and sphere damping in 0.00015–0.00025 N m s. Geometry and contact
+stiffness use the nominal mechanics profile. Independent zero-mean Gaussian
+sensor noise has standard deviations 0.008 for RGB, 0.004 rad/s for gyro,
+0.025 m/s² for acceleration, and 0.0005 rad for encoders. RGB is clipped to `[0, 1]`.
+The pilot time limit is 120 simulated seconds; a body-up tilt of 0.9 rad is a fall.

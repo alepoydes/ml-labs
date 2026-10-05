@@ -80,3 +80,35 @@ After editing imported modules, rerun the loading cells or restart the notebook.
 Training is commented out by default; rerunning analysis reads saved files.
 Create a new variant to retain a separate experiment. When ready, run
 `step_4_pack` and `step_5_check_submission`, then submit the ZIP.
+
+## Graphical inspection and manual play
+
+Run `./view_lab blindjack` or `./view_lab line_following` (Windows: `view_lab.cmd`).
+The launcher installs the locked optional Qt and ModernGL dependencies. Select a
+working solution directory; the viewer uses its existing artifacts. It never trains
+implicitly. Model calls run as ordinary Python in a computation thread, with original
+tracebacks in the terminal. Qt owns the main thread.
+
+Blindjack offers solution inspection, manual play, and comparison on the same hands.
+In comparison mode, commit your cards before seeing either the labels or the model's
+answer. Each hand contributes its first committed answer. Changing mode or loading a
+different solution starts a new comparison. Save the recording before doing so.
+
+Line Following starts paused. Resume runs live physics; pause stops it. Step one
+millisecond or advance to the next controller boundary. Drag the timeline to inspect
+recorded history; resume jumps to the current live state without invoking the policy
+again for old frames. Batch runs use consecutive course entries and seeds; Robot
+selects the displayed row. Top view, follow camera and mouse-wheel zoom help inspect
+the line, chassis and rear sphere. RGB shows the policy's latest actual sensor reading.
+
+An optional `debug(index=0)` method may return a dictionary of text, finite scalars,
+or small numeric vectors/matrices. The viewer copies it after inference, lists values,
+and plots selected arrays or scalar history. It must not change controller behavior.
+The judge never calls it. Keep each array at most two-dimensional and 4096 elements,
+with at most 64 fields. Debug failures are visible inspection errors.
+
+Both viewers save compressed NPZ recordings, including copied controller diagnostics.
+Opening a recording executes no solution code. Blindjack recordings refer to the
+verified public resource set and reuse its PNG sheets. Robot recordings include
+course geometry, physical parameters, poses, observations, actions and diagnostics;
+they are local inspection artifacts, not resumable simulator checkpoints or submissions.

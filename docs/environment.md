@@ -32,3 +32,13 @@ thread, 60 seconds initialization, 5 seconds per hand, 300 seconds total, 64 KiB
 logs, and 256 MiB temporary storage. ZIPs are limited to 256 MiB compressed,
 512 MiB expanded, and 4096 files. These grading limits do not constrain your local
 training or analysis.
+
+For Line Following, the per-request limit is 1 second, and the 300-second total
+applies to initialization plus controller request wall time for one episode.
+Host simulation and compilation do not use that controller budget. Each assessed
+episode gets a fresh controller process; memory persists through the outward and
+return legs. Only the documented observation tensors and reset mask are supplied.
+
+`view_lab` adds the optional locked PySide6 Essentials and ModernGL packages.
+The robot viewer requires a desktop display and OpenGL 3.3 or newer. The simulator,
+training, evaluation and Blindjack's HTML viewer do not require an OpenGL context.

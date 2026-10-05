@@ -27,6 +27,13 @@ def manifest(path: Path) -> dict:
         )
     names = []
     for entry in value["files"]:
+        if "source" in entry:
+            if "url" in entry or "archive" in value:
+                raise CourseError(
+                    "Bundled resources cannot also specify a download URL or archive."
+                )
+            source = safe_path(entry["source"])
+            entry["url"] = (path.resolve().parent / source).as_uri()
         name = entry["path"]
         safe_path(name)
         if name.startswith(".") or len(entry["sha256"]) != 64 or int(entry["size"]) < 0:
@@ -63,7 +70,7 @@ def _target(root: Path, name: str) -> Path:
 
 def ready(root: Path, spec: dict) -> str:
     marker = root / ".ready.json"
-    expected = fingerprint(spec)
+    expected = resource_fingerprint(spec)
     if not marker.exists() or json.loads(marker.read_text()).get("manifest") != expected:
         raise CourseError("Resources are incomplete; run step_0_update_resources.")
     for entry in spec["files"]:
@@ -77,6 +84,15 @@ def ready(root: Path, spec: dict) -> str:
                 f"Resource changed: {entry['path']}; run step_0_update_resources."
             )
     return expected
+
+
+def resource_fingerprint(spec):
+    # Expanded file URLs are transport details, not part of a bundled resource's identity.
+    files = [
+        {k: v for k, v in entry.items() if k != "url" or "source" not in entry}
+        for entry in spec["files"]
+    ]
+    return fingerprint(spec | {"files": files})
 
 
 def _store(path: Path, entry: dict, source) -> None:
@@ -158,5 +174,5 @@ def sync(root: Path, spec: dict) -> None:
         for name in old - current:
             _target(root, name).unlink(missing_ok=True)
         write_json(state_path, sorted(current))
-        write_json(root / ".ready.json", {"manifest": fingerprint(spec)})
+        write_json(root / ".ready.json", {"manifest": resource_fingerprint(spec)})
         print(f"Resources ready: {root}")

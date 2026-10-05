@@ -23,7 +23,8 @@ Links, special files, duplicate paths, traversal, and encrypted members are reje
 Datasets, environments, caches, logs, and unrelated variants are excluded. Do not use
 standalone NPY files; image resources use PNG and other numeric arrays compressed NPZ.
 
-`submission.toml` declares schema/API version 1, `lab = "blindjack"`, a variant name,
+`submission.toml` declares schema/API version 1, `lab = "blindjack"` or
+`lab = "line_following"`, a variant name,
 and [AI usage](ai-use.md). Student identity comes from the instructor's submission
 directory, not this file. The packer preserves the resource fingerprint of actual
 training even if newer data have been downloaded. It verifies source and config
