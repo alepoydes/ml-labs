@@ -1,22 +1,24 @@
-"""Ordered polyline courses, optical sampling, and conservative swept coverage.
-
-Coordinates are metres. A course has one ordered centreline, including at crossings.
-Smooth curves are supplied as finely sampled polylines; genuine corners are marked
-separately for the reference-time calculation. Painting and judging use these same
-segments. The judge never replaces a route coordinate with a global nearest point.
-"""
-
-from dataclasses import dataclass, field
-from pathlib import Path
+"""Spline optics, certified swept coverage, and mechanical reference timing."""
 
 import numpy as np
 
-from coursekit.common import CourseError
+from coursekit.labs.line_following_curve import (
+    Course as Course,
+)
+from coursekit.labs.line_following_curve import (
+    bezier,
+)
+from coursekit.labs.line_following_curve import (
+    load_courses as load_courses,
+)
+from coursekit.labs.line_following_curve import (
+    save_courses as save_courses,
+)
 
 LINE_WIDTH = 0.016
 SENSOR_WIDTH = 0.128
 SENSOR_DEPTH = 0.008
-FOOTPRINT = np.array([0.070, 0.064])  # Body-frame half length and half width.
+FOOTPRINT = np.array([0.070, 0.064])
 MARKER_LENGTH = 0.12
 GROUND = np.array([0.94, 0.94, 0.94])
 INK = np.array([0.06, 0.06, 0.06])
@@ -24,130 +26,48 @@ START = np.array([0.08, 0.25, 0.90])
 END = np.array([0.90, 0.12, 0.08])
 
 
-@dataclass(frozen=True)
-class Course:
-    name: str
-    points: np.ndarray
-    corners: np.ndarray | None = None
-    arc: np.ndarray = field(init=False, repr=False)
-
-    def __post_init__(self):
-        points = np.array(self.points, dtype=np.float64, copy=True)
-        if (
-            points.ndim != 2
-            or points.shape[1] != 2
-            or not 2 <= len(points) <= 8192
-            or not np.isfinite(points).all()
-            or not isinstance(self.name, str)
-            or not self.name
-        ):
-            raise CourseError("Expected a named finite course with 2..8192 XY points.")
-        lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
-        if (lengths < 1e-7).any():
-            raise CourseError("Consecutive course points must be distinct.")
-        corners = (
-            np.zeros(len(points), dtype=bool)
-            if self.corners is None
-            else np.array(self.corners, dtype=bool, copy=True)
-        )
-        if corners.shape != (len(points),) or corners[[0, -1]].any():
-            raise CourseError("Corner flags must identify interior course vertices.")
-        arc = np.r_[0.0, np.cumsum(lengths)]
-        for name, value in (("points", points), ("corners", corners), ("arc", arc)):
-            value.setflags(write=False)
-            object.__setattr__(self, name, value)
-
-    @property
-    def length(self):
-        return float(self.arc[-1])
-
-    def at(self, distance):
-        distance = np.clip(distance, 0, self.length)
-        index = np.minimum(
-            np.searchsorted(self.arc, distance, side="right") - 1, len(self.points) - 2
-        )
-        fraction = (distance - self.arc[index]) / np.diff(self.arc)[index]
-        return (
-            self.points[index] + fraction[..., None] * np.diff(self.points, axis=0)[index]
-        )
-
-    def reversed(self):
-        return Course(self.name, self.points[::-1], self.corners[::-1])
-
-
-def save_courses(path: Path, courses: list[Course]):
-    if not courses or len({c.name for c in courses}) != len(courses):
-        raise CourseError("Expected courses with unique names.")
-    counts = np.array([len(c.points) for c in courses], dtype=np.int64)
-    points = np.zeros((len(courses), int(counts.max()), 2))
-    corners = np.zeros(points.shape[:2], dtype=bool)
-    for row, course in enumerate(courses):
-        points[row, : counts[row]] = course.points
-        corners[row, : counts[row]] = course.corners
-    path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        path,
-        points=points,
-        corners=corners,
-        counts=counts,
-        names=np.array([c.name for c in courses]),
-    )
-
-
-def load_courses(path: Path) -> list[Course]:
-    with np.load(path, allow_pickle=False) as data:
-        if set(data.files) != {"points", "corners", "counts", "names"}:
-            raise CourseError("Unexpected course archive arrays.")
-        points, corners, counts, names = (
-            data[k] for k in ("points", "corners", "counts", "names")
-        )
-    if (
-        points.ndim != 3
-        or points.shape[2] != 2
-        or corners.shape != points.shape[:2]
-        or corners.dtype != np.bool_
-        or counts.shape != (len(points),)
-        or counts.dtype.kind not in "iu"
-        or names.shape != counts.shape
-        or names.dtype.kind != "U"
-        or not len(points)
-        or (counts < 2).any()
-        or (counts > points.shape[1]).any()
-        or not np.isfinite(points).all()
-        or len(set(names)) != len(names)
-    ):
-        raise CourseError("Invalid course archive dimensions or values.")
-    return [
-        Course(str(name), row[:n], corner[:n])
-        for name, row, corner, n in zip(names, points, corners, counts)
-    ]
-
-
 def colour(course: Course, points: np.ndarray) -> np.ndarray:
     """Paint a finite-width line and endpoint sections; average in the sensor."""
     shape = points.shape[:-1]
     points = np.asarray(points).reshape(-1, 2)
-    starts, ends = course.points[:-1], course.points[1:]
+    controls = course._leaves
     near = (
-        (np.maximum(starts, ends) >= points.min(axis=0) - LINE_WIDTH / 2)
-        & (np.minimum(starts, ends) <= points.max(axis=0) + LINE_WIDTH / 2)
+        (course._upper >= points.min(axis=0) - LINE_WIDTH / 2)
+        & (course._lower <= points.max(axis=0) + LINE_WIDTH / 2)
     ).all(axis=1)
     result = np.broadcast_to(GROUND, (len(points), 3)).copy()
     if not near.any():
         return result.reshape(*shape, 3)
-    delta = (ends - starts)[near]
-    offset = points[:, None] - starts[near]
+    leaves = np.flatnonzero(near)
+    controls = controls[near]
+    delta = controls[:, -1] - controls[:, 0]
+    offset = points[:, None] - controls[:, 0]
     fraction = np.clip(
-        np.einsum("pni,ni->pn", offset, delta) / np.einsum("ni,ni->n", delta, delta), 0, 1
+        np.einsum("pni,ni->pn", offset, delta) / (delta * delta).sum(axis=1), 0, 1
     )
-    distance = np.linalg.norm(offset - fraction[..., None] * delta, axis=-1)
+    initial = fraction.copy()
+    initial_distance = np.linalg.norm(bezier(controls, initial) - points[:, None], axis=-1)
+    # Chords initialize local projection; distances and marker positions use the spline.
+    for _ in range(4):
+        offset = bezier(controls, fraction) - points[:, None]
+        v, a = bezier(controls, fraction, 1), bezier(controls, fraction, 2)
+        hessian = (v * v + offset * a).sum(axis=-1)
+        fraction = np.clip(
+            fraction - (offset * v).sum(axis=-1) / np.maximum(hessian, 1e-30), 0, 1
+        )
+    distance = np.linalg.norm(bezier(controls, fraction) - points[:, None], axis=-1)
+    fraction = np.where(initial_distance < distance, initial, fraction)
+    distance = np.minimum(distance, initial_distance)
+    # Include endpoints even if a projection step left its local minimum.
+    for t in (0, 1):
+        endpoint = np.linalg.norm(controls[:, 3 * t] - points[:, None], axis=-1)
+        better = endpoint < distance
+        fraction = np.where(better, t, fraction)
+        distance = np.minimum(distance, endpoint)
     index = distance.argmin(axis=1)
     rows = np.arange(len(points))
     painted = distance[rows, index] <= LINE_WIDTH / 2
-    arc = (
-        course.arc[:-1][near][index]
-        + fraction[rows, index] * np.diff(course.arc)[near][index]
-    )
+    arc = course.distance_on_leaf(leaves[index], fraction[rows, index])
     result[painted] = INK
     result[painted & (arc < MARKER_LENGTH)] = START
     result[painted & (arc > course.length - MARKER_LENGTH)] = END
@@ -170,6 +90,15 @@ def _clip(course: Course, centre, axes, half, travel) -> np.ndarray:
     In local coordinates its sweep is a box plus a segment (a zonotope). Its
     bounding halfplanes have the two box normals and the travel normal.
     """
+    middle = centre + travel / 2
+    extent = np.abs(axes) @ half + np.abs(travel) / 2
+    selection = np.flatnonzero(
+        ((course._upper >= middle - extent) & (course._lower <= middle + extent)).all(
+            axis=1
+        )
+    )
+    if not len(selection):
+        return np.empty((0, 2))
     inverse = np.linalg.inv(axes)
     motion = inverse @ travel
     normal = np.array([-motion[1], motion[0]]) / max(np.linalg.norm(motion), 1e-30)
@@ -177,18 +106,38 @@ def _clip(course: Course, centre, axes, half, travel) -> np.ndarray:
     bounds = np.array(
         [half[0] + abs(motion[0]) / 2, half[1] + abs(motion[1]) / 2, np.abs(normal) @ half]
     )
-    local = (course.points - centre - travel / 2) @ inverse.T
-    a, d = local[:-1] @ normals.T, np.diff(local, axis=0) @ normals.T
+    # A Bezier point differs from its chord at the same parameter by <= error.
+    # Erode every halfplane by that bound: accepted intervals certify the curve.
+    controls = course._leaves[selection]
+    world_normals = normals @ inverse
+    bounds = bounds[None, :] - course._error[selection, None] * np.linalg.norm(
+        world_normals, axis=1
+    )
+    local = (controls[:, [0, -1]] - centre - travel / 2) @ inverse.T
+    a, d = local[:, 0] @ normals.T, (local[:, 1] - local[:, 0]) @ normals.T
     nonzero = np.abs(d) > 1e-15
     divisor = np.where(nonzero, d, 1)
     first, second = (-bounds - a) / divisor, (bounds - a) / divisor
     lower = np.maximum(0, np.where(nonzero, np.minimum(first, second), -np.inf).max(axis=1))
     upper = np.minimum(1, np.where(nonzero, np.maximum(first, second), np.inf).min(axis=1))
-    valid = (lower <= upper) & ((np.abs(a) <= bounds) | nonzero).all(axis=1)
-    length = np.diff(course.arc)
+    valid = (
+        (lower <= upper)
+        & ((np.abs(a) <= bounds) | nonzero).all(axis=1)
+        & (bounds >= 0).all(axis=1)
+    )
+    leaves = selection[valid]
+    if not len(leaves):
+        return np.empty((0, 2))
+    lower, upper = lower[valid], upper[valid]
+    # Merge adjacent covered parameter intervals before doing arc quadrature.
+    gaps = leaves[1:] + lower[1:] > leaves[:-1] + upper[:-1]
+    starts, ends = np.r_[True, gaps], np.r_[gaps, True]
     return np.column_stack(
-        (course.arc[:-1] + lower * length, course.arc[:-1] + upper * length)
-    )[valid]
+        (
+            course.distance_on_leaf(leaves[starts], lower[starts]),
+            course.distance_on_leaf(leaves[ends], upper[ends]),
+        )
+    )
 
 
 def swept_intervals(course: Course, q0, q1, r0, r1) -> np.ndarray:
@@ -228,7 +177,7 @@ def advance(course: Course, frontier: float, q0, q1, r0, r1) -> float:
     return min(frontier, course.length)
 
 
-def reference_time(course: Course, model) -> float:
+def reference_time(course: Course, model, *, spacing=None) -> float:
     """Optimistic centreline speed profile for out-and-back travel in seconds.
 
     Independent traction/drive/yaw envelopes omit sensing and balancing costs.
@@ -251,31 +200,26 @@ def reference_time(course: Course, model) -> float:
         / inertia
     )
     omega = vmax / half_track
-    counts = np.maximum(2, np.ceil(np.diff(course.arc) / 0.02).astype(int))
-    distance = np.concatenate(
-        [
-            np.linspace(a, b, n, endpoint=False)
-            for a, b, n in zip(course.arc[:-1], course.arc[1:], counts)
-        ]
-        + [np.array([course.length])]
+    distance, curvature, change, corner_index = (
+        course.reference_profile if spacing is None else course.profile(spacing)
     )
-    points = course.at(distance)
     lengths = np.diff(distance)
-    direction = np.arctan2(np.diff(points, axis=0)[:, 1], np.diff(points, axis=0)[:, 0])
-    angles = np.arctan2(np.sin(np.diff(direction)), np.cos(np.diff(direction)))
-    curvature = np.r_[0.0, angles / ((lengths[:-1] + lengths[1:]) / 2), 0.0]
-    corner_index = np.cumsum(counts)[:-1][course.corners[1:-1]]
-    curvature[corner_index] = 0
     cap = np.minimum(
         vmax / (1 + half_track * np.abs(curvature)),
         np.sqrt(traction / np.maximum(np.abs(curvature), 1e-12)),
     )
     # Rotation acceleration includes the demand from changing curvature at speed.
-    change = np.abs(np.gradient(curvature, distance))
-    cap = np.minimum(cap, np.sqrt(alpha / np.maximum(change, 1e-12)))
+    cap = np.minimum(cap, np.sqrt(alpha / np.maximum(np.abs(change), 1e-12)))
     cap[corner_index] = 0
     turning = 0.0
-    for angle in np.abs(angles[corner_index - 1]):
+    joins = np.flatnonzero(course.corners)
+    incoming = bezier(course.controls[joins - 1], 1.0, 1)
+    outgoing = bezier(course.controls[joins], 0.0, 1)
+    angles = np.arctan2(
+        incoming[:, 0] * outgoing[:, 1] - incoming[:, 1] * outgoing[:, 0],
+        (incoming * outgoing).sum(axis=1),
+    )
+    for angle in np.abs(angles):
         angle = min(angle, abs(np.pi - angle))  # Either drive direction is legal.
         turning += (
             2 * np.sqrt(angle / alpha)
@@ -290,12 +234,20 @@ def reference_time(course: Course, model) -> float:
         speed[0] = 0
         if stop:
             speed[-1] = 0
-        for i, length in enumerate(ds):
-            a = min(acceleration, alpha / max(abs(k[i]), abs(k[i + 1]), 1e-12))
-            speed[i + 1] = min(speed[i + 1], np.sqrt(speed[i] ** 2 + 2 * a * length))
-        for i in range(len(ds) - 1, -1, -1):
-            a = min(acceleration, alpha / max(abs(k[i]), abs(k[i + 1]), 1e-12))
-            speed[i] = min(speed[i], np.sqrt(speed[i + 1] ** 2 + 2 * a * ds[i]))
+        acceleration_cap = np.minimum(
+            acceleration, alpha / np.maximum(np.maximum(abs(k[:-1]), abs(k[1:])), 1e-12)
+        )
+        increments = 2 * acceleration_cap * ds
+        square = speed**2
+        # v[i+1]^2 <= v[i]^2 + 2*a[i]*ds[i]; prefix minima implement each pass.
+        budget = np.r_[0.0, np.cumsum(increments)]
+        square = budget + np.minimum.accumulate(square - budget)
+        budget = np.r_[0.0, np.cumsum(increments[::-1])]
+        square = (budget + np.minimum.accumulate(square[::-1] - budget))[::-1]
+        speed = np.sqrt(np.maximum(square, 0))
+        speed[0] = 0
+        if stop:
+            speed[-1] = 0
         return float(np.sum(2 * ds / (speed[:-1] + speed[1:])))
 
     return leg(False, True) + leg(True, False) + 2 * turning

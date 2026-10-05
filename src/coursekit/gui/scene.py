@@ -88,15 +88,16 @@ def painted_course(course):
     rows = []
     angle = np.linspace(0, 2 * np.pi, 17)
     circle = np.c_[np.cos(angle), np.sin(angle)] * LINE_WIDTH / 2
-    for i, (a, b) in enumerate(zip(course.points[:-1], course.points[1:])):
+    points, arc = course.mesh()
+    for i, (a, b) in enumerate(zip(points[:-1], points[1:])):
         cuts = sorted(
             {
-                course.arc[i],
-                course.arc[i + 1],
+                arc[i],
+                arc[i + 1],
                 *[
                     s
                     for s in (MARKER_LENGTH, course.length - MARKER_LENGTH)
-                    if course.arc[i] < s < course.arc[i + 1]
+                    if arc[i] < s < arc[i + 1]
                 ],
             }
         )
@@ -114,7 +115,7 @@ def painted_course(course):
                 else INK
             )
             rows.append(triangles(np.c_[quad, np.zeros(4)], [[0, 1, 2], [0, 2, 3]], colour))
-    for point, s in zip(course.points, course.arc):
+    for point, s in zip(points, arc):
         colour = (
             START
             if s < MARKER_LENGTH
@@ -194,10 +195,10 @@ class Renderer:
         nose[:, :3] = nose[:, :3] @ rotation.T + q[:3]
         pieces.append(nose)
         vertices = np.concatenate([self.ground, *pieces])
-        centre = (
-            q[:2] if follow else (course.points.min(axis=0) + course.points.max(axis=0)) / 2
+        centre = q[:2] if follow else (course.bounds[0] + course.bounds[1]) / 2
+        span = (
+            0.6 if follow else max((course.bounds[1] - course.bounds[0]).max() + 0.4, 0.8)
         )
-        span = 0.6 if follow else max(np.ptp(course.points, axis=0).max() + 0.4, 0.8)
         scale = span / zoom
         view = np.eye(4)
         if not top:

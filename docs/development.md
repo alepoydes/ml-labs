@@ -112,3 +112,7 @@ Opening a recording executes no solution code. Blindjack recordings refer to the
 verified public resource set and reuse its PNG sheets. Robot recordings include
 course geometry, physical parameters, poses, observations, actions and diagnostics;
 they are local inspection artifacts, not resumable simulator checkpoints or submissions.
+
+Robot recordings now use the spline geometry format (version 2). Old polyline
+recordings are rejected with an explicit version message. Recreate them after
+updating course resources; no old recording is silently assigned a new curve.

@@ -31,21 +31,21 @@ def move(course, frontier, start, end):
 
 
 def test_long_step_covers_whole_translation_without_progress_cap():
-    course = Course("straight", np.array([[0.0, 0.0], [2.0, 0.0]]))
+    course = Course.polyline("straight", np.array([[0.0, 0.0], [2.0, 0.0]]))
     assert move(course, 0.0, pose(), pose(x=1.0)) == pytest.approx(1.07)
     assert move(course, 1.07, pose(x=1.0), pose(x=0.1)) == pytest.approx(1.07)
     assert move(course, 1.07, pose(x=0.1), pose(x=1.2)) == pytest.approx(1.27)
 
 
 def test_route_gap_is_not_excused_by_correct_endpoint_positions():
-    course = Course("detour", np.array([[0.0, 0.0], [0.2, 0.2], [1.0, 0.0]]))
+    course = Course.polyline("detour", np.array([[0.0, 0.0], [0.2, 0.2], [1.0, 0.0]]))
     progress = move(course, 0.0, pose(), pose(x=1.0))
     assert progress == pytest.approx(FOOTPRINT[1] * np.sqrt(2))
     assert progress < course.length / 4
 
 
 def test_rejoin_ahead_freezes_until_missing_interval_is_recovered():
-    course = Course("straight", np.array([[0.0, 0.0], [2.0, 0.0]]))
+    course = Course.polyline("straight", np.array([[0.0, 0.0], [2.0, 0.0]]))
     frontier = 0.2
     assert move(course, frontier, pose(x=1.0), pose(x=1.2)) == frontier
     assert move(course, frontier, pose(x=1.2), pose(x=0.3, y=0.3)) == frontier
@@ -53,7 +53,7 @@ def test_rejoin_ahead_freezes_until_missing_interval_is_recovered():
 
 
 def test_crossing_does_not_switch_route_branch():
-    course = Course(
+    course = Course.polyline(
         "crossing", np.array([[-1.0, -1.0], [1.0, 1.0], [-1.0, 1.0], [1.0, -1.0]])
     )
     frontier = np.sqrt(2) - 0.03
@@ -63,7 +63,7 @@ def test_crossing_does_not_switch_route_branch():
 
 def test_rotating_rectangle_does_not_accept_its_convex_hull():
     # The hull of the two poses contains (.078, 0), but the rotating chassis never does.
-    course = Course("edge", np.array([[0.065, 0.0], [0.078, 0.0]]))
+    course = Course.polyline("edge", np.array([[0.065, 0.0], [0.078, 0.0]]))
     start, end = pose(yaw=-0.2), pose(yaw=0.2)
     result = move(course, 0.0, start, end)
     assert result == pytest.approx(FOOTPRINT[0] / np.cos(0.2) - 0.065)
@@ -73,7 +73,7 @@ def test_rotating_rectangle_does_not_accept_its_convex_hull():
 
 
 def test_certified_sweep_is_inside_independently_sampled_motion():
-    course = Course("curve", np.array([[-0.2, -0.04], [0.1, 0.01], [0.3, 0.08]]))
+    course = Course.polyline("curve", np.array([[-0.2, -0.04], [0.1, 0.01], [0.3, 0.08]]))
     start, end = (
         pose(roll=0.08, pitch=-0.1, yaw=-0.1),
         pose(x=0.12, y=0.02, yaw=0.15, pitch=0.05),
@@ -95,34 +95,36 @@ def test_certified_sweep_is_inside_independently_sampled_motion():
 
 
 def test_optics_average_only_the_transverse_row():
-    course = Course("straight", np.array([[0.0, 0.0], [2.0, 0.0]]))
+    course = Course.polyline("straight", np.array([[0.0, 0.0], [2.0, 0.0]]))
     rgb = optical(course, np.array([1.0, 0.0, 0.035]), np.eye(3))
     np.testing.assert_allclose(rgb[[7, 8]], np.broadcast_to(INK, (2, 3)), atol=1e-7)
     np.testing.assert_allclose(rgb[:7], np.broadcast_to(GROUND, (7, 3)), atol=1e-7)
-    ahead = Course("ahead", np.array([[0.02, 0.0], [2.0, 0.0]]))
+    ahead = Course.polyline("ahead", np.array([[0.02, 0.0], [2.0, 0.0]]))
     np.testing.assert_allclose(
         optical(ahead, np.zeros(3), np.eye(3)), np.broadcast_to(GROUND, (16, 3)), atol=1e-7
     )
 
 
 def test_course_archive_and_reversed_coordinates(tmp_path):
-    course = Course(
+    course = Course.polyline(
         "corner", np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]]), [False, True, False]
     )
     file = tmp_path / "courses.npz"
-    save_courses(file, [course, Course("short", np.array([[0.0, 0.0], [0.2, 0.0]]))])
+    save_courses(
+        file, [course, Course.polyline("short", np.array([[0.0, 0.0], [0.2, 0.0]]))]
+    )
     restored = load_courses(file)
-    np.testing.assert_array_equal(restored[0].points, course.points)
+    np.testing.assert_array_equal(restored[0].controls, course.controls)
     np.testing.assert_array_equal(restored[0].corners, course.corners)
     np.testing.assert_allclose(
         course.reversed().at(np.array([0.2, 1.1])), course.at(np.array([1.8, 0.9]))
     )
     with pytest.raises(CourseError, match="distinct"):
-        Course("invalid", np.zeros((2, 2)))
+        Course.polyline("invalid", np.zeros((2, 2)))
 
 
 def test_straight_reference_matches_acceleration_limited_travel():
-    course = Course("straight", np.array([[0.0, 0.0], [2.0, 0.0]]))
+    course = Course.polyline("straight", np.array([[0.0, 0.0], [2.0, 0.0]]))
     model = physics.robot()
     vmax = float((model.radius[:2] * model.speed).min())
     acceleration = min(
@@ -136,9 +138,9 @@ def test_straight_reference_matches_acceleration_limited_travel():
 
 
 def test_corner_reference_is_finite_and_slower_than_straight():
-    corner = Course(
+    corner = Course.polyline(
         "corner", np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]]), [False, True, False]
     )
-    straight = Course("straight", np.array([[0.0, 0.0], [2.0, 0.0]]))
+    straight = Course.polyline("straight", np.array([[0.0, 0.0], [2.0, 0.0]]))
     t = reference_time(corner, physics.robot())
     assert np.isfinite(t) and t > reference_time(straight, physics.robot())

@@ -165,9 +165,10 @@ must use its permitted observations and action history.
 A simple supported reference controller is provided as `baseline`. It follows
 the optical centroid slowly, uses elementary line recovery, and returns in
 reverse. Its preparation function saves hand-tuned settings; it is not a learned
-solution. In a four-episode practice probe it completed two straight and two smooth
-courses, earning 9.16–10.57 points. This does not establish performance on sharp
-corners, crossings, or the complete benchmark. You should measure your
+solution. In a four-episode probe on the spline profile it completed two straight courses
+and one smooth course; the other smooth case timed out at the 60-second pilot
+cutoff. This does not establish performance on sharp corners, crossings, or the
+complete benchmark. Scores measured on the earlier polyline profile are obsolete. You should measure your
 own completion rate and journey time, including recovery costs, and compare
 performance on familiar and unfamiliar courses. Separate outward and return
 times can show whether experience from the first leg helps.
@@ -206,6 +207,9 @@ The constructor is `Solution(artifact_dir, config, seed)`. Inference is
 batch dimension, even for one robot. Return float32 commands `(B, 2)` in `[-1, 1]`.
 Positive equal commands drive forward. The Boolean mask `reset` has shape `(B,)`;
 clear the indicated rows of controller memory before processing their inputs.
+`act` runs with autograd available in both local and isolated evaluation, so online
+adaptation may use `backward()`. Use your own `torch.no_grad()` for inference that
+does not need gradients.
 Memory persists across the far endpoint. Reset must restore the episode's initial
 controller state, including any within-episode adaptation.
 
@@ -253,19 +257,40 @@ reference time, and score; it is never passed to evaluated `act` calls.
 
 ## Pilot geometry and parameter settings
 
-The canonical course is an ordered polyline. Optical sectors average 4×4 samples
+The canonical course is an ordered cubic Bezier spline, stored as control points,
+parameter knots, and explicit corner flags. Smooth joins are C2; genuine corners
+keep their tangent discontinuity. `Course.at(s)` evaluates the spline at arc length
+`s`; `Course.at(s, derivative=n)` evaluates the derivative with respect to the
+spline parameter defined by its knots. `Course.geometry(s)` returns curvature
+and its arc-length derivative.
+Both come from analytic polynomial derivatives. Arc length uses 16-point Gaussian
+quadrature, checked against 8-point quadrature during adaptive subdivision.
+
+All geometry consumers share that spline. Cached chords have a certified pointwise
+error of at most 0.01 mm. The judge erodes clipping halfplanes by this error before
+accepting a curve interval. Optical projection evaluates the spline itself,
+initialized by these chords; its distance error is bounded by 0.02 mm. Rendering
+uses the same subdivision. Optical sectors average 4×4 samples
 over rectangles in one transverse row, 128 mm wide and 8 mm deep. Line width is
 16 mm. The first and last 120 mm of line are blue and red. The chassis footprint
 is the ground projection of a body-fixed 140×128 mm rectangle at the axle centre.
 Coverage uses a conservative inner approximation to its swept region at each
 physical step, including the endpoint footprints and a certified translation
-sweep. It never substitutes the convex hull of two rotated footprints. See the
+sweep, with the additional spline-error erosion. It never substitutes the convex hull of two rotated footprints. See the
 small public `line_following_course` module for the calculation.
 
 The reference profile starts at rest, stops to reverse travel at the far endpoint,
 and allows a moving finish. Marked sharp corners include a stop and an in-place
 change of heading; independent drive, traction, and yaw limits give an optimistic
-speed profile on the remaining line. Legal driving may beat this approximation.
+speed profile on the remaining line. The reference grid has at most 1 mm arc-length
+spacing and includes genuine polynomial joins with limits from both sides.
+Exact subdivisions do not introduce artificial reference constraints. Speed passes
+use cumulative acceleration bounds; time is integrated along the spline's arc
+coordinate. Legal driving may beat this approximation.
+
+Course archives and robot recordings use format version 2. Earlier polyline files
+are rejected explicitly; update resources and create new robot recordings. Existing
+controller observations and actions retain their API.
 
 `sample_robot` publishes the complete pilot distribution. Component masses and
 their inertias scale together by 0.85–1.15; body centre-of-mass height scales by

@@ -182,8 +182,8 @@ class Environment:
             self.rng[i] = rng
             model = sample_robot(rng)
             state = physics.initial_state(model)
-            direction = self.courses[i].points[1] - self.courses[i].points[0]
-            state.q[:2] = torch.from_numpy(self.courses[i].points[0].copy())
+            direction = self.courses[i].at(0.0, derivative=1)
+            state.q[:2] = torch.from_numpy(self.courses[i].at(0.0).copy())
             state.q[5] = float(np.arctan2(direction[1], direction[0]))
             for target, value in zip(self.model, model):
                 target[i] = value

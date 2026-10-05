@@ -4,7 +4,6 @@ import csv
 from pathlib import Path
 
 import numpy as np
-import torch
 
 from coursekit.common import CourseError, file_hashes, fingerprint
 from coursekit.labs.line_following_course import load_courses
@@ -51,19 +50,18 @@ def evaluate(solution, data: Path, split="validation", *, compiled=True, time_li
     settings = {} if time_limit is None else {"time_limit": time_limit}
     env = Environment([episodes[0][0]], [episodes[0][1]], compiled=compiled, **settings)
     scores, times, statuses = [], [], []
-    with torch.no_grad():
-        for index, (course, seed) in enumerate(episodes):
-            if index:
-                env.reset(courses=[course], seeds=[seed])
-            while not env.done.all():
-                action = solution.act(env.observe(), env.first)
-                validate_action(action, 1)
-                env.step(action)
-            info = env.info()
-            scores.append(float(info["score"][0]))
-            statuses.append(str(info["status"][0]))
-            if statuses[-1] == "finished":
-                times.append(float(info["time"][0]))
+    for index, (course, seed) in enumerate(episodes):
+        if index:
+            env.reset(courses=[course], seeds=[seed])
+        while not env.done.all():
+            action = solution.act(env.observe(), env.first)
+            validate_action(action, 1)
+            env.step(action)
+        info = env.info()
+        scores.append(float(info["score"][0]))
+        statuses.append(str(info["status"][0]))
+        if statuses[-1] == "finished":
+            times.append(float(info["time"][0]))
     return {
         "episodes": len(episodes),
         "score": float(np.mean(scores)),

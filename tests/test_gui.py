@@ -152,7 +152,7 @@ def test_robot_pause_steps_history_recording_and_shutdown(app, tmp_path, monkeyp
         return env
 
     monkeypatch.setattr(line_run, "load_solution", lambda path: Policy())
-    course = Course("straight", np.array([[0.0, 0.0], [1.0, 0.0]]))
+    course = Course.polyline("straight", np.array([[0.0, 0.0], [1.0, 0.0]]))
     run = line_run.Run(tmp_path, [course, course], [1, 2], factory=factory)
     run.start()
 
@@ -269,6 +269,8 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
         )
         page.save()
         saved = recording.load(target)
+        assert saved["version"] == 2
+        assert "controls" in saved["courses"][0]
         assert saved["frames"]["q"].shape == (4, 2, 8)
         # Switching to a shorter, smaller recorded batch must clamp both controls first.
         saved["courses"] = saved["courses"][:1]
@@ -287,6 +289,10 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
         assert page.job is None and page.timeline.maximum() == 0
         assert page.episode.maximum() == 1
         assert page.replay["frames"]["q"].shape == (1, 1, 8)
+        saved["version"] = 1
+        recording.save(target, saved)
+        page.open_recording()
+        assert "old polyline recordings are incompatible" in page.message.text()
     finally:
         job.command(stop=True)
         job.wait(10000)

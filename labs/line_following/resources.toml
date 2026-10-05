@@ -1,11 +1,11 @@
 schema_version = 1
-revision = "line-following-pilot-1"
+revision = "line-following-pilot-2"
 
 [[files]]
 path = "courses.npz"
 source = "resources/courses.npz"
-size = 44883
-sha256 = "1a4676288e6da4ee1be00e5a49f53e7c44d6f7c865421629b8a1c9178cac8b3a"
+size = 12679
+sha256 = "421534f67da40d33c4dbb131f787baec071aad752508310b2071011312345e71"
 
 [[files]]
 path = "train.csv"

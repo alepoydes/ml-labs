@@ -123,13 +123,18 @@ class Run(QThread):
         with self.condition:
             return {
                 "lab": "line_following",
-                "version": 1,
+                "version": 2,
                 "solution": str(self.path),
                 "seeds": np.array(self.seeds),
                 "physics_dt": PHYSICS_DT,
                 "control_steps": CONTROL_STEPS,
                 "courses": [
-                    {"name": c.name, "points": c.points, "corners": c.corners}
+                    {
+                        "name": c.name,
+                        "controls": c.controls,
+                        "knots": c.knots,
+                        "corners": c.corners,
+                    }
                     for c in self.courses
                 ],
                 "model": self.model,

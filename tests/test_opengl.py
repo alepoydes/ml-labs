@@ -21,7 +21,7 @@ def test_headless_scene_renders_course_markers_and_robot():
     target = context.simple_framebuffer((600, 300))
     model = physics.robot()
     q = physics.initial_state(model).q.numpy()
-    course = Course("straight", np.array([[0.0, 0.0], [1.0, 0.0]]))
+    course = Course.polyline("straight", np.array([[0.0, 0.0], [1.0, 0.0]]))
     renderer.draw(
         target,
         600,
@@ -71,7 +71,7 @@ scene = graphics.Scene()
 failures, results = [], []
 scene.failed.connect(failures.append)
 model = physics.robot()
-scene.show_pose(Course('straight', np.array([[0., 0.], [1., 0.]])), physics.initial_state(model).q.numpy(), {k: v.numpy() for k, v in model._asdict().items()})
+scene.show_pose(Course.polyline('straight', np.array([[0., 0.], [1., 0.]])), physics.initial_state(model).q.numpy(), {k: v.numpy() for k, v in model._asdict().items()})
 scene.resize(700, 400)
 scene.show()
 def finish():

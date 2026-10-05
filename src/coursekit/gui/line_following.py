@@ -136,8 +136,8 @@ class LineFollowingPage(QWidget):
         course = self.courses[self.course.currentIndex()]
         model = physics.robot()
         q = physics.initial_state(model).q
-        q[:2] = torch.from_numpy(course.points[0].copy())
-        direction = course.points[1] - course.points[0]
+        q[:2] = torch.from_numpy(course.at(0.0).copy())
+        direction = course.at(0.0, derivative=1)
         q[5] = float(np.arctan2(direction[1], direction[0]))
         self.scene.show_pose(
             course, q.numpy(), {k: v.numpy() for k, v in model._asdict().items()}
@@ -321,8 +321,10 @@ class LineFollowingPage(QWidget):
             return
         try:
             record = recording.load(filename)
-            if (record["lab"], record["version"]) != ("line_following", 1):
-                raise ValueError("Expected a Line Following recording.")
+            if (record["lab"], record["version"]) != ("line_following", 2):
+                raise ValueError(
+                    "Expected Line Following spline recording version 2; old polyline recordings are incompatible."
+                )
             courses = [Course(**c) for c in record["courses"]]
             if record["frames"]["q"].shape[1:] != (len(courses), 8):
                 raise ValueError("Invalid recorded robot poses.")

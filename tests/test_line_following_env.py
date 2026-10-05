@@ -13,7 +13,7 @@ from coursekit.labs.line_following_env import (
 
 
 def straight(length=1.0, name="straight"):
-    return Course(name, np.array([[0.0, 0.0], [length, 0.0]]))
+    return Course.polyline(name, np.array([[0.0, 0.0], [length, 0.0]]))
 
 
 def test_batching_and_unrelated_resets_preserve_episode_conditions():

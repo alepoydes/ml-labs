@@ -99,3 +99,26 @@ def test_baseline_batch_memory_reversal_and_debug(project):
     action = solution.act(observation, torch.tensor([False, True]))
     assert (action[0] < 0).all() and (action[1] > 0).all()
     assert read_toml(work / "config.toml")["throttle"] > 0
+
+
+def test_local_evaluation_allows_online_gradient_adaptation(project):
+    class Adaptive:
+        def __init__(self):
+            self.parameter = torch.nn.Parameter(torch.tensor(0.1))
+            self.calls = 0
+
+        def act(self, observation, reset):
+            loss = (self.parameter - observation["gyro"][0, 0]).square()
+            loss.backward()
+            with torch.no_grad():
+                self.parameter -= 0.01 * self.parameter.grad
+                self.parameter.grad = None
+            self.calls += 1
+            return torch.zeros((len(reset), 2))
+
+    solution = Adaptive()
+    result = get_lab("line_following").evaluate(
+        solution, project / "data/line_following", compiled=False, time_limit=0.001
+    )
+    assert solution.calls == result["episodes"] == 4
+    assert solution.parameter.item() != pytest.approx(0.1)
