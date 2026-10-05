@@ -9,7 +9,7 @@ dependencies = [
     "joblib>=1.4",
     "pillow>=11",
     "matplotlib>=3.10",
-    "torch>=2.6",
+    "torch>=2.14",
     "filelock>=3.17",
     "marimo>=0.25.0",
 ]

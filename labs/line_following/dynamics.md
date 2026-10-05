@@ -31,8 +31,13 @@ L(q,v)=T(q,v)-V(q),\qquad
 p=\partial_v L,\qquad M(q)=\partial_v^2 L,\qquad v=M(q)^{-1}p.
 $$
 
-`grad` and `jacrev` compute these derivatives. Linear systems are solved without
-forming an inverse. Sphere rotational energy is accounted for separately as
+The implementation avoids the velocity Hessian. Stack linear and angular
+velocities weighted by square roots of masses and inertias into $w(q,v)$, so that
+$T=\lVert w\rVert^2/2$. At fixed $q$, this map is linear in $v$: evaluating it
+on the eight basis vectors gives the columns of $J$, and $M=J^T J$ exactly.
+This uses the same kinetic-energy definition, not a separately maintained mass
+formula or finite differences. `grad` computes momenta and the first derivatives
+of the discrete Lagrangian. Sphere rotational energy is accounted for separately as
 $\lVert s\rVert^2/(2I_b)$; its coupling to the body comes from bearing damping
 and floor contact, not a rigid rotational attachment.
 
@@ -87,9 +92,20 @@ L_d(q_0,q_1)=hL\left((q_0+q_1)/2,(q_1-q_0)/h\right),\qquad
 p_0=-D_1L_d,\quad p_1=D_2L_d.
 $$
 
-Five iterations solve the first equation, reusing a factorized Jacobian.
-The remaining residual must pass `check`. This $(q,p)$ map is second order and
-symplectic where the potential is smooth, up to the nonlinear solve error. It
+Five Broyden iterations solve the first equation without its coordinate Hessian.
+For $F(q_1)=p_0+D_1L_d(q_0,q_1)$, the initial inverse Jacobian approximation is
+$H_0=-hM(q_0)^{-1}$, obtained with one linear solve. Each iteration takes
+$s=-HF$, evaluates the residual change $y$, and applies the rank-one update
+
+$$
+H\leftarrow H+\frac{(s-Hy)s^T H}{s^T H y}.
+$$
+
+Updates with tiny secant denominators are skipped. Subsequent iterations need
+residual evaluations and matrix-vector products, not new Jacobians or matrix
+factorizations. The final residual must pass `check`; a failed solve is never
+silently accepted. This $(q,p)$ map is second order and symplectic where the
+potential is smooth, up to the nonlinear solve error. It
 also includes gravity and contact elasticity. Symplecticity does not mean exact
 energy conservation. Contact activation is nonsmooth.
 
@@ -112,26 +128,41 @@ From the student project environment:
 
 ```python
 import torch
-from coursekit.labs.line_following import check, initial_state, robot, step
+from coursekit.labs.line_following import check, compile_step, initial_state, robot, step
 
 torch.set_num_threads(1)
 model = robot()
 state = initial_state(model)
 action = state.q.new_tensor([0.2, 0.2])
-advance = torch.compile(step, fullgraph=True)
+advance = compile_step()
 for _ in range(1000):
     state, diagnostics = advance(state, action, model)
     check(state, diagnostics)
 ```
 
-Use `advance = step` to inspect ordinary Python execution. Compilation needs the
-PyTorch-supported compiler toolchain and has a substantial first-call cost;
-steady simulation reuses the compiled graph. It does not select different physics.
-`torch.vmap(step, in_dims=(0, 0, None))` runs stacked states and actions with one
-shared robot; use `in_dims=(0, 0, 0)` for stacked parameter sets. Compile the
-batched function for training. Do not put these calculations in
-`torch.inference_mode`, which disables the forward differentiation used for
-kinematics. A complete rollout is not a smooth function at impacts, friction
+Use `advance = step` to inspect ordinary Python execution. `compile_step` compiles
+three kernels: resistance, the conservative solve, and terminal-state handling.
+Both half steps reuse the same resistance kernel. Compilation needs PyTorch 2.14
+or later and its supported compiler
+toolchain; the first call has a substantial cost. Construct `advance` once,
+outside the rollout loop.
+
+For stacked states and actions, use `compile_step(batched=True)`. Add
+`model_batched=True` when each robot has its own stacked parameter set. The eager
+equivalents are `torch.vmap(step, in_dims=(0, 0, None))` for shared parameters and
+`in_dims=(0, 0, 0)` for per-robot parameters.
+
+Compilation specializes on shapes, dtype, device, and Python settings such as
+`dt`. A new batch size creates new compiled variants; revisiting a cached size
+reuses them. Keep the environment count fixed during training rollouts. Changing
+tensor values, including actions and robot parameters, does not require new
+variants when shapes and layouts stay the same. Successive steps and both
+resistance half steps use compatible layouts. Dynamic batch sizes are not
+supported by this compilation helper.
+
+Do not put these calculations in `torch.inference_mode`, which disables the
+forward differentiation used for kinematics. A complete rollout is not a smooth
+function at impacts, friction
 transitions, or termination; autodiff mechanics alone does not promise useful
 policy gradients through these events.
 
@@ -144,4 +175,4 @@ assessment parameter family still requires calibration and validation.
 The [physics tests](../../tests/test_line_following.py) cover independent
 kinematic checks, positive inertia, free fall, conserved momenta, symplecticity,
 time reversal, passive losses, friction disks, solver and time-step convergence,
-terminal falls, batching, and compiler graph capture.
+terminal falls, batching, and compiler graph capture and reuse.

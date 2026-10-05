@@ -6,11 +6,12 @@ The homogeneous sphere needs no orientation state. Body angles form a local
 chart: an episode ends well before roll or pitch can reach its singularities.
 """
 
+from functools import partial
 from typing import NamedTuple
 
 import torch
 from torch import Tensor
-from torch.func import grad, jacrev, jvp
+from torch.func import grad, jacrev, jvp, vmap
 
 
 class Robot(NamedTuple):
@@ -117,19 +118,33 @@ def potential(q: Tensor, model: Robot) -> Tensor:
     return model.gravity * (model.mass * centres(q, model)[:, 2]).sum() + elastic
 
 
-def lagrangian(q: Tensor, v: Tensor, model: Robot) -> Tensor:
+def weighted_velocity(q: Tensor, v: Tensor, model: Robot) -> Tensor:
+    """Scale linear/angular velocities so their squared norm is twice kinetic energy."""
     linear, omega, r = motion(q, v, model)
     local = r.T @ omega
     wheel = local[None] + torch.stack((v[6:] * 0, v[6:], v[6:] * 0), dim=-1)
-    kinetic = (model.mass[:, None] * linear.square()).sum()
-    kinetic = kinetic + (model.inertia[0] * local.square()).sum()
-    kinetic = kinetic + (model.inertia[1:3] * wheel.square()).sum()
+    return torch.cat(
+        (
+            (model.mass[:, None].sqrt() * linear).flatten(),
+            model.inertia[0].sqrt() * local,
+            (model.inertia[1:3].sqrt() * wheel).flatten(),
+        )
+    )
+
+
+def lagrangian(q: Tensor, v: Tensor, model: Robot) -> Tensor:
     # Sphere rotation is independent and isotropic; spin stores its momentum.
-    return 0.5 * kinetic - potential(q, model)
+    return 0.5 * weighted_velocity(q, v, model).square().sum() - potential(q, model)
 
 
 momentum = grad(lagrangian, argnums=1)
-mass_matrix = jacrev(momentum, argnums=1)
+
+
+def mass_matrix(q: Tensor, v: Tensor, model: Robot) -> Tensor:
+    # weighted_velocity is linear in v: its values on the basis are J's columns.
+    basis = torch.eye(8, dtype=q.dtype, device=q.device)
+    rows = vmap(weighted_velocity, in_dims=(None, 0, None))(q, basis, model)
+    return rows @ rows.T
 
 
 def velocity(state: State, model: Robot) -> Tensor:
@@ -162,20 +177,34 @@ def discrete_lagrangian(q0: Tensor, q1: Tensor, model: Robot, dt: float) -> Tens
 
 left_momentum = grad(discrete_lagrangian, argnums=0)
 right_momentum = grad(discrete_lagrangian, argnums=1)
-step_jacobian = jacrev(left_momentum, argnums=1)
 
 
 def conservative_step(state: State, model: Robot, dt: float, iterations=5):
-    """Midpoint variational step, solved with a frozen Jacobian and checked residual."""
+    """Midpoint variational step with Broyden updates and a checked residual."""
     q0, p0, spin, fallen = state
-    q1 = q0 + dt * velocity(state, model)
-    derivative = step_jacobian(q0, q1, model, dt)
-    factor, pivots = torch.linalg.lu_factor(derivative)
+    mass = mass_matrix(q0, torch.zeros_like(q0), model)
+    # Initial inverse Jacobian: H = -h M(q0)^(-1).
+    inverse = torch.linalg.solve(mass, -dt * torch.eye(8, dtype=q0.dtype, device=q0.device))
+    q1 = q0 - inverse @ p0
+    residual = p0 + left_momentum(q0, q1, model, dt)
     for _ in range(iterations):
-        residual = p0 + left_momentum(q0, q1, model, dt)
-        q1 = q1 - torch.linalg.lu_solve(factor, pivots, residual[:, None])[:, 0]
-    residual = torch.linalg.vector_norm(p0 + left_momentum(q0, q1, model, dt))
-    return State(q1, right_momentum(q0, q1, model, dt), spin, fallen), residual
+        delta = -inverse @ residual
+        next_q = q1 + delta
+        next_residual = p0 + left_momentum(q0, next_q, model, dt)
+        # A secant at floating-point resolution cannot improve the matrix.
+        threshold = (
+            64 * torch.finfo(q0.dtype).eps * (1 + torch.linalg.vector_norm(q1))
+        ) ** 2
+        change = inverse @ (next_residual - residual)
+        denominator = delta.dot(change)
+        valid = denominator.abs() > threshold
+        update = torch.outer(delta - change, delta @ inverse)
+        inverse = inverse + torch.where(
+            valid, update / torch.where(valid, denominator, 1), 0
+        )
+        q1, residual = next_q, next_residual
+    p1 = right_momentum(q0, q1, model, dt)
+    return State(q1, p1, spin, fallen), torch.linalg.vector_norm(residual)
 
 
 def contact_velocity(q: Tensor, speeds: Tensor, model: Robot) -> Tensor:
@@ -195,20 +224,20 @@ contact_jacobian = jacrev(contact_velocity, argnums=1)
 spin_jacobian = jacrev(relative_spin, argnums=1)
 
 
-def resistance_step(state: State, action: Tensor, model: Robot, dt: float, sweeps=16):
+def resistance(
+    q: Tensor, total: Tensor, action: Tensor, model: Robot, dt: float, sweeps=16
+):
     """Implicit bearing damping, compression damping, and Coulomb friction.
 
     Contact impulses minimise kinetic energy at fixed configuration. Tangential
     impulses share a disk bound, so both sliding directions use the same traction.
     """
-    q, p, spin, fallen = state
     mass = mass_matrix(q, torch.zeros_like(q), model)
     matrix = torch.block_diag(
         mass, model.inertia[3, 0] * torch.eye(3, dtype=q.dtype, device=q.device)
     )
     zero = q.new_zeros(11)
     b = spin_jacobian(q, zero, model)
-    total = torch.cat((p, spin))
     speeds = torch.linalg.solve(matrix, total)
     torque = model.stall * (action.clamp(-1, 1) - speeds[6:8] / model.speed).clamp(-1, 1)
     drive = torch.cat((q.new_zeros(6), torque, q.new_zeros(3)))
@@ -252,22 +281,18 @@ def resistance_step(state: State, action: Tensor, model: Robot, dt: float, sweep
         tangent_impulse = (trial * (bound / norm).clamp_max(1)[:, None]).reshape(6)
     total = total + normal_jac.T @ normal_impulse + tangent_jac.T @ tangent_impulse
     impulse = torch.cat((tangent_impulse.reshape(3, 2), normal_impulse[:, None]), dim=1)
-    return State(q, total[:8], total[8:], fallen), impulse
+    return total, impulse
 
 
-def step(state: State, action: Tensor, model: Robot, dt=0.001):
-    """One physical step. Compile this same function for faster repeated steps.
+def resistance_step(
+    state: State, action: Tensor, model: Robot, dt: float, sweeps=16, *, kernel=resistance
+):
+    total = torch.cat((state.p, state.spin), dim=-1)
+    total, impulse = kernel(state.q, total, action, model, dt, sweeps)
+    return State(state.q, total[..., :8], total[..., 8:], state.fallen), impulse
 
-    The conservative core is second order and symplectic up to its solve error.
-    Contact resistance uses dissipative first-order substeps. The complete map
-    is not symplectic. A fallen state is terminal and remains unchanged. Use
-    float64, call check after each step, and do not use torch.inference_mode.
-    """
-    if dt <= 0:
-        raise ValueError("The physical time step must be positive.")
-    first, impulse0 = resistance_step(state, action, model, dt / 2)
-    middle, residual = conservative_step(first, model, dt)
-    last, impulse1 = resistance_step(middle, action, model, dt / 2)
+
+def finish_step(state: State, last: State, residual: Tensor, impulse: Tensor):
     fallen = state.fallen | (rotation(last.q)[2, 2] <= last.q.new_tensor(0.9).cos())
     result = State(
         torch.where(state.fallen, state.q, last.q),
@@ -277,7 +302,55 @@ def step(state: State, action: Tensor, model: Robot, dt=0.001):
     )
     return result, Diagnostics(
         torch.where(state.fallen, 0, residual),
-        torch.where(state.fallen, 0, impulse0 + impulse1),
+        torch.where(state.fallen, 0, impulse),
+    )
+
+
+def step(
+    state: State,
+    action: Tensor,
+    model: Robot,
+    dt=0.001,
+    *,
+    kernels=(conservative_step, resistance_step, finish_step),
+):
+    """One physical step; compile_step accelerates these same kernels.
+
+    The conservative core is symplectic up to its solve error; the complete
+    dissipative map is not. Use float64 and check every step. Do not use
+    torch.inference_mode: kinematics needs forward differentiation.
+    """
+    if dt <= 0:
+        raise ValueError("The physical time step must be positive.")
+    conservative, resist, finish = kernels
+    first, impulse0 = resist(state, action, model, dt / 2)
+    middle, residual = conservative(first, model, dt)
+    last, impulse1 = resist(middle, action, model, dt / 2)
+    return finish(state, last, residual, impulse0 + impulse1)
+
+
+def compile_step(*, batched=False, model_batched=False, backend="inductor"):
+    """Compile reusable resistance, conservative, and terminal kernels.
+
+    Shapes, dtype, device and Python settings specialize kernels. Construct once
+    and keep the batch size fixed during a rollout. Parameter values may change.
+    """
+    if model_batched and not batched:
+        raise ValueError("Batched parameters require batched states.")
+    md = 0 if model_batched else None
+
+    def compile_kernel(fn, dims):
+        fn = vmap(fn, in_dims=dims) if batched else fn
+        return torch.compile(
+            fn, backend=backend, fullgraph=True, dynamic=False, isolate_recompiles=True
+        )
+
+    conservative = compile_kernel(conservative_step, (0, md, None))
+    resist = compile_kernel(resistance, (0, 0, 0, md, None, None))
+    finish = compile_kernel(finish_step, (0, 0, 0, 0))
+    return partial(
+        step,
+        kernels=(conservative, partial(resistance_step, kernel=resist), finish),
     )
 
 

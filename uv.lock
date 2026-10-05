@@ -124,7 +124,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=11" },
     { name = "scikit-learn", specifier = ">=1.6" },
     { name = "scipy", specifier = ">=1.15" },
-    { name = "torch", specifier = ">=2.6", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "torch", specifier = ">=2.14", index = "https://download.pytorch.org/whl/cpu" },
 ]
 
 [package.metadata.requires-dev]

@@ -46,6 +46,7 @@ def test_kinematics_and_mass():
     q, v = state.q, physics.velocity(state, model)
     matrix = physics.mass_matrix(q, v * 0, model)
     torch.testing.assert_close(matrix, matrix.T, atol=1e-14, rtol=0)
+    torch.testing.assert_close(matrix, jacrev(physics.momentum, argnums=1)(q, v, model))
     assert torch.linalg.eigvalsh(matrix).min() > 0
     torch.testing.assert_close(matrix @ v, state.p)
     linear, omega, rotation = physics.motion(q, v, model)
@@ -272,16 +273,58 @@ def test_smooth_conservative_trajectory_has_second_order_accuracy():
     assert 0.2 < fine / coarse < 0.3
 
 
-def test_compiler_captures_the_same_batched_engine():
+@pytest.mark.parametrize(
+    "batched, model_batched", [(False, False), (True, False), (True, True)]
+)
+def test_compiler_reuses_kernels_and_matches_eager(batched, model_batched):
     model = physics.robot()
     initial = moving_state(model, supported=True)
-    state = physics.State(*(value.expand(2, *value.shape).clone() for value in initial))
-    actions = state.q.new_tensor([[0.2, 0.2], [0.1, -0.1]])
-    batch_step = vmap(physics.step, in_dims=(0, 0, None))
     # Graph capture is portable; the instructor pilot also checks native codegen.
-    compiled = torch.compile(batch_step, backend="eager", fullgraph=True)
-    expected, _ = batch_step(state, actions, model)
-    actual, diagnostics = compiled(state, actions, model)
-    physics.check(actual, diagnostics)
-    for observed, reference in zip(actual, expected):
-        torch.testing.assert_close(observed, reference, atol=1e-12, rtol=1e-10)
+    graphs = []
+
+    def backend(graph, inputs):
+        graphs.append(graph)
+        return graph.forward
+
+    compiled = physics.compile_step(
+        batched=batched, model_batched=model_batched, backend=backend
+    )
+    eager = (
+        vmap(physics.step, in_dims=(0, 0, 0 if model_batched else None))
+        if batched
+        else physics.step
+    )
+    counts = {}
+    for size in (2, 3, 2) if batched else (1, 1):
+        state, parameters = initial, model
+        if batched:
+            state = physics.State(
+                *(value.expand(size, *value.shape).clone() for value in initial)
+            )
+        if model_batched:
+            parameters = physics.Robot(
+                *(value.expand(size, *value.shape).clone() for value in model)
+            )
+            parameters.mass[0] *= 1.2
+            parameters.inertia[0] *= 1.2
+        action = state.q.new_full((*state.q.shape[:-1], 2), 0.1)
+        previous = len(graphs)
+        for iteration in range(3):
+            expected, reference_info = eager(state, action, parameters)
+            actual, diagnostics = compiled(state, action, parameters)
+            physics.check(actual, diagnostics)
+            for observed, reference in zip(actual, expected):
+                torch.testing.assert_close(observed, reference, atol=1e-12, rtol=1e-10)
+            for observed, reference in zip(diagnostics, reference_info):
+                torch.testing.assert_close(observed, reference, atol=1e-12, rtol=1e-10)
+            if iteration == 0 and size not in counts:
+                assert len(graphs) > previous
+                counts[size] = len(graphs) - previous
+                previous = len(graphs)
+            assert len(graphs) == previous
+            state = actual
+            action = -action
+            parameters = parameters._replace(
+                mass=parameters.mass * 1.01, inertia=parameters.inertia * 1.01
+            )
+    assert len(set(counts.values())) == 1
