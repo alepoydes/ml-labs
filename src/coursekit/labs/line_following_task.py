@@ -40,7 +40,15 @@ def data_fingerprint(data: Path) -> str:
     )
 
 
-def evaluate(solution, data: Path, split="validation", *, compiled=True, time_limit=None):
+def evaluate(
+    solution,
+    data: Path,
+    split="validation",
+    *,
+    compiled=True,
+    time_limit=None,
+    progress=None,
+):
     """Run the entire fixed set; any numerical or controller error aborts the result.
 
     Local solutions reset through the normal mask. The instructor proxy additionally
@@ -53,10 +61,28 @@ def evaluate(solution, data: Path, split="validation", *, compiled=True, time_li
     for index, (course, seed) in enumerate(episodes):
         if index:
             env.reset(courses=[course], seeds=[seed])
+        if progress:
+            progress(
+                {
+                    "case": index + 1,
+                    "cases": len(episodes),
+                    "phase": "preparing physics / controller",
+                }
+            )
+        steps = 0
         while not env.done.all():
             action = solution.act(env.observe(), env.first)
             validate_action(action, 1)
             env.step(action)
+            steps += 1
+            if progress and (steps % 25 == 0 or env.done.all()):
+                progress(
+                    {
+                        "case": index + 1,
+                        "cases": len(episodes),
+                        "seconds": float(env.info()["time"][0]),
+                    }
+                )
         info = env.info()
         scores.append(float(info["score"][0]))
         statuses.append(str(info["status"][0]))
