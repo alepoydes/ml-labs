@@ -55,6 +55,8 @@ $v_c+\omega\times r_c$. Differentiating only the geometric lowest point would
 incorrectly remove wheel spin from slip. Contact Jacobians map world impulses
 to generalized momenta, so changing tilt and load affects both traction and body
 motion. No rolling constraint forces wheel rotation to equal ground travel.
+At fixed pose, velocity and both contact responses share one inertia solve
+with multiple right-hand sides, so the matrix is factorized only once.
 
 At each contact, longitudinal and lateral friction share a single disk
 $\lVert\lambda_t\rVert\leq\mu\lambda_n$. Projected iterations minimize kinetic

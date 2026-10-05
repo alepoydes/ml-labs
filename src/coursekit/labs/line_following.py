@@ -238,7 +238,14 @@ def resistance(
     )
     zero = q.new_zeros(11)
     b = spin_jacobian(q, zero, model)
-    speeds = torch.linalg.solve(matrix, total)
+    jac = contact_jacobian(q, zero, model)
+    normal_jac = jac[:, 2, :]
+    tangent_jac = jac[:, :2, :].reshape(6, 11)
+    # One factorization supplies velocity and both contact responses.
+    response = torch.linalg.solve(
+        matrix, torch.cat((total[:, None], normal_jac.T, tangent_jac.T), dim=1)
+    )
+    speeds = response[:, 0]
     torque = model.stall * (action.clamp(-1, 1) - speeds[6:8] / model.speed).clamp(-1, 1)
     drive = torch.cat((q.new_zeros(6), torque, q.new_zeros(3)))
     total = total + dt * drive
@@ -248,10 +255,7 @@ def resistance(
     gap, _ = contact_geometry(q, model)
     active = gap <= 0
     normal = -model.stiffness * gap.clamp_max(0)
-    jac = contact_jacobian(q, zero, model)
-    normal_jac = jac[:, 2, :]
-    tangent_jac = jac[:, :2, :].reshape(6, 11)
-    normal_response = torch.linalg.solve(matrix, normal_jac.T)
+    normal_response = response[:, 1:4]
     normal_mobility = normal_jac @ normal_response
     rate = normal_mobility.abs().sum(-1).max().reciprocal()
     damping = dt * model.compression * active
@@ -262,7 +266,7 @@ def resistance(
         normal_impulse = (trial * damping / (damping + rate)).clamp_min(0)
     speeds = speeds + normal_response @ normal_impulse
 
-    tangent_response = torch.linalg.solve(matrix, tangent_jac.T)
+    tangent_response = response[:, 4:]
     tangent_mobility = tangent_jac @ tangent_response
     # One scalar per contact keeps the friction projection a Euclidean disk.
     scale = tangent_mobility.diagonal().reshape(3, 2).sum(-1).reciprocal()
