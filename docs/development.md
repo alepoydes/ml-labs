@@ -88,6 +88,8 @@ The launcher installs the locked optional Qt and ModernGL dependencies. Select a
 working solution directory; the viewer uses its existing artifacts. It never trains
 implicitly. Model calls run as ordinary Python in a computation thread, with original
 tracebacks in the terminal. Qt owns the main thread.
+Use the window buttons to minimize, maximize or close. F11 enters fullscreen and
+Escape restores the preceding state; these actions are also in the Window menu.
 
 Blindjack offers solution inspection, manual play, and comparison on the same hands.
 In comparison mode, commit your cards before seeing either the labels or the model's

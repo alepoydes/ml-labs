@@ -86,6 +86,25 @@ def evaluate(
         info = env.info()
         scores.append(float(info["score"][0]))
         statuses.append(str(info["status"][0]))
+        if progress:
+            progress(
+                {
+                    "case": index + 1,
+                    "cases": len(episodes),
+                    "metrics": {
+                        "score": scores[-1],
+                        "status": statuses[-1],
+                        "time": float(info["time"][0]),
+                        "reference_time": float(info["reference_time"][0]),
+                        "progress": float(info["progress"][0]),
+                        "route_length": 2 * course.length,
+                        "leg": "return" if info["leg"][0] else "outward",
+                        "outward_time": float(info["outward_time"][0])
+                        if np.isfinite(info["outward_time"][0])
+                        else None,
+                    },
+                }
+            )
         if statuses[-1] == "finished":
             times.append(float(info["time"][0]))
     return {

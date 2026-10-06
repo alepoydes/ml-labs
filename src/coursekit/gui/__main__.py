@@ -10,6 +10,9 @@ from PySide6.QtWidgets import QApplication, QMainWindow
 class Window(QMainWindow):
     def __init__(self, page, lab):
         super().__init__()
+        from coursekit.gui.window import window_actions
+
+        self.window_actions = window_actions(self)
         self.page = page
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setCentralWidget(page)

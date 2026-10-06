@@ -126,7 +126,25 @@ def evaluate(solution, data: Path, split: str = "validation", *, progress=None) 
         busts += int(values[mask].sum() > 21)
         rewards.append(reward(values, mask))
         if progress:
-            progress({"case": index + 1, "cases": len(hands)})
+            total = int(values[mask].sum())
+            progress(
+                {
+                    "case": index + 1,
+                    "cases": len(hands),
+                    "metrics": {
+                        "score": rewards[-1] * 100 / 21,
+                        "reward": rewards[-1],
+                        "total": total,
+                        "selected_cards": int(mask.sum()),
+                        "mask": mask.tolist(),
+                        "status": "bust"
+                        if total > 21
+                        else "perfect"
+                        if total == 21
+                        else "played",
+                    },
+                }
+            )
     return {
         "hands": len(hands),
         "mean_reward": float(np.mean(rewards)),
