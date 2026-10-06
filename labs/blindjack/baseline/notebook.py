@@ -10,6 +10,7 @@ app = marimo.App()
 def _():
     from pathlib import Path
 
+    import marimo as mo
     import matplotlib.pyplot as plt
     import numpy as np
     from sklearn.metrics import ConfusionMatrixDisplay, accuracy_score
@@ -24,6 +25,7 @@ def _():
         accuracy_score,
         benchmark,
         load_split,
+        mo,
         np,
         plt,
         read_toml,
@@ -31,6 +33,23 @@ def _():
         reward,
         training,
     )
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    # Blindjack · Understand your baseline
+
+    Follow the data from image pixels to predicted values and the final card selection.
+    Edit the assignments below to choose examples and a validation hand. Keep model
+    changes in `train.py`, `solution.py` and `lib/` so the notebook and CLI use the same code.
+
+    **Workflow:** inspect inputs → read saved training curves → examine errors → inspect a hand.
+    Training is opt-in in the **Training results** section; opening this notebook does not train.
+
+    ## 1. Configuration and input images
+    """)
+    return
 
 
 @app.cell
@@ -74,7 +93,9 @@ def _(config, data_dir, load_split, np, plt, sample_indices, seed, solution_dir,
     print("Images:", examples.shape, examples.dtype, "Features:", features.shape)
     print("Training class counts:", np.bincount(train_labels, minlength=11))
     print(untrained_model)
-    _fig, _axes = plt.subplots(2, len(examples), squeeze=False)
+    _fig, _axes = plt.subplots(
+        2, len(examples), squeeze=False, figsize=(12, 4), layout="constrained"
+    )
     for _i, _image in enumerate(examples):
         _axes[0, _i].imshow(_image)
         _axes[0, _i].set_title(f"Label {train_labels[sample_indices[_i]]}")
@@ -84,6 +105,18 @@ def _(config, data_dir, load_split, np, plt, sample_indices, seed, solution_dir,
     _fig.suptitle("Original images / model inputs (white restored for display)")
     plt.close(_fig)
     _fig
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ## 2. Training results
+
+    Read the saved run below. To train from scratch, uncomment `training.train_local`
+    in the next cell, execute it, then comment it again before continuing.
+    Compare loss with internal holdout accuracy: falling loss alone does not show generalization.
+    """)
     return
 
 
@@ -110,6 +143,18 @@ def _(history, plt, resource_hash, saved):
     _fig.tight_layout()
     plt.close(_fig)
     _fig
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ## 3. Public validation and mistakes
+
+    Rows in the confusion matrix are true values; columns are predicted values.
+    Inspect the first misclassified images and their class probabilities below.
+    Public validation is separate from the holdout used during training.
+    """)
     return
 
 
@@ -172,7 +217,9 @@ def _(
         _probabilities = predict_probabilities(solution.model, _images, solution.resolution)
         print("Image indices:", wrong, "Probability columns:", solution.model.classes_)
         print(_probabilities.round(3))
-        _fig, _axes = plt.subplots(1, len(wrong), squeeze=False)
+        _fig, _axes = plt.subplots(
+            1, len(wrong), squeeze=False, figsize=(12, 2.5), layout="constrained"
+        )
         for _ax, _index, _image in zip(_axes[0], wrong, _images):
             _ax.imshow(_image)
             _ax.set_title(
@@ -183,6 +230,19 @@ def _(
     else:
         _fig = "No classification errors on public validation."
     _fig
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ## 4. From predictions to a decision
+
+    Change `hand_number` near the top to inspect another hand. The labels below are
+    the true card values; the selected cards come from the saved model's `select()`.
+    A total above 21 scores zero. Use **view_lab blindjack** to compare your own choices
+    against the model without seeing the answers first.
+    """)
     return
 
 

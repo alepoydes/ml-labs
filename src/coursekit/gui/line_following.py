@@ -4,102 +4,131 @@ import numpy as np
 import torch
 from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
-    QSlider,
     QSpinBox,
-    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
 from coursekit import recording, resources
-from coursekit.gui.common import Diagnostics, SolutionPath, pixmap
+from coursekit.gui.common import Job, Notice, SolutionPath, heading
 from coursekit.gui.line_run import Run
+from coursekit.gui.playback import Playback
+from coursekit.gui.robot_view import RobotView, recorded_courses
 from coursekit.gui.scene import Scene
+from coursekit.gui.style import apply_style
 from coursekit.labs import line_following as physics
-from coursekit.labs.line_following_course import Course, load_courses
-from coursekit.labs.line_following_env import CONTROL_STEPS
+from coursekit.labs.line_following_course import load_courses
+from coursekit.labs.line_following_env import CONTROL_STEPS, PHYSICS_DT
 
 
 class LineFollowingPage(QWidget):
     def __init__(self, project):
         super().__init__()
+        apply_style(self)
         self.project = Path(project)
-        self.job = self.replay = None
+        self.job = self.preparation = self.replay = None
         self.courses = []
         self.live, self.shown = True, None
+        self.saved_frames = 0
         self.chooser = SolutionPath(self.project, "line_following")
         self.course = QComboBox()
-        self.seed = QSpinBox()
+        self.course.setMinimumContentsLength(14)
+        self.seed, self.batch, self.episode = QSpinBox(), QSpinBox(), QSpinBox()
         self.seed.setRange(0, 2**31 - 1)
-        self.batch = QSpinBox()
         self.batch.setRange(1, 32)
-        self.episode = QSpinBox()
+        self.batch.setToolTip(
+            "Run consecutive courses with consecutive robot seeds in one batch."
+        )
         self.episode.setRange(1, 1)
         self.start_button = QPushButton("New run")
+        self.start_button.setProperty("primary", True)
         self.play_button = QPushButton("Resume live")
-        self.pause_button = QPushButton("Pause")
-        self.stop_button = QPushButton("Stop")
-        self.physics_button = QPushButton("+1 ms")
-        self.control_button = QPushButton("Next control")
-        self.speed = QComboBox()
-        self.speed.addItems(["0.1×", "0.25×", "0.5×", "1×", "2×", "5×", "20×"])
-        self.speed.setCurrentIndex(3)
-        self.scene = Scene()
-        self.diagnostics = Diagnostics()
-        self.sensors = QLabel("Sensor readings appear after the first controller call.")
-        self.sensors.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.message, self.status = QLabel(), QLabel()
-        self.message.setWordWrap(True)
+        self.pause_button, self.stop_button = (
+            QPushButton("Pause live"),
+            QPushButton("Stop run"),
+        )
+        self.physics_button, self.control_button = (
+            QPushButton("Step 1 ms"),
+            QPushButton("Step control"),
+        )
+        self.prepare_button = QPushButton("Prepare courses")
+        self.save_button, self.open_button = (
+            QPushButton("Save recording…"),
+            QPushButton("Open recording…"),
+        )
+        self.setup_button = QPushButton("Run setup")
+        self.setup_button.setCheckable(True)
+        self.setup_button.setChecked(True)
+        self.view = RobotView(Scene())
+        self.scene, self.diagnostics, self.sensors, self.status = (
+            self.view.scene,
+            self.view.diagnostics,
+            self.view.sensor,
+            self.view.status,
+        )
+        self.message = Notice()
         self.scene.failed.connect(self.message.setText)
-        self.timeline = QSlider(Qt.Orientation.Horizontal)
-        self.timeline.setRange(0, 0)
-        top, controls, history = QHBoxLayout(), QHBoxLayout(), QHBoxLayout()
-        top.addWidget(self.chooser, 1)
+        self.playback = Playback()
+        self.timeline, self.speed = self.playback.slider, self.playback.speed
+        self.playback.changed.connect(self.seek)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 16, 20, 12)
+        layout.setSpacing(8)
+        header = QHBoxLayout()
+        header.addWidget(
+            heading(
+                "Line Following",
+                "Run a controller, inspect its sensors, or replay a saved run.",
+            ),
+            1,
+        )
+        header.addWidget(self.open_button)
+        header.addWidget(self.save_button)
+        header.addWidget(self.setup_button)
+        layout.addLayout(header)
+        self.setup = QWidget()
+        form = QVBoxLayout(self.setup)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.addWidget(self.chooser)
+        setup = QHBoxLayout()
         for widget in [
+            QLabel("Course"),
             self.course,
-            QLabel("Seed"),
+            QLabel("Robot seed"),
             self.seed,
             QLabel("Batch"),
             self.batch,
             self.start_button,
+            self.prepare_button,
         ]:
-            top.addWidget(widget)
+            setup.addWidget(widget)
+        setup.addStretch()
+        form.addLayout(setup)
+        layout.addWidget(self.setup)
+        self.control_bar = QWidget()
+        live = QHBoxLayout(self.control_bar)
+        live.setContentsMargins(0, 0, 0, 0)
         for widget in [
             self.play_button,
             self.pause_button,
             self.physics_button,
             self.control_button,
             self.stop_button,
-            self.speed,
-            QLabel("Robot"),
-            self.episode,
         ]:
-            controls.addWidget(widget)
-        follow, overhead = QCheckBox("Follow robot"), QCheckBox("Top view")
-        save, open_record = QPushButton("Save recording…"), QPushButton("Open recording…")
-        for widget in [follow, overhead, self.timeline, save, open_record]:
-            history.addWidget(widget)
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.addWidget(self.scene, 1)
-        left_layout.addWidget(self.sensors)
-        split = QSplitter()
-        split.addWidget(left)
-        split.addWidget(self.diagnostics)
-        split.setStretchFactor(0, 3)
-        split.setStretchFactor(1, 1)
-        layout = QVBoxLayout(self)
-        layout.addLayout(top)
-        layout.addLayout(controls)
-        layout.addWidget(split, 1)
-        layout.addLayout(history)
-        layout.addWidget(self.status)
+            live.addWidget(widget)
+        live.addStretch()
+        self.robot_label = QLabel("View robot")
+        live.addWidget(self.robot_label)
+        live.addWidget(self.episode)
+        layout.addWidget(self.control_bar)
+        layout.addWidget(self.view, 1)
+        layout.addWidget(self.playback)
         layout.addWidget(self.message)
         self.start_button.clicked.connect(self.start)
         self.play_button.clicked.connect(self.resume)
@@ -108,30 +137,56 @@ class LineFollowingPage(QWidget):
         self.physics_button.clicked.connect(lambda: self.step(False))
         self.control_button.clicked.connect(lambda: self.step(True))
         self.speed.currentIndexChanged.connect(self.change_speed)
-        self.timeline.valueChanged.connect(self.seek)
         self.episode.valueChanged.connect(self.render)
         self.course.currentIndexChanged.connect(self.preview)
-        save.clicked.connect(self.save)
-        open_record.clicked.connect(self.open_recording)
-        follow.toggled.connect(lambda value: self.camera("follow", value))
-        overhead.toggled.connect(lambda value: self.camera("top", value))
+        self.save_button.clicked.connect(self.save)
+        self.open_button.clicked.connect(self.open_recording)
+        self.prepare_button.clicked.connect(self.prepare)
+        self.setup_button.toggled.connect(self.setup.setVisible)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(50)
-        try:
-            spec = resources.manifest(self.project / "labs/line_following/resources.toml")
-            resources.sync(self.project / "data/line_following", spec)
-            self.courses = load_courses(self.project / "data/line_following/courses.npz")
+        self.prepare()
+
+    def prepare(self):
+        if self.preparation is not None:
+            return
+
+        def load():
+            resources.sync(
+                self.project / "data/line_following",
+                resources.manifest(self.project / "labs/line_following/resources.toml"),
+            )
+            return load_courses(self.project / "data/line_following/courses.npz")
+
+        self.message.setText("Preparing verified courses…")
+        self.preparation = Job(load, self)
+        self.preparation.finished.connect(self.prepared, Qt.ConnectionType.QueuedConnection)
+        self.preparation.start()
+        self.buttons()
+
+    @Slot()
+    def prepared(self):
+        job, self.preparation = self.preparation, None
+        if job.error:
+            self.message.setText(job.error)
+        else:
+            self.courses = job.value
+            self.course.clear()
             self.course.addItems([c.name for c in self.courses])
             self.message.setText(
-                "Choose a course and solution. New runs start paused; mouse wheel zooms the scene."
+                "Choose a solution and course, then New run. The run starts paused."
             )
-        except Exception as exc:
-            self.message.setText(str(exc))
+        job.deleteLater()
         self.buttons()
 
     def preview(self):
-        if self.job is not None or self.replay is not None or not self.courses:
+        if (
+            self.job is not None
+            or self.replay is not None
+            or not self.courses
+            or self.course.currentIndex() < 0
+        ):
             return
         course = self.courses[self.course.currentIndex()]
         model = physics.robot()
@@ -142,18 +197,59 @@ class LineFollowingPage(QWidget):
         self.scene.show_pose(
             course, q.numpy(), {k: v.numpy() for k, v in model._asdict().items()}
         )
+        self.status.setText(
+            f"{course.name} · {course.length:.2f} m each way · course preview"
+        )
 
     def buttons(self):
         running = self.job is not None and self.job.isRunning()
-        self.start_button.setEnabled(bool(self.courses) and not running)
-        for widget in [self.play_button, self.pause_button, self.stop_button]:
-            widget.setEnabled(running)
-        for widget in [self.physics_button, self.control_button]:
-            widget.setEnabled(running or self.replay is not None)
+        ready = self.job is not None and self.job.snapshot() is not None
+        preparing = self.preparation is not None
+        self.start_button.setEnabled(bool(self.courses) and not running and not preparing)
+        for widget in [
+            self.chooser,
+            self.course,
+            self.seed,
+            self.batch,
+            self.prepare_button,
+        ]:
+            widget.setEnabled(not running and not preparing)
+        self.prepare_button.setVisible(not self.courses)
+        self.play_button.setEnabled(
+            running and ready and (self.job.paused or not self.live)
+        )
+        self.pause_button.setEnabled(running and ready and not self.job.paused)
+        self.stop_button.setEnabled(running)
+        self.physics_button.setEnabled(running and ready)
+        self.control_button.setEnabled(running and ready)
+        self.open_button.setEnabled(not running and not preparing)
+        self.save_button.setEnabled(ready or self.replay is not None)
+        self.episode.setEnabled(ready or self.replay is not None)
+        batch = (ready or self.replay is not None) and self.episode.maximum() > 1
+        self.control_bar.setVisible(running or batch)
+        for widget in [
+            self.play_button,
+            self.pause_button,
+            self.stop_button,
+            self.physics_button,
+            self.control_button,
+        ]:
+            widget.setVisible(running)
+        self.robot_label.setVisible(batch)
+        self.episode.setVisible(batch)
+        self.playback.setVisible(ready or self.replay is not None)
 
     def start(self):
-        if self.job is not None and self.job.isRunning():
+        if (
+            not self.courses
+            or self.preparation is not None
+            or self.job is not None
+            and self.job.isRunning()
+        ):
             return
+        if not self.confirm_reset():
+            return
+        self.playback.pause()
         if self.job is not None:
             self.job.deleteLater()
         courses = [
@@ -168,11 +264,20 @@ class LineFollowingPage(QWidget):
         )
         self.job.finished.connect(self.finished_run, Qt.ConnectionType.QueuedConnection)
         self.replay, self.live, self.shown = None, True, None
+        self.saved_frames = 0
+        self.episode.blockSignals(True)
         self.episode.setMaximum(len(courses))
+        self.episode.setValue(1)
+        self.episode.blockSignals(False)
+        self.playback.set_frames(0, PHYSICS_DT)
+        self.diagnostics.show_snapshot({})
+        self.sensors.clear()
+        self.sensors.setText("Waiting for the first controller call.")
         self.message.setText(
-            "Loading solution and preparing physics. The first native compilation can take time."
+            "Loading solution and preparing physics. The first compilation can take time; Stop remains available."
         )
         self.job.start()
+        self.setup_button.setChecked(False)
         self.buttons()
 
     @Slot()
@@ -180,115 +285,123 @@ class LineFollowingPage(QWidget):
         if self.sender() is not self.job:
             return
         self.message.setText(
-            self.job.error or "Run stopped. Recorded history remains available."
+            self.job.error
+            or "Run ended. Play or inspect its recording below, or save it before starting another run."
         )
         self.refresh()
         self.buttons()
 
     def resume(self):
-        if self.job is not None:
+        if self.job is not None and self.job.isRunning():
+            self.playback.pause()
             self.live = True
-            self.job.command(paused=False, speed=float(self.speed.currentText()[:-1]))
+            self.job.command(paused=False, speed=self.speed.currentData())
+            self.message.setText(
+                "Live simulation. Pause or step to inspect; use the timeline to review recorded history."
+            )
+            self.buttons()
 
     def pause(self):
-        if self.job is not None:
+        if self.job is not None and self.job.isRunning():
             self.job.command()
+        self.buttons()
 
     def stop(self):
         if self.job is not None:
             self.job.command(stop=True)
+            self.message.setText("Stopping the run after the current computation finishes…")
 
     def shutdown(self):
         self.timer.stop()
+        self.playback.pause()
         self.scene.cleanup()
 
-    def change_speed(self):
-        if self.job is not None:
-            self.job.command(
-                paused=self.job.paused, speed=float(self.speed.currentText()[:-1])
+    def confirm_reset(self):
+        snapshot = self.job.snapshot() if self.job is not None else None
+        return (
+            snapshot is None
+            or snapshot[2] <= max(1, self.saved_frames)
+            or QMessageBox.question(
+                self,
+                "Replace current run?",
+                "This run has unsaved frames. Discard them? Use Save recording to keep them.",
+                QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
             )
+            == QMessageBox.StandardButton.Discard
+        )
+
+    def change_speed(self):
+        if self.job is not None and self.job.isRunning():
+            self.job.command(paused=self.job.paused, speed=self.speed.currentData())
 
     def step(self, control):
-        count = CONTROL_STEPS - self.timeline.value() % CONTROL_STEPS if control else 1
-        if self.timeline.value() < self.timeline.maximum() or self.replay is not None:
-            self.timeline.setValue(
-                min(self.timeline.maximum(), self.timeline.value() + count)
-            )
+        self.playback.pause()
+        index = self.timeline.value()
+        count = (
+            (1 if index == 0 else CONTROL_STEPS - (index - 1) % CONTROL_STEPS)
+            if control
+            else 1
+        )
+        if index < self.timeline.maximum() or self.replay is not None:
+            if control:
+                self.playback.next_control()
+            else:
+                self.playback.step(1)
         elif self.job is not None and self.job.isRunning():
             self.live = True
             self.job.command(steps=count)
+            self.buttons()
 
     def seek(self):
         self.live = False
         self.pause()
         self.render()
 
-    def camera(self, name, value):
-        setattr(self.scene, name, value)
-        self.scene.update()
-
     def refresh(self):
         if self.job is not None:
             snapshot = self.job.snapshot()
             if snapshot is None:
                 return
-            count = snapshot[2]
-            self.timeline.blockSignals(True)
-            self.timeline.setMaximum(count - 1)
-            if self.live:
-                self.timeline.setValue(count - 1)
-            self.timeline.blockSignals(False)
+            first = self.timeline.maximum() == 0 and self.shown is None
+            self.playback.set_frames(
+                snapshot[2], PHYSICS_DT, follow=self.live, control_steps=CONTROL_STEPS
+            )
+            if first and self.job.isRunning():
+                self.message.setText(
+                    "Ready · paused. Resume live to run, or Step 1 ms / Step control to advance precisely."
+                )
             if self.shown != (self.timeline.value(), self.episode.value()):
                 self.render()
+            self.buttons()
 
     def render(self):
         index, row = self.timeline.value(), self.episode.value() - 1
         if self.replay is not None:
             frames = self.replay["frames"]
             frame = {k: v[index] for k, v in frames.items()}
-            control = (
-                self.replay["controls"][frame["control"]] if frame["control"] >= 0 else None
+            course, model, controls = (
+                self.replay_courses[row],
+                self.replay["model"],
+                self.replay["controls"],
             )
-            course, model = self.replay_courses[row], self.replay["model"]
-            controls = self.replay["controls"]
+            pitch = frames["time"][: index + 1, row], frames["q"][: index + 1, row, 4]
         elif self.job is not None:
             snapshot = self.job.snapshot(index)
             if snapshot is None:
                 return
-            frame, control, _ = snapshot
-            course, model = self.job.courses[row], self.job.model
-            controls = self.job.controls
+            frame = snapshot[0]
+            course, model, controls = (
+                self.job.courses[row],
+                self.job.model,
+                self.job.controls,
+            )
+            history = self.job.frames[: index + 1]
+            pitch = [f["time"][row] for f in history], [f["q"][row, 4] for f in history]
         else:
             return
         self.shown = index, row + 1
-        self.scene.show_pose(course, frame["q"][row], {k: v[row] for k, v in model.items()})
-        self.status.setText(
-            f"t = {frame['time'][row]:.3f} s · {frame['status'][row]} · {'return' if frame['leg'][row] else 'outward'} · accepted {frame['progress'][row]:.3f} / {2 * course.length:.3f} m · score {frame['score'][row]:.2f} · frame {index}"
-        )
-        if control is None:
-            self.diagnostics.show_snapshot({})
-            self.sensors.clear()
-            self.sensors.setText("No controller call at this frame.")
-            return
-        observation = control["observation"]
-        rgb = np.rint(observation["rgb"][row][None] * 255).astype(np.uint8)
-        self.sensors.setPixmap(pixmap(rgb).scaled(512, 32))
-        values = {
-            **control["debug"][row],
-            **{f"sensor.{k}": v[row] for k, v in observation.items() if k != "rgb"},
-            "motor command": control["action"][row],
-        }
-        history = {}
-        for key, value in control["debug"][row].items():
-            if isinstance(value, (int, float)):
-                samples = [
-                    (c["observation"]["time"][row], c["debug"][row].get(key))
-                    for c in controls[: frame["control"] + 1]
-                ]
-                samples = [(t, v) for t, v in samples if isinstance(v, (int, float))]
-                if samples:
-                    history[key] = tuple(zip(*samples))
-        self.diagnostics.show_snapshot(values, history)
+        self.view.show_frame(course, frame, model, controls, row, pitch_history=pitch)
 
     def save(self):
         record = (
@@ -307,8 +420,12 @@ class LineFollowingPage(QWidget):
             "Recording (*.npz)",
         )
         if filename:
-            recording.save(filename, record)
-            self.message.setText(f"Saved {filename}")
+            try:
+                recording.save(filename, record)
+                self.saved_frames = len(record["frames"]["q"])
+                self.message.setText(f"Saved {filename}")
+            except Exception as exc:
+                self.message.setText(f"Cannot save recording: {exc}")
 
     def open_recording(self):
         if self.job is not None and self.job.isRunning():
@@ -321,27 +438,31 @@ class LineFollowingPage(QWidget):
             return
         try:
             record = recording.load(filename)
-            if (record["lab"], record["version"]) != ("line_following", 2):
-                raise ValueError(
-                    "Expected Line Following spline recording version 2; old polyline recordings are incompatible."
-                )
-            courses = [Course(**c) for c in record["courses"]]
-            if record["frames"]["q"].shape[1:] != (len(courses), 8):
-                raise ValueError("Invalid recorded robot poses.")
+            courses = recorded_courses(record)
+            if not self.confirm_reset():
+                return
+            self.playback.pause()
             if self.job is not None:
                 self.job.deleteLater()
             self.job, self.replay, self.replay_courses = None, record, courses
+            self.setup_button.setChecked(False)
             self.episode.blockSignals(True)
-            self.timeline.blockSignals(True)
             self.episode.setMaximum(len(courses))
-            self.timeline.setMaximum(len(record["frames"]["q"]) - 1)
-            self.timeline.setValue(0)
+            self.episode.setValue(1)
             self.episode.blockSignals(False)
+            self.playback.set_frames(
+                len(record["frames"]["q"]),
+                record["physics_dt"],
+                record["frames"]["control"],
+            )
+            self.timeline.blockSignals(True)
+            self.timeline.setValue(0)
             self.timeline.blockSignals(False)
+            self.playback.update_controls()
             self.render()
             self.buttons()
             self.message.setText(
-                "Recorded playback. Opening history does not load or execute the solution."
+                "Recorded playback. Play, change speed or drag the timeline; the solution is not executed."
             )
         except Exception as exc:
             self.message.setText(f"Cannot open recording: {exc}")

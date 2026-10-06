@@ -91,21 +91,42 @@ tracebacks in the terminal. Qt owns the main thread.
 Use the window buttons to minimize, maximize or close. F11 enters fullscreen and
 Escape restores the preceding state; these actions are also in the Window menu.
 
-Blindjack offers solution inspection, manual play, and comparison on the same hands.
-In comparison mode, commit your cards before seeing either the labels or the model's
-answer. Each hand contributes its first committed answer. Changing mode or loading a
-different solution starts a new comparison. Save the recording before doing so.
+Blindjack offers **Play**, **Inspect solution**, and **Human vs model**. Click a card
+image, its checkbox, or Alt+1…Alt+7 to select it. **Previous**, **Next hand**, and
+**Next unplayed** keep navigation separate from committing an answer; unfinished
+selections survive navigation. In comparison mode, load a trained solution, run the
+model, then commit your cards before seeing either the labels or its answer. Each
+hand contributes its first committed answer. The selected outline is your choice;
+each revealed value also says whether the model selected it.
 
-Line Following starts paused. Resume runs live physics; pause stops it. Step one
-millisecond or advance to the next controller boundary. Drag the timeline to inspect
-recorded history; resume jumps to the current live state without invoking the policy
-again for old frames. Batch runs use consecutive course entries and seeds; Robot
-selects the displayed row. Top view, follow camera and mouse-wheel zoom help inspect
-the line, chassis and rear sphere. RGB shows the policy's latest actual sensor reading.
+**Save session** keeps results, diagnostics, unfinished selections and the current
+hand; **Open session** restores them without running the model. Replacing or closing
+an unsaved session asks before discarding it. Verifying resources preserves the
+current session. If you edit the solution path, load that solution before running it. Model errors appear in a
+compact message with expandable details as well as the original terminal traceback.
+
+In Line Following, **Run setup** contains the solution, course, robot seed and batch
+size. Course preparation runs in the background; failed preparation can be retried.
+**New run** starts paused and folds setup away. **Resume live**, **Pause live**,
+**Step 1 ms**, and **Step control** operate the current simulation. **Play recording**
+uses recorded frames, with a speed selector, previous/next frame and **Next control**
+at an actual recorded controller call. Space toggles playback. Drag the timeline to
+seek; Home/End jump to its ends. Reviewing history pauses the live run. Resume live
+returns to its latest state without repeating old controller calls.
+
+Batch runs use consecutive course entries and seeds; **View robot** selects the row.
+Top view, follow camera, wheel zoom and dragging to pan help inspect the line, chassis
+and rear sphere; **Fit track** restores the full-course view. The RGB strip shows the
+latest actual optical reading. Unsaved motion is protected when replacing or closing
+a run. Saving while live stores the frames captured so far; subsequent frames need
+another save. Malformed recordings leave the currently open recording intact.
 
 An optional `debug(index=0)` method may return a dictionary of text, finite scalars,
 or small numeric vectors/matrices. The viewer copies it after inference, lists values,
-and plots selected arrays or scalar history. It must not change controller behavior.
+and plots selected arrays or scalar history. Select a field in **Diagnostics**;
+the same field stays selected as new snapshots arrive. **Save plot** exports the
+current figure as PNG or SVG. Empty snapshots have an explicit empty state. Debug
+methods must not change controller behavior.
 The judge never calls it. Keep each array at most two-dimensional and 4096 elements,
 with at most 64 fields. Debug failures are visible inspection errors.
 
@@ -118,3 +139,12 @@ they are local inspection artifacts, not resumable simulator checkpoints or subm
 Robot recordings now use the spline geometry format (version 2). Old polyline
 recordings are rejected with an explicit version message. Recreate them after
 updating course resources; no old recording is silently assigned a new curve.
+
+The offline `data/blindjack/index.html` provides a separate practice path without Qt:
+filter labeled examples by value, then switch to **Play validation hands**. All seven
+cards are visible together on a 1024-pixel desktop. Committed answers and the average
+score remain in the current page session when navigating or switching activities;
+reload or **New practice session** starts over. Source-image and CSV links use the
+canonical sheets, without duplicate images. A newly generated dataset includes the
+current browser; existing verified datasets retain their original browser until a
+resource update.

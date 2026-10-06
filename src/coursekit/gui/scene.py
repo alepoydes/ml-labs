@@ -171,6 +171,7 @@ class Renderer:
         top=False,
         follow=False,
         zoom=1.0,
+        pan=(0.0, 0.0),
     ):
         if self.course is not course:
             self.course, self.ground = course, painted_course(course)
@@ -195,7 +196,9 @@ class Renderer:
         nose[:, :3] = nose[:, :3] @ rotation.T + q[:3]
         pieces.append(nose)
         vertices = np.concatenate([self.ground, *pieces])
-        centre = q[:2] if follow else (course.bounds[0] + course.bounds[1]) / 2
+        centre = (
+            q[:2] if follow else (course.bounds[0] + course.bounds[1]) / 2
+        ) + np.asarray(pan)
         span = (
             0.6 if follow else max((course.bounds[1] - course.bounds[0]).max() + 0.4, 0.8)
         )
@@ -257,10 +260,11 @@ class Scene(QOpenGLWidget):
 
     def __init__(self):
         super().__init__()
-        self.setMinimumSize(440, 340)
+        self.setMinimumSize(360, 200)
         self.renderer = self.framebuffer = None
         self.pose = None
         self.top, self.follow, self.zoom = False, False, 1.0
+        self.pan, self.drag = np.zeros(2), None
 
     def initializeGL(self):
         try:
@@ -302,6 +306,7 @@ class Scene(QOpenGLWidget):
                 top=self.top,
                 follow=self.follow,
                 zoom=self.zoom,
+                pan=self.pan,
             )
         except Exception:
             self.failure()
@@ -313,6 +318,33 @@ class Scene(QOpenGLWidget):
     def wheelEvent(self, event):
         self.zoom = np.clip(self.zoom * np.exp(event.angleDelta().y() / 1000), 0.2, 20)
         self.update()
+
+    def mousePressEvent(self, event):
+        from PySide6.QtCore import Qt
+
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag = event.position()
+
+    def mouseMoveEvent(self, event):
+        if self.drag is None or self.pose is None:
+            return
+        delta = event.position() - self.drag
+        self.drag = event.position()
+        course = self.pose[0]
+        span = (
+            0.6
+            if self.follow
+            else max((course.bounds[1] - course.bounds[0]).max() + 0.4, 0.8)
+        )
+        per_pixel = span / self.zoom / min(self.width(), self.height())
+        self.pan += (
+            np.array([-delta.x(), delta.y() / (1 if self.top else np.cos(np.pi / 5))])
+            * per_pixel
+        )
+        self.update()
+
+    def mouseReleaseEvent(self, event):
+        self.drag = None
 
     @Slot()
     def cleanup(self):

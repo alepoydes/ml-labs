@@ -14,7 +14,11 @@ def debug_snapshot(solution, index=0):
     """Copy optional diagnostics; never retain mutable policy arrays or graphs."""
     if not hasattr(solution, "debug"):
         return {}
-    values = solution.debug(index)
+    return copy_debug(solution.debug(index))
+
+
+def copy_debug(values):
+    """Validate and copy live or recorded diagnostics using the same value contract."""
     if not isinstance(values, dict) or len(values) > 64:
         raise CourseError("debug() must return a dictionary with at most 64 entries.")
     copied = {}

@@ -10,18 +10,27 @@ from PySide6.QtWidgets import QApplication, QMainWindow
 class Window(QMainWindow):
     def __init__(self, page, lab):
         super().__init__()
+        from coursekit.gui.style import apply_style
         from coursekit.gui.window import window_actions
 
+        apply_style(self)
         self.window_actions = window_actions(self)
         self.page = page
+        self.closing = False
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setCentralWidget(page)
         self.setWindowTitle(f"Coursekit · {lab.replace('_', ' ').title()}")
         self.resize(1280, 820)
 
     def closeEvent(self, event):
-        job = self.page.job
-        if job is not None and job.isRunning():
+        if not self.closing:
+            if hasattr(self.page, "confirm_reset") and not self.page.confirm_reset():
+                event.ignore()
+                return
+            self.closing = True
+            self.page.setEnabled(False)
+        jobs = [self.page.job, getattr(self.page, "preparation", None)]
+        if any(job is not None and job.isRunning() for job in jobs):
             if hasattr(self.page, "stop"):
                 self.page.stop()
             self.page.message.setText(
