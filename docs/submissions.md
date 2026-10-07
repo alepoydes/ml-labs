@@ -13,7 +13,7 @@ config.toml
 train.py
 solution.py
 lib/                      optional local helpers
-artifacts/                model files and preprocessing state
+artifacts/                inference model, fitted parameters or controller settings
     provenance.json       written after successful training
 package.json              file hashes, written by packaging
 ```
@@ -34,6 +34,20 @@ Training provenance records lab, API, source/configuration/resource hashes, seed
 Python and relevant library versions, and completion status. Failed training does
 not leave successful provenance. It is reproducibility metadata, not an automatic
 proof of substantive learning or authorship.
+
+Both labs implement `train(data_dir, output_dir, config, seed)` and construct
+`Solution(artifact_dir, config, seed)`. Their acting interfaces differ:
+
+| Lab | Required acting method | What persists during evaluation |
+| --- | --- | --- |
+| [Blindjack](../labs/blindjack/README.md) | `select(images)` returns a seven-card Boolean mask. | One instance handles the hand set. |
+| [Line Following](../labs/line_following/README.md) | `act(observation, reset)` returns float32 PyTorch commands of shape `(B, 2)`. | Keep independent memory for each batch row; reset it on `reset`, not on turnaround. |
+
+Save learned weights and other fitted parameters under `artifacts/`. Mutable robot
+episode memory belongs to the controller instance; a GUI recording is not a trained
+model or a simulator checkpoint. The optional `debug(index=0)` is for local inspection
+and is never called by the judge. The hand-tuned robot baseline's preparation saves
+settings; packaging it successfully does not demonstrate learning.
 
 The local archive check validates the ZIP and evaluates a fresh extraction in your
 normal Python environment. Keep model paths relative to `artifact_dir`, not to

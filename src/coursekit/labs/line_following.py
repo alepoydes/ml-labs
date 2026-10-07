@@ -147,9 +147,16 @@ def mass_matrix(q: Tensor, v: Tensor, model: Robot) -> Tensor:
     return rows @ rows.T
 
 
+def solve(matrix: Tensor, rhs: Tensor) -> Tensor:
+    # Keep error handling outside compiled graphs so their disk cache is usable.
+    # check() reports a singular solve as a numerical failure, never a robot fall.
+    result, info = torch.linalg.solve_ex(matrix, rhs, check_errors=False)
+    return torch.where(info == 0, result, torch.nan)
+
+
 def velocity(state: State, model: Robot) -> Tensor:
     matrix = mass_matrix(state.q, torch.zeros_like(state.q), model)
-    return torch.linalg.solve(matrix, state.p)
+    return solve(matrix, state.p)
 
 
 def energy(state: State, model: Robot) -> Tensor:
@@ -177,6 +184,7 @@ def discrete_lagrangian(q0: Tensor, q1: Tensor, model: Robot, dt: float) -> Tens
 
 left_momentum = grad(discrete_lagrangian, argnums=0)
 right_momentum = grad(discrete_lagrangian, argnums=1)
+discrete_momenta = grad(discrete_lagrangian, argnums=(0, 1))
 
 
 def conservative_step(state: State, model: Robot, dt: float, iterations=5):
@@ -184,13 +192,15 @@ def conservative_step(state: State, model: Robot, dt: float, iterations=5):
     q0, p0, spin, fallen = state
     mass = mass_matrix(q0, torch.zeros_like(q0), model)
     # Initial inverse Jacobian: H = -h M(q0)^(-1).
-    inverse = torch.linalg.solve(mass, -dt * torch.eye(8, dtype=q0.dtype, device=q0.device))
+    inverse = solve(mass, -dt * torch.eye(8, dtype=q0.dtype, device=q0.device))
     q1 = q0 - inverse @ p0
-    residual = p0 + left_momentum(q0, q1, model, dt)
+    left, p1 = discrete_momenta(q0, q1, model, dt)
+    residual = p0 + left
     for _ in range(iterations):
         delta = -inverse @ residual
         next_q = q1 + delta
-        next_residual = p0 + left_momentum(q0, next_q, model, dt)
+        left, p1 = discrete_momenta(q0, next_q, model, dt)
+        next_residual = p0 + left
         # A secant at floating-point resolution cannot improve the matrix.
         threshold = (
             64 * torch.finfo(q0.dtype).eps * (1 + torch.linalg.vector_norm(q1))
@@ -203,7 +213,6 @@ def conservative_step(state: State, model: Robot, dt: float, iterations=5):
             valid, update / torch.where(valid, denominator, 1), 0
         )
         q1, residual = next_q, next_residual
-    p1 = right_momentum(q0, q1, model, dt)
     return State(q1, p1, spin, fallen), torch.linalg.vector_norm(residual)
 
 
@@ -242,14 +251,14 @@ def resistance(
     normal_jac = jac[:, 2, :]
     tangent_jac = jac[:, :2, :].reshape(6, 11)
     # One factorization supplies velocity and both contact responses.
-    response = torch.linalg.solve(
+    response = solve(
         matrix, torch.cat((total[:, None], normal_jac.T, tangent_jac.T), dim=1)
     )
     speeds = response[:, 0]
     torque = model.stall * (action.clamp(-1, 1) - speeds[6:8] / model.speed).clamp(-1, 1)
     drive = torch.cat((q.new_zeros(6), torque, q.new_zeros(3)))
     total = total + dt * drive
-    speeds = torch.linalg.solve(matrix + dt * model.ball_drag * (b.T @ b), total)
+    speeds = solve(matrix + dt * model.ball_drag * (b.T @ b), total)
     total = matrix @ speeds
 
     gap, _ = contact_geometry(q, model)
@@ -346,7 +355,13 @@ def compile_step(*, batched=False, model_batched=False, backend="inductor"):
     def compile_kernel(fn, dims):
         fn = vmap(fn, in_dims=dims) if batched else fn
         return torch.compile(
-            fn, backend=backend, fullgraph=True, dynamic=False, isolate_recompiles=True
+            fn,
+            backend=backend,
+            fullgraph=True,
+            dynamic=False,
+            isolate_recompiles=True,
+            recompile_limit=32,  # Keep the viewer's batch sizes 1..32 reusable.
+            options={"cpp_wrapper": True} if backend == "inductor" else None,
         )
 
     conservative = compile_kernel(conservative_step, (0, md, None))
@@ -358,9 +373,21 @@ def compile_step(*, batched=False, model_batched=False, backend="inductor"):
     )
 
 
+def numerical_status(state: State, diagnostics: Diagnostics):
+    finite = torch.stack(
+        [torch.isfinite(v).all() for v in (*state[:3], *diagnostics)]
+    ).all()
+    return torch.stack((finite, (diagnostics.residual <= 1e-9).all()))
+
+
+def check_status(status):
+    finite, converged = status.tolist()
+    if not finite:
+        raise FloatingPointError("Non-finite robot dynamics.")
+    if not converged:
+        raise FloatingPointError("The variational step did not converge; reduce dt.")
+
+
 def check(state: State, diagnostics: Diagnostics):
     """Numerical failure is a simulator error, never a robot fall or a score."""
-    if not all(torch.isfinite(value).all() for value in (*state[:3], *diagnostics)):
-        raise FloatingPointError("Non-finite robot dynamics.")
-    if (diagnostics.residual > 1e-9).any():
-        raise FloatingPointError("The variational step did not converge; reduce dt.")
+    check_status(numerical_status(state, diagnostics))

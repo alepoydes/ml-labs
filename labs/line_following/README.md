@@ -12,6 +12,69 @@ The current settings are a pilot profile; controller performance and the full
 parameter family still need calibration before the assessed release. The local
 viewer and isolated instructor evaluation use this same public environment.
 
+## View the practice courses
+
+From the student project root, run:
+
+```sh
+./view_lab line_following
+```
+
+On Windows use `.\view_lab.cmd line_following`. The viewer prepares the bundled
+course files automatically; browsing does not require a working solution, training
+or **New run**. Before starting a run, choose **Course** under **Run setup**, then
+enable **Top view** and click **Fit track**. Scroll to zoom and drag to pan. Blue
+marks the start and return finish; red marks the far turnaround. The status line
+shows the course name and one-way length.
+
+The current collection has **50 training courses** (`train-01`…`train-50`) and
+**15 validation courses** (`validation-01`…`validation-15`). Work through training
+in order, then mix earlier and later cases to avoid forgetting the basics:
+
+| Training courses | Suggested progression |
+| --- | --- |
+| 01–10 | Start, drive straight, read endpoint colours, return; then gentle bends. |
+| 11–20 | Repeated bends with varying direction, length and sharpness. |
+| 21–30 | Corners and braking, interspersed with smooth sections. |
+| 31–40 | Close branches and recovery without skipping the required route. |
+| 41–50 | Smooth branch continuation through crossings and longer mixed routes. |
+
+The first three courses are straight. Each group has three independently drawn
+validation courses, in the same group order. These are a finite practice curriculum,
+not an exhaustive set: repeat training with different robot seeds, and use validation
+to compare controllers. Course length, bend shape, turn count, angles and branch
+spacing vary; later groups do not merely rotate or stretch the first courses.
+
+Their canonical spline geometry
+is in `labs/line_following/resources/courses.npz`; preparation copies it into
+`data/line_following/courses.npz`. The adjacent `train.csv` and `validation.csv` list
+fixed episodes as `course,seed`, where the seed chooses the robot parameters and
+sensor randomness. To reproduce one of those episodes in the viewer, select its
+**Course**, enter that **Robot seed**, and set **Batch** to 1. The viewer's default
+seed is an exploration setting, not the seed from the benchmark CSV.
+
+For direct Python access, use `load_courses(Path("data/line_following/courses.npz"))`
+from `coursekit.labs.line_following_course`; each course provides its name, length,
+and `at(s)` to evaluate the centreline at arc length `s`. The
+[batched example](#running-and-writing-a-solution) loads complete episodes from CSV.
+
+To drive the example controller on a fresh checkout, click **Create baseline** in
+**Run setup**. It copies the template into `work/line_following/baseline` and runs
+its preparation procedure, then enables **New run**. Existing solution code is never
+replaced. For an existing working copy, **Prepare solution** runs its `train.py` and
+writes artifacts, just like `step_2_train`. Previewing courses performs no training.
+
+Changing **Course** after a run starts replaces it with a fresh paused run on the
+selected track. **New run** also restarts the selected solution. Unsaved frames
+are protected by a discard confirmation. The viewer keeps its physics process
+warm between runs: changing the course, seed or solution reuses compiled kernels
+at the same batch size. A new batch size needs its own specialization. A blocked
+controller or compiler is terminated on Stop or close; the next run then starts
+a new process. The controller itself is loaded afresh on every run.
+New viewer processes load saved kernels from a local user cache. Changing the
+engine or Python/PyTorch environment invalidates that cache; see the
+[compilation notes](dynamics.md) for its location and limitations.
+
 ## What you will learn
 
 The task combines feedback control, learning from interaction, adaptation to
@@ -83,10 +146,24 @@ branches are smooth in a neighbourhood of the crossing. Sharp corners are kept
 outside that neighbourhood. The pilot requires crossing angles of at least 50°
 and keeps marked corners at least 0.2 m from crossings.
 
-Distinct coloured sections of the line mark the start and the far endpoint.
-At the far endpoint, follow the same route back. Driving forward or backward is
-allowed on either leg; rotating the body is optional. The
-colours identify endpoints, not directions at crossings or future manoeuvres.
+The endpoint markers are coloured portions of the line itself, with the same
+16 mm width as its dark middle section:
+
+| Surface | Location along the route | Nominal RGB in `[0, 1]` |
+| --- | --- | --- |
+| Blue start / return finish | First 120 mm | `(0.08, 0.25, 0.90)` |
+| Red far endpoint / turnaround | Last 120 mm | `(0.90, 0.12, 0.08)` |
+| Dark line | Between the endpoint markers | `(0.06, 0.06, 0.06)` |
+| Light ground | Outside the line | `(0.94, 0.94, 0.94)` |
+
+Marker length is measured along the curve. These colours remain fixed on the
+ground on both legs: return from red to blue. At the far endpoint, follow the same
+route back. Driving forward or backward is allowed; rotating the body is optional.
+There is no separate marker flag in the observation. The same transverse RGB sensor
+sees the paint, averaged over each sector and mixed with background near edges,
+with sensor noise added. Do not rely on exact RGB equality. Colours identify
+endpoints, not directions at crossings or future manoeuvres. Seeing the red area
+does not itself complete the outward leg: its remaining line must also be covered.
 
 You will receive several prepared practice courses with varied geometry. Hidden
 evaluation courses will differ from them and may combine permitted situations
@@ -165,18 +242,19 @@ must use its permitted observations and action history.
 A simple supported reference controller is provided as `baseline`. It follows
 the optical centroid slowly, uses elementary line recovery, and returns in
 reverse. Its preparation function saves hand-tuned settings; it is not a learned
-solution. In a four-episode probe on the spline profile it completed two straight courses
-and one smooth course; the other smooth case timed out at the 60-second pilot
-cutoff. This does not establish performance on sharp corners, crossings, or the
-complete benchmark. Scores measured on the earlier polyline profile are obsolete. You should measure your
-own completion rate and journey time, including recovery costs, and compare
+solution. In a four-episode probe on the previous pilot-2 spline collection it
+completed two straight courses and one smooth course; the other smooth case
+timed out at the 60-second pilot cutoff. This does not establish performance on
+sharp corners, crossings, or the new 50-course curriculum or complete benchmark.
+Scores measured on the earlier polyline profile are obsolete. You should measure
+your own completion rate and journey time, including recovery costs, and compare
 performance on familiar and unfamiliar courses. Separate outward and return
 times can show whether experience from the first leg helps.
 
 Submit a self-contained solution with reproducible training, inference and all
 required artifacts, an explanation of the learned component and experiments,
 and an honest declaration of AI assistance. Final inference and adaptation run
-on CPU without network access, within limits to be published before release.
+on CPU without network access, within the [published pilot limits](../../docs/environment.md).
 
 ## Running and writing a solution
 
@@ -272,7 +350,8 @@ accepting a curve interval. Optical projection evaluates the spline itself,
 initialized by these chords; its distance error is bounded by 0.02 mm. Rendering
 uses the same subdivision. Optical sectors average 4×4 samples
 over rectangles in one transverse row, 128 mm wide and 8 mm deep. Line width is
-16 mm. The first and last 120 mm of line are blue and red. The chassis footprint
+16 mm; endpoint colours and lengths are listed under [Courses](#courses).
+The chassis footprint
 is the ground projection of a body-fixed 140×128 mm rectangle at the axle centre.
 Coverage uses a conservative inner approximation to its swept region at each
 physical step, including the endpoint footprints and a certified translation

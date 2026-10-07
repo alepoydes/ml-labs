@@ -166,3 +166,18 @@ def test_another_variant_loads_its_own_helpers(tmp_path):
         (solution / "lib/model.py").write_text(f"value = {name!r}\n")
         (solution / "solution.py").write_text("from lib.model import value\n")
         assert load_module(solution, "solution").value == name
+
+
+@pytest.mark.parametrize("entry", ["solution", "train"])
+def test_same_size_edits_reload_source_and_helpers(tmp_path, entry):
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib/__init__.py").write_text("")
+    (tmp_path / "train.py").write_text("from solution import local, value\n")
+    source, helper = tmp_path / "solution.py", tmp_path / "lib/model.py"
+    for value in (1, 2):
+        source.write_text(f"from lib.model import value\nlocal = {value}\n")
+        helper.write_text(f"value = {value}\n")
+        for path in (source, helper):
+            os.utime(path, (1700000000, 1700000000))
+        module = load_module(tmp_path, entry)
+        assert (module.local, module.value) == (value, value)

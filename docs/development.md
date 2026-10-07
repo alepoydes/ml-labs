@@ -1,42 +1,51 @@
 # Develop your own solution
 
-Create a working copy from `baseline` for a complete learning example, or `starter`
-for the smallest API example:
+The workflow is shared by [Blindjack](../labs/blindjack/README.md) and
+[Line Following](../labs/line_following/README.md). Choose `baseline` for a runnable
+reference or `starter` for the smallest API example. Create the copy for your lab:
 
 ```sh
 ./step_1_new_solution blindjack my-model --template baseline
+./step_1_new_solution line_following my-controller --template baseline
 ```
 
-Edit the files under `work/blindjack/my-model/`:
+Edit the files under `work/<lab>/<variant>/`. Leave the templates in `labs/` unchanged.
 
 | File | What to change |
 | --- | --- |
 | `config.toml` | Hyperparameters passed to training and inference. |
-| `train.py` | Load data, train a model, and save inference artifacts. |
-| `solution.py` | Load the saved model in `Solution.__init__`; predict in `select`. |
-| `lib/features.py` (baseline) | Image preprocessing shared by training and inference. |
-| `lib/model.py` (baseline) | Model construction, prediction, saving, and loading. |
-| `notebook.py` (baseline) | Inspect data, saved learning curves, and predictions. |
+| `train.py` | Implement reproducible learning or fitting and save inference artifacts. |
+| `solution.py` | Load artifacts in `Solution.__init__`; implement the lab's acting method. |
+| `lib/` (optional) | Helpers shared by training, inference and analysis. |
+| `submission.toml` | Variant metadata and an accurate AI-use declaration. |
 
-The baseline is an example, not a required model architecture. Replace its helpers
-as needed while keeping the documented `train` and `Solution` interfaces.
-Keep reusable code in source files and import it into the notebook.
+| Lab | Acting method | Supplied baseline |
+| --- | --- | --- |
+| Blindjack | `select(images)` returns a Boolean mask for seven cards. | A trained MLP; `lib/features.py`, `lib/model.py` and a marimo notebook. |
+| Line Following | `act(observation, reset)` returns batched left/right motor commands. | A hand-tuned line follower; preparation saves `controller.json`. No supplied notebook. |
+
+Replace the baseline as needed while keeping the documented `train` and `Solution`
+interfaces. The robot baseline does not perform learning; implement your own training
+procedure, for example controller fitting or reinforcement learning. Keep reusable
+code in source files and import it into analysis scripts or notebooks.
 
 ## Call the same functions from Python
 
-The numbered scripts are conveniences around ordinary functions. From the student
-project root, start `uv run --locked python` and run:
+The numbered scripts are conveniences around ordinary functions. After resource
+preparation and a completed `step_2_train` run, start `uv run --locked python` from
+the student project root. These calls work for either lab:
 
 ```python
 from pathlib import Path
 
 from coursekit.training import load_solution, load_training, train_local
-from coursekit.labs.blindjack import benchmark, evaluate
+from coursekit.labs import get_lab
 
 project = Path.cwd()
-solution_dir = project / "work/blindjack/my-model"
-run_dir = project / "runs/blindjack/my-model"
-data_dir = project / "data/blindjack"
+lab, variant = "line_following", "my-controller"  # Or "blindjack", "my-model".
+solution_dir = project / "work" / lab / variant
+run_dir = project / "runs" / lab / variant
+data_dir = project / "data" / lab
 seed = 0
 
 # Run explicitly when you want to train, after step_0_update_resources:
@@ -47,21 +56,56 @@ print(saved["config"])
 print(history.keys())
 
 solution = load_solution(solution_dir, seed)
-images, labels, hands = benchmark(data_dir)
-mask = solution.select(images[hands[0]])
-print(mask, labels[hands[0]])
-
-result = evaluate(solution, data_dir)
-print(result)
+# A full validation run; invoke explicitly when ready:
+# result = get_lab(lab).evaluate(solution, data_dir)
+# print(result)
 ```
 
 `train_local` verifies resources, calls your `train.py`, and records completed
 training and any numeric history returned by `train`. `load_training` reads those
 saved diagnostics; `load_solution` constructs your current `Solution` with its
-artifacts and current configuration. `evaluate` calls `select` for each validation
-hand, checks the returned mask, and computes the score. All calls run in the same
-Python process. The evaluation function returns a dictionary; the numbered scripts
-also save that dictionary under `runs/`.
+artifacts and current configuration. Numeric history may be empty, as it is for the
+hand-tuned robot baseline. `get_lab(lab).evaluate` runs every validation hand or
+episode and returns aggregate metrics. All calls run in the same Python process;
+the numbered evaluation scripts also save the result dictionary under `runs/`.
+
+For one Blindjack decision:
+
+```python
+from pathlib import Path
+from coursekit.labs.blindjack import benchmark
+from coursekit.training import load_solution
+
+solution = load_solution(Path("work/blindjack/my-model"))
+images, labels, hands = benchmark(Path("data/blindjack"))
+mask = solution.select(images[hands[0]])
+print(mask, labels[hands[0]])
+```
+
+For one batched robot control interval:
+
+```python
+from pathlib import Path
+from coursekit.labs.line_following_env import Environment
+from coursekit.labs.line_following_task import benchmark
+from coursekit.training import load_solution
+
+cases = benchmark(Path("data/line_following"), "train")[:2]
+env = Environment([c for c, seed in cases], [seed for c, seed in cases], compiled=False)
+controller = load_solution(Path("work/line_following/my-controller"))
+action = controller.act(env.observe(), env.first)
+observation, reward, terminated, truncated, info = env.step(action)
+done = terminated | truncated
+if done.any():
+    observation = env.reset(done)
+```
+
+`compiled=False` makes short debugging runs easier; normal evaluation uses the
+compiled engine. Reuse an environment and its batch size to amortise compiler startup.
+The controller must reset the indicated rows of memory when `reset` is true. Memory
+persists through the turnaround. Use `info` to analyse training, but the evaluated
+controller receives only observations and the reset mask. See the lab statement for
+the [complete robot API](../labs/line_following/README.md#running-and-writing-a-solution).
 
 You can also call functions from your own modules directly during an experiment.
 Use `train_local` or `step_2_train` for the completed run you intend to package,
@@ -75,9 +119,11 @@ this project's `.venv` interpreter in your editor and run a small script contain
 the calls above, with the student project root as its working directory. Exceptions
 show the original file, line, and traceback. No special debug flag is required.
 
-For plots and intermediate values use the [marimo notebook](notebook.md).
-After editing imported modules, rerun the loading cells or restart the notebook.
-Training is commented out by default; rerunning analysis reads saved files.
+Blindjack includes a [marimo notebook](notebook.md) with opt-in training and saved
+learning curves. After editing imported modules, rerun the loading cells or restart
+the notebook. For the robot, start with the viewer's sensor plots and recordings,
+or use the batched environment from Python. You can write your own notebooks for
+either lab; none is required in a submission.
 Create a new variant to retain a separate experiment. When ready, run
 `step_4_pack` and `step_5_check_submission`, then submit the ZIP.
 
@@ -86,10 +132,15 @@ Create a new variant to retain a separate experiment. When ready, run
 Run `./view_lab blindjack` or `./view_lab line_following` (Windows: `view_lab.cmd`).
 The launcher installs the locked optional Qt and ModernGL dependencies. Select a
 working solution directory; the viewer uses its existing artifacts. It never trains
-implicitly. Model calls run as ordinary Python in a computation thread, with original
-tracebacks in the terminal. Qt owns the main thread.
+implicitly. Blindjack calls the model in a computation thread. Line Following runs
+the model and shared physics in a cancellable local process; this is ordinary local
+execution, not an instructor sandbox. Original tracebacks remain available. Qt owns
+the main thread.
 Use the window buttons to minimize, maximize or close. F11 enters fullscreen and
-Escape restores the preceding state; these actions are also in the Window menu.
+Escape restores the preceding state. Window decorations and their system menu follow
+the desktop's settings; Ctrl+W also closes the window.
+
+### Blindjack
 
 Blindjack offers **Play**, **Inspect solution**, and **Human vs model**. Click a card
 image, its checkbox, or Alt+1…Alt+7 to select it. **Previous**, **Next hand**, and
@@ -102,12 +153,41 @@ each revealed value also says whether the model selected it.
 **Save session** keeps results, diagnostics, unfinished selections and the current
 hand; **Open session** restores them without running the model. Replacing or closing
 an unsaved session asks before discarding it. Verifying resources preserves the
-current session. If you edit the solution path, load that solution before running it. Model errors appear in a
-compact message with expandable details as well as the original terminal traceback.
+current session. If you edit the solution path, load that solution before running it.
+Model errors appear in a compact message with expandable details as well as the
+original terminal traceback.
+
+The offline `data/blindjack/index.html` provides a separate practice path without Qt:
+filter labeled examples by value, then switch to **Play validation hands**. Committed
+answers and the average score remain in the current page session when navigating
+or switching activities; reload or **New practice session** starts over. Source-image
+and CSV links use the canonical sheets. Existing verified datasets retain their
+original browser until a resource update.
+
+### Line Following
+
+To browse courses, run `./view_lab line_following` and select **Course** in
+**Run setup** before starting a run. The preview needs no trained solution and
+prepares the bundled courses automatically. Use **Top view** and **Fit track** for a
+plan view. Blue marks the start/return finish; red marks the far turnaround.
+On a fresh checkout, click **Create baseline** to copy and prepare the reference
+controller. For an existing copy, **Prepare solution** runs its `train.py`. These
+are explicit training actions, using the same functions as the numbered scripts;
+existing source is preserved. **New run** remains disabled until artifacts exist.
+See [the course guide](../labs/line_following/README.md#view-the-practice-courses)
+for files, fixed benchmark seeds and marker dimensions.
+There are 50 training courses ordered in five stages and 15 separate validation
+courses. Begin with `train-01` and gradually include later groups of ten.
 
 In Line Following, **Run setup** contains the solution, course, robot seed and batch
 size. Course preparation runs in the background; failed preparation can be retried.
-**New run** starts paused and folds setup away. **Resume live**, **Pause live**,
+**New run** folds setup away and prepares the engine, then starts paused at time zero.
+The status shows loading and compilation separately, with elapsed time. First use
+compiles kernels for the selected batch size and can take several minutes. New
+windows load saved kernels; consecutive runs reuse the warm process. Engine or
+runtime updates invalidate the local cache. **Stop run** and closing
+the window cancel preparation or simulation, including blocked controller calls.
+Received frames remain available after stopping. **Resume live**, **Pause live**,
 **Step 1 ms**, and **Step control** operate the current simulation. **Play recording**
 uses recorded frames, with a speed selector, previous/next frame and **Next control**
 at an actual recorded controller call. Space toggles playback. Drag the timeline to
@@ -115,11 +195,15 @@ seek; Home/End jump to its ends. Reviewing history pauses the live run. Resume l
 returns to its latest state without repeating old controller calls.
 
 Batch runs use consecutive course entries and seeds; **View robot** selects the row.
+The GUI's freely selected seeds do not automatically reproduce the fixed validation
+episodes; use the matching `course,seed` from `data/line_following/validation.csv`.
 Top view, follow camera, wheel zoom and dragging to pan help inspect the line, chassis
 and rear sphere; **Fit track** restores the full-course view. The RGB strip shows the
 latest actual optical reading. Unsaved motion is protected when replacing or closing
 a run. Saving while live stores the frames captured so far; subsequent frames need
 another save. Malformed recordings leave the currently open recording intact.
+
+### Diagnostics and recordings
 
 An optional `debug(index=0)` method may return a dictionary of text, finite scalars,
 or small numeric vectors/matrices. The viewer copies it after inference, lists values,
@@ -139,12 +223,3 @@ they are local inspection artifacts, not resumable simulator checkpoints or subm
 Robot recordings now use the spline geometry format (version 2). Old polyline
 recordings are rejected with an explicit version message. Recreate them after
 updating course resources; no old recording is silently assigned a new curve.
-
-The offline `data/blindjack/index.html` provides a separate practice path without Qt:
-filter labeled examples by value, then switch to **Play validation hands**. All seven
-cards are visible together on a 1024-pixel desktop. Committed answers and the average
-score remain in the current page session when navigating or switching activities;
-reload or **New practice session** starts over. Source-image and CSV links use the
-canonical sheets, without duplicate images. A newly generated dataset includes the
-current browser; existing verified datasets retain their original browser until a
-resource update.

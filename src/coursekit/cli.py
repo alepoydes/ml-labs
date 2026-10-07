@@ -1,6 +1,5 @@
 import argparse
 import json
-import shutil
 import tempfile
 from pathlib import Path
 
@@ -8,7 +7,7 @@ from filelock import FileLock, Timeout
 
 from coursekit import resources, submissions, training
 from coursekit.common import CourseError, write_json
-from coursekit.labs import get_lab, require_lab
+from coursekit.labs import get_lab
 
 
 def main():
@@ -41,23 +40,7 @@ def main():
                 resources.sync(root / "data" / path.parent.name, resources.manifest(path))
             return
         if args.step == "new":
-            require_lab(args.lab)
-            template = root / "labs" / args.lab / args.template
-            variant = args.template if args.variant is None else args.variant
-            raw = (
-                (template / "submission.toml")
-                .read_text()
-                .replace('variant = "template"', f"variant = {json.dumps(variant)}")
-            )
-            submissions.metadata(raw.encode())
-            destination = root / "work" / args.lab / variant
-            if destination.exists():
-                raise CourseError(f"Solution already exists: {destination}")
-            shutil.copytree(
-                template, destination, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
-            )
-            (destination / "submission.toml").write_text(raw)
-            print(destination)
+            print(training.new_solution(root, args.lab, args.template, args.variant))
             return
         if args.step == "pack":
             submissions.pack(args.path, root / "dist")

@@ -7,7 +7,7 @@ compatible with the mechanics; torch.inference_mode is not.
 """
 
 from collections.abc import Callable, Sequence
-from functools import lru_cache
+from functools import lru_cache, partial
 
 import numpy as np
 import torch
@@ -15,6 +15,7 @@ from torch.func import vmap
 
 from coursekit.common import CourseError
 from coursekit.labs import line_following as physics
+from coursekit.labs.line_following_cache import ahead
 from coursekit.labs.line_following_course import Course, advance, optical, reference_time
 
 PHYSICS_DT = 0.001
@@ -80,9 +81,62 @@ def validate_action(action: torch.Tensor, size: int) -> None:
         raise CourseError("act() must return finite float32 commands (B, 2) in [-1, 1].")
 
 
-@lru_cache(maxsize=1)
-def _compiled_step():
-    return physics.compile_step(batched=True, model_batched=True)
+@lru_cache(maxsize=32)
+def _compiled_step(size, threads):
+    advance = physics.compile_step(batched=True, model_batched=True)
+    conservative, resist, _ = advance.keywords["kernels"]
+    finish = torch.compile(
+        _finish,
+        fullgraph=True,
+        dynamic=False,
+        isolate_recompiles=True,
+        recompile_limit=32,
+        options={"cpp_wrapper": True},
+    )
+    return partial(
+        physics.step,
+        kernels=(
+            ahead(conservative, size),
+            partial(physics.resistance_step, kernel=ahead(resist.keywords["kernel"], size)),
+            ahead(finish, size),
+        ),
+    )
+
+
+def _kinematics(state, model):
+    velocity = physics.velocity(state, model)
+    _, angular, rotation = physics.motion(state.q, velocity, model)
+    return velocity, angular, rotation
+
+
+def _inspect(state, diagnostics):
+    return (
+        state,
+        vmap(physics.rotation)(state.q),
+        physics.numerical_status(state, diagnostics),
+    )
+
+
+def _finish(state, last, residual, impulse):
+    return _inspect(*vmap(physics.finish_step)(state, last, residual, impulse))
+
+
+def _step(state, action, model):
+    return _inspect(*vmap(physics.step)(state, action, model))
+
+
+@lru_cache(maxsize=32)
+def _compiled_kinematics(size, threads):
+    return ahead(
+        torch.compile(
+            vmap(_kinematics),
+            fullgraph=True,
+            dynamic=False,
+            isolate_recompiles=True,
+            recompile_limit=32,
+        ),
+        size,
+    )
 
 
 def _seeds(values, size):
@@ -121,13 +175,16 @@ class Environment:
         self.rng = [None] * self.size
         self.noise = noise
         self.limit_steps = int(np.ceil(time_limit / PHYSICS_DT))
-        self._advance = _compiled_step() if compiled else vmap(physics.step)
+        threads = torch.get_num_threads()
+        self._advance = _compiled_step(self.size, threads) if compiled else _step
+        self._kinematics = (
+            _compiled_kinematics(self.size, threads) if compiled else vmap(_kinematics)
+        )
         nominal = physics.robot()
         state = physics.initial_state(nominal)
-        self.model = physics.Robot(
-            *(v.expand(self.size, *v.shape).clone() for v in nominal)
-        )
-        self.state = physics.State(*(v.expand(self.size, *v.shape).clone() for v in state))
+        self.model = physics.Robot(*(v.repeat(self.size, *([1] * v.ndim)) for v in nominal))
+        # repeat materializes normal strides even for a one-element scalar batch.
+        self.state = physics.State(*(v.repeat(self.size, *([1] * v.ndim)) for v in state))
         self.ticks = np.zeros(self.size, dtype=np.int64)
         self.leg = np.zeros(self.size, dtype=np.int64)
         self.frontier = np.zeros(self.size)
@@ -200,9 +257,9 @@ class Environment:
         self._sense(mask, np.zeros(self.size))
         return self.observe()
 
+    @torch.no_grad()
     def _sense(self, mask, elapsed):
-        velocity = vmap(physics.velocity)(self.state, self.model)
-        _, angular, rotation = vmap(physics.motion)(self.state.q, velocity, self.model)
+        velocity, angular, rotation = self._kinematics(self.state, self.model)
         acceleration = (velocity[:, :3] - self._linear) / torch.from_numpy(
             np.maximum(elapsed, PHYSICS_DT)
         )[:, None]
@@ -248,33 +305,47 @@ class Environment:
             if not active.any():
                 break
             previous = self.state
-            mask = torch.from_numpy(active)
-            # Reuse the engine's terminal masking also for completed/timeout rows.
-            stepping = previous._replace(fallen=previous.fallen | ~mask)
-            moved, diagnostics = self._advance(stepping, action, self.model)
-            physics.check(moved, diagnostics)
-            self.state = physics.State(
-                *(
-                    torch.where(mask.reshape(self.size, *([1] * (a.ndim - 1))), a, b)
-                    for a, b in zip(moved, previous)
+            mask = None if active.all() else torch.from_numpy(active)
+            # Completed rows need masking; the usual all-active batch does not.
+            stepping = (
+                previous
+                if mask is None
+                else previous._replace(fallen=previous.fallen | ~mask)
+            )
+            moved, rotation, status = self._advance(stepping, action, self.model)
+            physics.check_status(status)
+            self.state = (
+                moved
+                if mask is None
+                else physics.State(
+                    *(
+                        torch.where(mask.reshape(self.size, *([1] * (a.ndim - 1))), a, b)
+                        for a, b in zip(moved, previous)
+                    )
                 )
             )
-            r1 = vmap(physics.rotation)(self.state.q).numpy()
+            r1 = rotation.numpy()
             self.ticks[active] += 1
+            q0, q1, fallen = (
+                previous.q.numpy(),
+                self.state.q.numpy(),
+                self.state.fallen.numpy(),
+            )
             for i in np.flatnonzero(active):
-                if self.state.fallen[i]:
+                if fallen[i]:
                     self.status[i] = "fallen"
                     continue
                 course = self.courses[i] if self.leg[i] == 0 else self.reverse[i]
-                q0, q1 = previous.q[i].numpy(), self.state.q[i].numpy()
-                self.frontier[i] = advance(course, self.frontier[i], q0, q1, r0[i], r1[i])
+                self.frontier[i] = advance(
+                    course, self.frontier[i], q0[i], q1[i], r0[i], r1[i]
+                )
                 if self.frontier[i] >= course.length:
                     if self.leg[i] == 0:
                         self.leg[i] = 1
                         self.outward_time[i] = self.ticks[i] * PHYSICS_DT
                         # The endpoint pose starts the new leg; do not reuse earlier sweep.
                         self.frontier[i] = advance(
-                            self.reverse[i], 0.0, q1, q1, r1[i], r1[i]
+                            self.reverse[i], 0.0, q1[i], q1[i], r1[i], r1[i]
                         )
                     else:
                         self.status[i] = "finished"

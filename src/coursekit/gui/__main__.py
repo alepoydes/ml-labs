@@ -34,7 +34,9 @@ class Window(QMainWindow):
             if hasattr(self.page, "stop"):
                 self.page.stop()
             self.page.message.setText(
-                "Waiting for the current Python call to finish before closing…"
+                "Stopping the simulation process…"
+                if getattr(self.page.job, "stopping", False)
+                else "Finishing preparation before closing…"
             )
             event.ignore()
             QTimer.singleShot(50, self.close)

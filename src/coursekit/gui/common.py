@@ -174,6 +174,7 @@ class Diagnostics(QWidget):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemSelectionChanged.connect(self.draw)
         self.figure = Figure(figsize=(4, 2.3), layout="constrained")
+        self.plot_key = self.plot_line = None
         self.canvas = FigureCanvasQTAgg(self.figure)
         self.canvas.setMinimumSize(220, 160)
         self.empty = QLabel(
@@ -224,45 +225,52 @@ class Diagnostics(QWidget):
         self.draw()
 
     def draw(self):
-        self.figure.clear()
         self.empty.setVisible(not self.snapshot)
         self.table.setVisible(bool(self.snapshot))
-        self.canvas.hide()
-        self.value.hide()
-        self.save_plot.hide()
         row = self.table.currentRow()
-        if 0 <= row < len(self.snapshot):
-            name = list(self.snapshot)[row]
-            value = self.snapshot[name]
-            plotted = (
-                isinstance(value, np.ndarray)
-                and value.size > 0
-                or self.history is not None
-                and name in self.history
+        if not 0 <= row < len(self.snapshot):
+            self.canvas.hide()
+            self.value.hide()
+            self.save_plot.hide()
+            return
+        name = list(self.snapshot)[row]
+        value = self.snapshot[name]
+        series = (
+            self.history(name) if callable(self.history) else (self.history or {}).get(name)
+        )
+        plotted = isinstance(value, np.ndarray) and value.size > 0 or series is not None
+        self.canvas.setVisible(plotted)
+        self.save_plot.setVisible(plotted)
+        self.value.setVisible(not plotted)
+        if not plotted:
+            self.value.setPlainText(
+                f"Empty array {value.shape}"
+                if isinstance(value, np.ndarray) and not value.size
+                else str(value)
             )
-            self.canvas.setVisible(plotted)
-            self.save_plot.setVisible(plotted)
-            self.value.setVisible(not plotted)
-            if not plotted:
-                self.value.setPlainText(
-                    f"Empty array {value.shape}"
-                    if isinstance(value, np.ndarray) and not value.size
-                    else str(value)
-                )
-                return
+            return
+        if isinstance(value, np.ndarray) and value.ndim == 2:
+            self.figure.clear()
+            self.plot_key = self.plot_line = None
             axes = self.figure.add_subplot()
-            axes.set_title(name, fontsize=10, wrap=True)
-            if isinstance(value, np.ndarray) and value.ndim == 2:
-                axes.imshow(value, aspect="auto", interpolation="nearest")
-            elif isinstance(value, np.ndarray):
-                axes.plot(np.arange(value.size), value.ravel(), marker="o")
-            elif self.history is not None and name in self.history:
-                times, values = self.history[name]
-                axes.plot(
-                    times, values, marker="o" if len(times) <= 20 else None, markersize=3
-                )
-                axes.set_xlabel("Simulated seconds")
-            axes.tick_params(labelsize=8)
+            axes.imshow(value, aspect="auto", interpolation="nearest")
+        else:
+            array = isinstance(value, np.ndarray)
+            times, values = (np.arange(value.size), value.ravel()) if array else series
+            key = name, array
+            if self.plot_key != key:
+                self.figure.clear()
+                axes = self.figure.add_subplot()
+                (self.plot_line,) = axes.plot([], [], markersize=3)
+                self.plot_key = key
+            axes = self.plot_line.axes
+            self.plot_line.set_data(times, values)
+            self.plot_line.set_marker("o" if array or len(times) <= 20 else "None")
+            axes.relim()
+            axes.autoscale_view()
+            axes.set_xlabel("" if array else "Simulated seconds")
+        axes.set_title(name, fontsize=10, wrap=True)
+        axes.tick_params(labelsize=8)
         self.canvas.draw_idle()
 
     def export_plot(self):

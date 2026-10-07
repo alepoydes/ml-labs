@@ -84,60 +84,62 @@ def optical(course: Course, centre: np.ndarray, rotation: np.ndarray) -> np.ndar
     return colour(course, world).mean(axis=(1, 2)).astype(np.float32)
 
 
-def _clip(course: Course, centre, axes, half, travel) -> np.ndarray:
-    """Arc intervals inside a parallelogram translated along a straight segment.
+def _clip(course: Course, centre, axes, inverse, half, travel) -> np.ndarray:
+    """Clip all swept parallelograms together against the same spline leaves.
 
-    In local coordinates its sweep is a box plus a segment (a zonotope). Its
-    bounding halfplanes have the two box normals and the travel normal.
+    Each sweep is a box plus a segment. Erode its bounding halfplanes by the
+    Bezier/chord error, so the accepted arc intervals certify the actual curve.
     """
     middle = centre + travel / 2
-    extent = np.abs(axes) @ half + np.abs(travel) / 2
-    selection = np.flatnonzero(
-        ((course._upper >= middle - extent) & (course._lower <= middle + extent)).all(
-            axis=1
-        )
-    )
+    extent = (np.abs(axes) @ half[..., None])[..., 0] + np.abs(travel) / 2
+    near = (
+        (course._upper[None] >= (middle - extent)[:, None])
+        & (course._lower[None] <= (middle + extent)[:, None])
+    ).all(axis=-1)
+    selection = np.flatnonzero(near.any(axis=0))
     if not len(selection):
         return np.empty((0, 2))
-    inverse = np.linalg.inv(axes)
-    motion = inverse @ travel
-    normal = np.array([-motion[1], motion[0]]) / max(np.linalg.norm(motion), 1e-30)
-    normals = np.array([[1.0, 0.0], [0.0, 1.0], normal])
-    bounds = np.array(
-        [half[0] + abs(motion[0]) / 2, half[1] + abs(motion[1]) / 2, np.abs(normal) @ half]
+    motion = (inverse @ travel[..., None])[..., 0]
+    normal = np.stack((-motion[:, 1], motion[:, 0]), axis=-1)
+    normal /= np.maximum(np.linalg.norm(motion, axis=-1, keepdims=True), 1e-30)
+    normals = np.concatenate(
+        (np.broadcast_to(np.eye(2), (len(half), 2, 2)), normal[:, None]), axis=1
     )
-    # A Bezier point differs from its chord at the same parameter by <= error.
-    # Erode every halfplane by that bound: accepted intervals certify the curve.
-    controls = course._leaves[selection]
+    bounds = np.column_stack(
+        (half + np.abs(motion) / 2, (np.abs(normal) * half).sum(axis=-1))
+    )
     world_normals = normals @ inverse
-    bounds = bounds[None, :] - course._error[selection, None] * np.linalg.norm(
-        world_normals, axis=1
+    bounds = (
+        bounds[:, None]
+        - course._error[selection][None, :, None]
+        * np.linalg.norm(world_normals, axis=-1)[:, None]
     )
-    local = (controls[:, [0, -1]] - centre - travel / 2) @ inverse.T
-    a, d = local[:, 0] @ normals.T, (local[:, 1] - local[:, 0]) @ normals.T
+    controls = course._leaves[selection]
+    a = np.einsum("kni,kji->knj", controls[None, :, 0] - middle[:, None], world_normals)
+    d = np.einsum("ni,kji->knj", controls[:, -1] - controls[:, 0], world_normals)
     nonzero = np.abs(d) > 1e-15
     divisor = np.where(nonzero, d, 1)
     first, second = (-bounds - a) / divisor, (bounds - a) / divisor
-    lower = np.maximum(0, np.where(nonzero, np.minimum(first, second), -np.inf).max(axis=1))
-    upper = np.minimum(1, np.where(nonzero, np.maximum(first, second), np.inf).min(axis=1))
+    lower = np.maximum(
+        0, np.where(nonzero, np.minimum(first, second), -np.inf).max(axis=-1)
+    )
+    upper = np.minimum(1, np.where(nonzero, np.maximum(first, second), np.inf).min(axis=-1))
     valid = (
-        (lower <= upper)
-        & ((np.abs(a) <= bounds) | nonzero).all(axis=1)
-        & (bounds >= 0).all(axis=1)
+        near[:, selection]
+        & (lower <= upper)
+        & ((np.abs(a) <= bounds) | nonzero).all(axis=-1)
+        & (bounds >= 0).all(axis=-1)
     )
-    leaves = selection[valid]
-    if not len(leaves):
+    shape, index = np.nonzero(valid)
+    if not len(index):
         return np.empty((0, 2))
-    lower, upper = lower[valid], upper[valid]
-    # Merge adjacent covered parameter intervals before doing arc quadrature.
-    gaps = leaves[1:] + lower[1:] > leaves[:-1] + upper[:-1]
+    leaves, lower, upper = selection[index], lower[valid], upper[valid]
+    gaps = (shape[1:] != shape[:-1]) | (leaves[1:] + lower[1:] > leaves[:-1] + upper[:-1])
     starts, ends = np.r_[True, gaps], np.r_[gaps, True]
-    return np.column_stack(
-        (
-            course.distance_on_leaf(leaves[starts], lower[starts]),
-            course.distance_on_leaf(leaves[ends], upper[ends]),
-        )
-    )
+    return course.distance_on_leaf(
+        np.stack((leaves[starts], leaves[ends])),
+        np.stack((lower[starts], upper[ends])),
+    ).T
 
 
 def swept_intervals(course: Course, q0, q1, r0, r1) -> np.ndarray:
@@ -149,17 +151,17 @@ def swept_intervals(course: Course, q0, q1, r0, r1) -> np.ndarray:
     inside every translated intermediate footprint. Its translational sweep is
     exact. Include both endpoint footprints, which require no erosion.
     """
-    translation = np.asarray(q1[:2]) - q0[:2]
-    axes = r0[:2, :2]
+    axes = np.array([r0[:2, :2], r1[:2, :2], r0[:2, :2]])
+    inverse = np.linalg.inv(axes)
     delta = np.linalg.norm(FOOTPRINT) * np.abs(q1[3:6] - q0[3:6]).sum()
-    half = FOOTPRINT - delta * np.linalg.norm(np.linalg.inv(axes), axis=1)
-    intervals = [
-        _clip(course, q0[:2], axes, FOOTPRINT, np.zeros(2)),
-        _clip(course, q1[:2], r1[:2, :2], FOOTPRINT, np.zeros(2)),
-    ]
-    if (half > 0).all():
-        intervals.append(_clip(course, q0[:2], axes, half, translation))
-    return np.concatenate(intervals)
+    half = np.broadcast_to(FOOTPRINT, (3, 2)).copy()
+    half[2] -= delta * np.linalg.norm(inverse[2], axis=1)
+    centre = np.array([q0[:2], q1[:2], q0[:2]])
+    travel = np.array([[0.0, 0.0], [0.0, 0.0], np.asarray(q1[:2]) - q0[:2]])
+    valid = (half > 0).all(axis=-1)
+    return _clip(
+        course, centre[valid], axes[valid], inverse[valid], half[valid], travel[valid]
+    )
 
 
 def advance(course: Course, frontier: float, q0, q1, r0, r1) -> float:

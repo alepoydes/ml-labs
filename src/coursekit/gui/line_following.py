@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import numpy as np
@@ -15,9 +16,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from coursekit import recording, resources
+from coursekit import recording, resources, submissions, training
 from coursekit.gui.common import Job, Notice, SolutionPath, heading
-from coursekit.gui.line_run import Run
+from coursekit.gui.line_run import Run, Worker
 from coursekit.gui.playback import Playback
 from coursekit.gui.robot_view import RobotView, recorded_courses
 from coursekit.gui.scene import Scene
@@ -33,10 +34,21 @@ class LineFollowingPage(QWidget):
         apply_style(self)
         self.project = Path(project)
         self.job = self.preparation = self.replay = None
+        self.worker = Worker()
+        self.pending_start = False
+        self.selected_course = -1
         self.courses = []
         self.live, self.shown = True, None
         self.saved_frames = 0
         self.chooser = SolutionPath(self.project, "line_following")
+        self.solution_button = QPushButton("Create baseline")
+        self.solution_button.setToolTip(
+            "Create the baseline if missing, then run train.py to prepare its artifacts. Existing code is never replaced."
+        )
+        self.solution_hint = QLabel()
+        self.solution_hint.setObjectName("muted")
+        self.solution_hint.setTextFormat(Qt.TextFormat.PlainText)
+        self.solution_hint.setWordWrap(True)
         self.course = QComboBox()
         self.course.setMinimumContentsLength(14)
         self.seed, self.batch, self.episode = QSpinBox(), QSpinBox(), QSpinBox()
@@ -95,7 +107,11 @@ class LineFollowingPage(QWidget):
         self.setup = QWidget()
         form = QVBoxLayout(self.setup)
         form.setContentsMargins(0, 0, 0, 0)
-        form.addWidget(self.chooser)
+        solution_row = QHBoxLayout()
+        solution_row.addWidget(self.chooser, 1)
+        solution_row.addWidget(self.solution_button)
+        form.addLayout(solution_row)
+        form.addWidget(self.solution_hint)
         setup = QHBoxLayout()
         for widget in [
             QLabel("Course"),
@@ -138,10 +154,12 @@ class LineFollowingPage(QWidget):
         self.control_button.clicked.connect(lambda: self.step(True))
         self.speed.currentIndexChanged.connect(self.change_speed)
         self.episode.valueChanged.connect(self.render)
-        self.course.currentIndexChanged.connect(self.preview)
+        self.course.currentIndexChanged.connect(self.change_course)
         self.save_button.clicked.connect(self.save)
         self.open_button.clicked.connect(self.open_recording)
         self.prepare_button.clicked.connect(self.prepare)
+        self.solution_button.clicked.connect(self.prepare_solution)
+        self.chooser.path.textChanged.connect(self.buttons)
         self.setup_button.toggled.connect(self.setup.setVisible)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
@@ -201,27 +219,134 @@ class LineFollowingPage(QWidget):
             f"{course.name} · {course.length:.2f} m each way · course preview"
         )
 
+    def change_course(self):
+        index = self.course.currentIndex()
+        if index < 0:
+            return
+        if self.job is not None:
+            accepted = self.start()
+        else:
+            accepted = self.replay is None or self.confirm_reset()
+        if not accepted:
+            self.course.blockSignals(True)
+            self.course.setCurrentIndex(self.selected_course)
+            self.course.blockSignals(False)
+            return
+        self.selected_course = index
+        if self.job is not None:
+            return
+        if self.replay is not None:
+            self.replay = None
+            self.playback.pause()
+            self.playback.set_frames(0, PHYSICS_DT)
+            self.diagnostics.show_snapshot({})
+            self.sensors.clear()
+        self.preview()
+        self.buttons()
+
+    def solution_problem(self):
+        path = Path(self.chooser.path.text())
+        missing = [
+            name
+            for name in ("solution.py", "train.py", "config.toml", "submission.toml")
+            if not (path / name).is_file()
+        ]
+        if missing:
+            if path == self.project / "work/line_following/baseline" and not path.exists():
+                return "No working solution yet. Create baseline to copy and prepare the example, or browse to your own solution."
+            return "Choose a working solution. Missing files: " + ", ".join(missing) + "."
+        try:
+            if (
+                submissions.metadata((path / "submission.toml").read_bytes())["lab"]
+                != "line_following"
+            ):
+                return "Choose a Line Following solution."
+        except Exception as exc:
+            return str(exc)
+        return ""
+
+    def prepare_solution(self):
+        if self.preparation is not None or self.job is not None and self.job.isRunning():
+            return
+        path = Path(self.chooser.path.text())
+        default = self.project / "work/line_following/baseline"
+        if self.solution_problem() and not (path == default and not path.exists()):
+            self.message.setText(self.solution_problem())
+            return
+
+        def prepare():
+            if path == default and not path.exists():
+                training.new_solution(self.project, "line_following", "baseline")
+            training.train_local(path, self.project)
+
+        self.message.setText("Preparing solution: running train.py and saving artifacts…")
+        self.preparation = Job(prepare, self)
+        self.preparation.finished.connect(
+            self.prepared_solution, Qt.ConnectionType.QueuedConnection
+        )
+        self.preparation.start()
+        self.buttons()
+
+    @Slot()
+    def prepared_solution(self):
+        job, self.preparation = self.preparation, None
+        self.message.setText(
+            job.error
+            or "Solution prepared. Choose a course and click New run; it starts paused."
+        )
+        job.deleteLater()
+        self.buttons()
+
     def buttons(self):
         running = self.job is not None and self.job.isRunning()
         ready = self.job is not None and self.job.snapshot() is not None
         preparing = self.preparation is not None
-        self.start_button.setEnabled(bool(self.courses) and not running and not preparing)
+        path = Path(self.chooser.path.text())
+        problem = self.solution_problem()
+        created = (path / "artifacts/provenance.json").is_file()
+        can_create = (
+            path == self.project / "work/line_following/baseline" and not path.exists()
+        )
+        self.solution_button.setText(
+            "Create baseline" if can_create else "Prepare solution"
+        )
+        self.solution_button.setEnabled(
+            bool(self.courses)
+            and not running
+            and not preparing
+            and (can_create or not problem)
+        )
+        self.solution_hint.setText(
+            problem
+            or (
+                "Artifacts ready. Prepare solution runs train.py again."
+                if created
+                else "Prepare solution to create its artifacts before running."
+            )
+        )
+        self.start_button.setEnabled(
+            bool(self.courses)
+            and not preparing
+            and not problem
+            and created
+            and not self.pending_start
+        )
         for widget in [
             self.chooser,
-            self.course,
             self.seed,
             self.batch,
             self.prepare_button,
         ]:
             widget.setEnabled(not running and not preparing)
+        self.course.setEnabled(not preparing and not self.pending_start)
         self.prepare_button.setVisible(not self.courses)
         self.play_button.setEnabled(
             running and ready and (self.job.paused or not self.live)
         )
         self.pause_button.setEnabled(running and ready and not self.job.paused)
         self.stop_button.setEnabled(running)
-        self.physics_button.setEnabled(running and ready)
-        self.control_button.setEnabled(running and ready)
+        self.physics_button.setEnabled(running and ready and not self.job.stopping)
+        self.control_button.setEnabled(running and ready and not self.job.stopping)
         self.open_button.setEnabled(not running and not preparing)
         self.save_button.setEnabled(ready or self.replay is not None)
         self.episode.setEnabled(ready or self.replay is not None)
@@ -240,14 +365,27 @@ class LineFollowingPage(QWidget):
         self.playback.setVisible(ready or self.replay is not None)
 
     def start(self):
+        if not self.courses or self.preparation is not None or self.pending_start:
+            return False
         if (
-            not self.courses
-            or self.preparation is not None
-            or self.job is not None
-            and self.job.isRunning()
+            self.solution_problem()
+            or not (Path(self.chooser.path.text()) / "artifacts/provenance.json").is_file()
         ):
-            return
+            self.message.setText(
+                self.solution_problem() or "Prepare solution before starting a run."
+            )
+            self.buttons()
+            return False
         if not self.confirm_reset():
+            return False
+        self.restart()
+        return True
+
+    def restart(self):
+        if self.job is not None and self.job.isRunning():
+            self.pending_start = True
+            self.stop()
+            self.buttons()
             return
         self.playback.pause()
         if self.job is not None:
@@ -261,6 +399,7 @@ class LineFollowingPage(QWidget):
             courses,
             [self.seed.value() + i for i in range(len(courses))],
             self,
+            worker=self.worker,
         )
         self.job.finished.connect(self.finished_run, Qt.ConnectionType.QueuedConnection)
         self.replay, self.live, self.shown = None, True, None
@@ -274,7 +413,7 @@ class LineFollowingPage(QWidget):
         self.sensors.clear()
         self.sensors.setText("Waiting for the first controller call.")
         self.message.setText(
-            "Loading solution and preparing physics. The first compilation can take time; Stop remains available."
+            "Starting simulation process. Stop or close the window to cancel."
         )
         self.job.start()
         self.setup_button.setChecked(False)
@@ -284,6 +423,11 @@ class LineFollowingPage(QWidget):
     def finished_run(self):
         if self.sender() is not self.job:
             return
+        if self.pending_start and self.isEnabled():
+            self.pending_start = False
+            self.restart()
+            return
+        self.pending_start = False
         self.message.setText(
             self.job.error
             or "Run ended. Play or inspect its recording below, or save it before starting another run."
@@ -296,9 +440,6 @@ class LineFollowingPage(QWidget):
             self.playback.pause()
             self.live = True
             self.job.command(paused=False, speed=self.speed.currentData())
-            self.message.setText(
-                "Live simulation. Pause or step to inspect; use the timeline to review recorded history."
-            )
             self.buttons()
 
     def pause(self):
@@ -307,11 +448,12 @@ class LineFollowingPage(QWidget):
         self.buttons()
 
     def stop(self):
-        if self.job is not None:
+        if self.job is not None and self.job.isRunning() and not self.job.stopping:
             self.job.command(stop=True)
-            self.message.setText("Stopping the run after the current computation finishes…")
+            self.message.setText("Stopping the simulation process…")
 
     def shutdown(self):
+        self.worker.close()
         self.timer.stop()
         self.playback.pause()
         self.scene.cleanup()
@@ -360,17 +502,24 @@ class LineFollowingPage(QWidget):
 
     def refresh(self):
         if self.job is not None:
+            if self.job.isRunning() and self.isEnabled():
+                phase = self.job.phase
+                elapsed = time.monotonic() - self.job.phase_started
+                if phase == "Paused":
+                    text = "Ready · paused. Resume live or use Step 1 ms / Step control."
+                elif phase == "Simulating":
+                    text = "Live simulation. Pause to inspect, or use the timeline to review history."
+                else:
+                    text = f"{phase} · {elapsed:.1f} s. Stop or close to cancel."
+                    if phase == "Warming physics":
+                        text += " First use of a batch size compiles kernels. New runs reuse this process."
+                self.message.setText(text)
             snapshot = self.job.snapshot()
             if snapshot is None:
                 return
-            first = self.timeline.maximum() == 0 and self.shown is None
             self.playback.set_frames(
                 snapshot[2], PHYSICS_DT, follow=self.live, control_steps=CONTROL_STEPS
             )
-            if first and self.job.isRunning():
-                self.message.setText(
-                    "Ready · paused. Resume live to run, or Step 1 ms / Step control to advance precisely."
-                )
             if self.shown != (self.timeline.value(), self.episode.value()):
                 self.render()
             self.buttons()
@@ -396,8 +545,10 @@ class LineFollowingPage(QWidget):
                 self.job.model,
                 self.job.controls,
             )
-            history = self.job.frames[: index + 1]
-            pitch = [f["time"][row] for f in history], [f["q"][row, 4] for f in history]
+
+            def pitch():
+                history = self.job.frames[: index + 1]
+                return [f["time"][row] for f in history], [f["q"][row, 4] for f in history]
         else:
             return
         self.shown = index, row + 1

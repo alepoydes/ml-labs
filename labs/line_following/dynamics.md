@@ -150,6 +150,34 @@ or later and its supported compiler
 toolchain; the first call has a substantial cost. Construct `advance` once,
 outside the rollout loop.
 
+The compiler also generates the C++ call wrapper, reducing Python overhead for
+small matrices. Linear solves return a status tensor (`solve_ex`) rather than
+raising inside the compiled graph; failed solves become non-finite values checked
+by `check`. This keeps error-handling side effects out of the compiler's disk cache.
+The environment compiles the same autodiff kinematics for sensors. Footprint
+rotation and numerical validation share the terminal kernel; validation still
+precedes committing each physical step. The conservative solve evaluates both
+discrete momenta together, sharing their derivative work. The three geometric
+coverage clips are batched within each step. These optimizations preserve the
+1 ms step, solver settings and coverage rule.
+
+For its fixed CPU float64 batches, the environment retains guarded callables from
+PyTorch 2.14's experimental
+[`aot_compile` interface](https://docs.pytorch.org/docs/2.14/user_guide/torch_compiler/torch.compiler_aot_compile.html).
+This avoids repeated Dynamo
+dispatch during a rollout; runtime guards remain enabled. Each batch size has its
+own cached callables. Initial state allocation preserves the layouts used by later
+steps, including singleton Boolean tensors.
+
+Saved AOT functions also avoid tracing and code generation in a fresh process.
+They live in `coursekit/` under the user cache directory (`XDG_CACHE_HOME`,
+`LOCALAPPDATA`, or `~/.cache`); `COURSEKIT_COMPILE_CACHE` overrides that location.
+The key includes the engine source, Python/PyTorch build, CPU capability, batch
+size and thread count. Writes are locked and atomic; incompatible or damaged
+artifacts are rebuilt. This cache contains executable code and is for local use,
+not for submission archives or distribution to students. A first run after an
+engine or environment update still pays compilation cost.
+
 For stacked states and actions, use `compile_step(batched=True)`. Add
 `model_batched=True` when each robot has its own stacked parameter set. The eager
 equivalents are `torch.vmap(step, in_dims=(0, 0, None))` for shared parameters and

@@ -34,7 +34,7 @@ def test_bundled_resources_training_archive_and_local_evaluation(project):
     result = adapter.evaluate(
         solution, project / "data/line_following", compiled=False, time_limit=0.002
     )
-    assert result["episodes"] == 4
+    assert result["episodes"] == len(adapter.benchmark(project / "data/line_following"))
     assert result["score"] == result["completion_rate"] == 0
     assert result["timeout_rate"] == 1
     assert result["mean_success_time"] is None
@@ -120,5 +120,9 @@ def test_local_evaluation_allows_online_gradient_adaptation(project):
     result = get_lab("line_following").evaluate(
         solution, project / "data/line_following", compiled=False, time_limit=0.001
     )
-    assert solution.calls == result["episodes"] == 4
+    assert (
+        solution.calls
+        == result["episodes"]
+        == len(get_lab("line_following").benchmark(project / "data/line_following"))
+    )
     assert solution.parameter.item() != pytest.approx(0.1)

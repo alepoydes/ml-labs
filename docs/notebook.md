@@ -1,6 +1,12 @@
-# Explore a solution with marimo
+# Explore the Blindjack baseline with marimo
 
-The baseline includes a small Python notebook. Create a working copy and open it
+This guide describes the notebook supplied with the **Blindjack** baseline.
+Line Following has no supplied notebook; use its [course preview and robot
+viewer](../labs/line_following/README.md#view-the-practice-courses), or the
+[Python environment example](development.md#call-the-same-functions-from-python)
+to build your own analysis. The same marimo environment is available for both labs.
+
+Create a working copy of the Blindjack baseline and open its notebook
 from the student project root, using the same locked environment as the scripts:
 
 ```sh

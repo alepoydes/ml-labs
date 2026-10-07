@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pytest
 import torch
@@ -7,6 +9,7 @@ from coursekit.labs import line_following as physics
 from coursekit.labs.line_following_course import Course
 from coursekit.labs.line_following_env import (
     Environment,
+    _inspect,
     validate_action,
     validate_observation,
 )
@@ -65,6 +68,74 @@ def test_observations_have_no_alias_to_environment_and_terminal_rows_freeze():
         torch.testing.assert_close(before, after, rtol=0, atol=0)
 
 
+@pytest.mark.skipif(
+    os.environ.get("COURSE_TEST_NATIVE") != "1",
+    reason="Set COURSE_TEST_NATIVE=1 for native compiler checks",
+)
+def test_native_batches_resets_and_terminal_masks_match_eager(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+
+    monkeypatch.setenv(
+        "COURSEKIT_COMPILE_CACHE",
+        os.environ.get("COURSEKIT_COMPILE_CACHE", str(tmp_path / "kernels")),
+    )
+    for size, threads in ((1, 1), (2, 1), (1, 2), (1, 1)):
+        torch.set_num_threads(threads)
+        courses, seeds = [straight()] * size, list(range(size))
+        native = Environment(courses, seeds)
+        eager = Environment(courses, seeds, compiled=False)
+        for phase in range(3):
+            if phase == 1 and size > 1:
+                native.status[0] = eager.status[0] = "timeout"
+            if phase == 2:
+                for env in (native, eager):
+                    env.reset(seeds=[31 + i for i in range(size)])
+            action = torch.full((size, 2), 0.1 * (phase + 1))
+            a, b = native.step(action), eager.step(action)
+            for observed, expected in zip(native.state, eager.state):
+                torch.testing.assert_close(observed, expected, atol=1e-11, rtol=1e-9)
+            for name in a[0]:
+                torch.testing.assert_close(a[0][name], b[0][name], atol=2e-6, rtol=1e-6)
+            np.testing.assert_allclose(a[4]["progress"], b[4]["progress"], atol=1e-12)
+            np.testing.assert_array_equal(a[4]["status"], b[4]["status"])
+        ticks = native.ticks.copy()
+        native.state.p[0, 0] = float("nan")
+        with pytest.raises(FloatingPointError, match="Non-finite"):
+            native.step(action)
+        np.testing.assert_array_equal(native.ticks, ticks)
+
+    # A fresh interpreter must load usable artifacts without tracing or compiling.
+    script = """
+import numpy as np
+import torch
+from coursekit.labs.line_following_course import Course
+from coursekit.labs.line_following_env import Environment
+torch.set_num_threads(1)
+original = torch.compile
+def forbidden(*args, **kwargs):
+    raise AssertionError('A cached kernel was recompiled')
+def cached_only(*args, **kwargs):
+    fn = original(*args, **kwargs)
+    fn.aot_compile = forbidden
+    return fn
+torch.compile = cached_only
+course = Course.polyline('cached', np.array([[0.,0.],[1.,0.]]))
+for size, threads in ((1,1),(2,1),(1,2),(1,1)):
+    torch.set_num_threads(threads)
+    env = Environment([course] * size, [51+i for i in range(size)])
+    reference = Environment([course] * size, [51+i for i in range(size)], compiled=False)
+    action = torch.full((size,2), .2)
+    env.step(action); reference.step(action)
+    for actual, expected in zip(env.state, reference.state):
+        torch.testing.assert_close(actual, expected, atol=1e-11, rtol=1e-9)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=90
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_return_leg_allows_reverse_driving_without_rotating_body():
     env = Environment([straight(0.4)], [3], compiled=False, time_limit=1.0, noise=False)
     positions = [0.12, 0.24, 0.36, 0.24, 0.12, 0.0]
@@ -73,8 +144,8 @@ def test_return_leg_allows_reverse_driving_without_rotating_body():
         # Prescribed poses exercise the judge/lifecycle, not motor feasibility.
         q = state.q.clone()
         q[0, 0] = positions[min(env.ticks[0], len(positions) - 1)]
-        return state._replace(q=q), physics.Diagnostics(
-            torch.zeros(1), torch.zeros((1, 3, 3))
+        return _inspect(
+            state._replace(q=q), physics.Diagnostics(torch.zeros(1), torch.zeros((1, 3, 3)))
         )
 
     env._advance = transport
@@ -98,8 +169,9 @@ def test_fall_and_numerical_failure_remain_distinct():
     env = Environment([straight()], [0], compiled=False, time_limit=0.003)
 
     def fall(state, action, model):
-        return state._replace(fallen=torch.ones(1, dtype=torch.bool)), physics.Diagnostics(
-            torch.zeros(1), torch.zeros((1, 3, 3))
+        return _inspect(
+            state._replace(fallen=torch.ones(1, dtype=torch.bool)),
+            physics.Diagnostics(torch.zeros(1), torch.zeros((1, 3, 3))),
         )
 
     env._advance = fall
@@ -109,7 +181,7 @@ def test_fall_and_numerical_failure_remain_distinct():
     env.reset()
 
     def invalid(state, action, model):
-        return state, physics.Diagnostics(torch.ones(1), torch.zeros((1, 3, 3)))
+        return _inspect(state, physics.Diagnostics(torch.ones(1), torch.zeros((1, 3, 3))))
 
     env._advance = invalid
     with pytest.raises(FloatingPointError, match="converge"):

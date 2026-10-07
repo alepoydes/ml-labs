@@ -185,16 +185,18 @@ class RobotView(QWidget):
             "right motor": float(control["action"][row, 1]),
             "pitch (rad)": float(frame["q"][row, 4]),
         }
-        history = {}
-        if pitch_history is not None:
-            history["pitch (rad)"] = pitch_history
-        for key, column in [("left motor", 0), ("right motor", 1)]:
-            history[key] = (
-                [float(c["observation"]["time"][row]) for c in controls[: index + 1]],
-                [float(c["action"][row, column]) for c in controls[: index + 1]],
-            )
-        for key, value in debug.items():
-            if isinstance(value, (int, float)):
+
+        def history(key):
+            # Build only the selected plot, including when selection changes on pause.
+            if key == "pitch (rad)":
+                return pitch_history() if callable(pitch_history) else pitch_history
+            if key in ("left motor", "right motor"):
+                column = int(key == "right motor")
+                return (
+                    [float(c["observation"]["time"][row]) for c in controls[: index + 1]],
+                    [float(c["action"][row, column]) for c in controls[: index + 1]],
+                )
+            if isinstance(debug.get(key), (int, float)):
                 samples = [
                     (
                         c["observation"]["time"][row],
@@ -204,5 +206,7 @@ class RobotView(QWidget):
                 ]
                 samples = [(t, v) for t, v in samples if isinstance(v, (int, float))]
                 if samples:
-                    history[key] = tuple(zip(*samples))
+                    return tuple(zip(*samples))
+            return None
+
         self.diagnostics.show_snapshot(values, history)

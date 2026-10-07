@@ -2,6 +2,7 @@ import importlib.metadata
 import importlib.util
 import json
 import platform
+import shutil
 import sys
 from pathlib import Path
 
@@ -17,16 +18,48 @@ from coursekit.common import (
     read_toml,
     write_json,
 )
+from coursekit.labs import require_lab
 from coursekit.submissions import metadata
+
+
+def new_solution(project: Path, lab: str, template="starter", variant=None) -> Path:
+    """Copy a template for CLI or GUI use; never overwrite a working solution."""
+    require_lab(lab)
+    if template not in {"starter", "baseline"}:
+        raise CourseError("Choose the starter or baseline template.")
+    source = project / "labs" / lab / template
+    variant = template if variant is None else variant
+    raw = (
+        (source / "submission.toml")
+        .read_text()
+        .replace('variant = "template"', f"variant = {json.dumps(variant)}")
+    )
+    metadata(raw.encode())
+    destination = project / "work" / lab / variant
+    if destination.exists():
+        raise CourseError(f"Solution already exists: {destination}")
+    shutil.copytree(
+        source, destination, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
+    )
+    (destination / "submission.toml").write_text(raw)
+    return destination
 
 
 def load_module(solution: Path, name: str):
     """Import one of your working copy's Python files in the current process."""
     solution = solution.resolve()
+    if not (solution / f"{name}.py").is_file():
+        raise CourseError(
+            f"Missing {name}.py in {solution}. Choose a working solution or create one with step_1_new_solution."
+        )
     # A notebook can load another variant or rerun after editing its helpers.
     for key in list(sys.modules):
         if key in {"train", "solution", "lib"} or key.startswith("lib."):
             del sys.modules[key]
+    # Timestamp-based bytecode can miss same-size edits within one second.
+    # Remove only this working copy's generated caches, including its helpers.
+    for source in [*solution.glob("*.py"), *(solution / "lib").rglob("*.py")]:
+        Path(importlib.util.cache_from_source(str(source))).unlink(missing_ok=True)
     importlib.invalidate_caches()
     if str(solution) in sys.path:
         sys.path.remove(str(solution))

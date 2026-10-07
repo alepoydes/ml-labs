@@ -1,9 +1,9 @@
 # Planned laboratories
 
-These three assignments are not yet implemented. Blindjack and
+These three assignments are not yet implemented. [Blindjack](../labs/blindjack/README.md) and
 [Line Following](../labs/line_following/README.md) have runnable implementations.
-The robot lab remains a pilot pending learned-controller calibration and activation
-in the instructor's course total.
+The robot lab remains a pilot pending learned-controller calibration. The instructor
+will announce which labs contribute to the course total and the assessment settings.
 
 | Lab | Direction | Decisions still open |
 | --- | --- | --- |

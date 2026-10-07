@@ -328,3 +328,13 @@ def test_compiler_reuses_kernels_and_matches_eager(batched, model_batched):
                 mass=parameters.mass * 1.01, inertia=parameters.inertia * 1.01
             )
     assert len(set(counts.values())) == 1
+
+
+def test_singular_solve_is_a_numerical_failure():
+    model = physics.robot()
+    broken = model._replace(mass=model.mass * 0, inertia=model.inertia * 0)
+    state, diagnostics = physics.step(
+        physics.initial_state(broken), torch.zeros(2, dtype=torch.float64), broken
+    )
+    with pytest.raises(FloatingPointError, match="Non-finite"):
+        physics.check(state, diagnostics)
