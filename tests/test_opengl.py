@@ -36,6 +36,30 @@ def test_headless_scene_renders_course_markers_and_robot():
     assert ((pixels[..., 0] - pixels[..., 2]) > 100).sum() > 20
     assert ((pixels[..., 2] - pixels[..., 0]) > 100).sum() > 20
     assert (pixels.max(axis=-1) < 40).sum() > 200
+    # Top camera: the sensor overlay changes only the 8 x 94 mm strip between wheels.
+    images = []
+    for sensing in (False, True):
+        renderer.draw(
+            target,
+            600,
+            300,
+            course,
+            q,
+            {k: v.numpy() for k, v in model._asdict().items()},
+            top=True,
+            follow=True,
+            zoom=2,
+            sensing=sensing,
+        )
+        images.append(
+            np.frombuffer(target.read(), dtype=np.uint8).reshape(300, 600, 3).copy()
+        )
+    y, x = np.where(np.any(images[0] != images[1], axis=-1))
+    assert len(x) > 500
+    # Follow camera spans 0.3 m vertically: one pixel per millimetre.
+    assert x.min() >= 295 and x.max() <= 304
+    assert y.min() >= 102 and y.max() <= 197
+    assert 90 <= np.ptp(y) <= 94
     renderer.release()
     target.release()
     context.release()

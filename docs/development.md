@@ -176,8 +176,11 @@ are explicit training actions, using the same functions as the numbered scripts;
 existing source is preserved. **Start** remains disabled until artifacts exist.
 See [the course guide](../labs/line_following/README.md#view-the-practice-courses)
 for files, fixed benchmark seeds and marker dimensions.
-There are 50 training courses ordered in five stages and 15 separate validation
-courses. Begin with `train-01` and gradually include later groups of ten.
+There are 50 training courses and 15 separate validation courses. Begin with the two
+straight episodes, then progress through compact curves, turn sequences, hairpins,
+sharp corners, crossings and mixed layouts. The
+[offline atlas](../labs/line_following/resources/index.html) shows all courses with
+lengths and fixed robot seeds; it is also copied to `data/line_following/index.html`.
 
 The solution, course, robot seed and batch size stay visible during a run.
 The engine and course geometry prepare in the background on opening the viewer,
@@ -205,6 +208,11 @@ and rear sphere; **Fit track** restores the full-course view. The RGB strip show
 latest actual optical reading. Use **Save recording** explicitly before replacing
 or closing a run you want to keep; these operations do not show save prompts.
 Saving while running stores the frames captured so far; subsequent frames need another save. Malformed recordings leave the currently open recording intact.
+
+In the robot viewer, **Sensor area** overlays the 16 measured ground sectors
+through the chassis. Use **Top view**, **Follow robot** and the mouse wheel to
+inspect the 94×8 mm strip between the wheels. This strip also defines route
+coverage: the centreline must pass through it in route order.
 
 ### Diagnostics and recordings
 

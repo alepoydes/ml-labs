@@ -15,10 +15,10 @@ from coursekit.labs.line_following_curve import (
     save_courses as save_courses,
 )
 
-LINE_WIDTH = 0.016
-SENSOR_WIDTH = 0.128
+SENSOR_WIDTH = 0.094
 SENSOR_DEPTH = 0.008
-FOOTPRINT = np.array([0.070, 0.064])
+LINE_WIDTH = SENSOR_WIDTH / 8
+SENSOR_HALF = np.array([SENSOR_DEPTH, SENSOR_WIDTH]) / 2
 MARKER_LENGTH = 0.12
 GROUND = np.array([0.94, 0.94, 0.94])
 INK = np.array([0.06, 0.06, 0.06])
@@ -74,13 +74,23 @@ def colour(course: Course, points: np.ndarray) -> np.ndarray:
     return result.reshape(*shape, 3)
 
 
+def sensor_areas(centre: np.ndarray, rotation: np.ndarray) -> np.ndarray:
+    """Ground-projected corners of the 16 rectangles, in the body-fixed axle row."""
+    corners = np.array([[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]])
+    local = np.broadcast_to(corners * [SENSOR_DEPTH, SENSOR_WIDTH / 16], (16, 4, 2)).copy()
+    local[:, :, 1] += ((np.arange(16) + 0.5) / 16 - 0.5)[:, None] * SENSOR_WIDTH
+    return centre[:2] + local @ rotation[:2, :2].T
+
+
 def optical(course: Course, centre: np.ndarray, rotation: np.ndarray) -> np.ndarray:
-    # 4 x 4 midpoint quadrature per sector, all in one transverse body-fixed row.
-    offsets = (np.arange(4) + 0.5) / 4 - 0.5
-    x = np.broadcast_to(offsets[None, :, None] * SENSOR_DEPTH, (16, 4, 4))
-    y = (np.arange(16)[:, None, None] + 0.5 + offsets[None, None, :]) / 16 - 0.5
-    local = np.stack((x, np.broadcast_to(y * SENSOR_WIDTH, x.shape)), axis=-1)
-    world = centre[:2] + local @ rotation[:2, :2].T
+    # 4 x 4 midpoint quadrature in exactly the same rectangles shown by the viewer.
+    areas = sensor_areas(centre, rotation)
+    offsets = (np.arange(4) + 0.5) / 4
+    world = (
+        areas[:, None, None, 0]
+        + offsets[None, :, None, None] * (areas[:, 1] - areas[:, 0])[:, None, None]
+        + offsets[None, None, :, None] * (areas[:, 3] - areas[:, 0])[:, None, None]
+    )
     return colour(course, world).mean(axis=(1, 2)).astype(np.float32)
 
 
@@ -143,18 +153,18 @@ def _clip(course: Course, centre, axes, inverse, half, travel) -> np.ndarray:
 
 
 def swept_intervals(course: Course, q0, q1, r0, r1) -> np.ndarray:
-    """Certified inner coverage of one step; inputs use the dynamics pose map.
+    """Certified inner sweep of the sensor row; inputs use the dynamics pose map.
 
     Axle position and Euler coordinates interpolate linearly during a step.
-    Rotation changes any footprint point by at most radius * sum(abs(dangles)).
-    Eroding the initial projected footprint by this bound leaves a fixed shape
-    inside every translated intermediate footprint. Its translational sweep is
-    exact. Include both endpoint footprints, which require no erosion.
+    Rotation changes any sensor point by at most radius * sum(abs(dangles)).
+    Eroding the initial projected row by this bound leaves a fixed shape
+    inside every translated intermediate row. Its translational sweep is
+    exact. Include both endpoint rows, which require no erosion.
     """
     axes = np.array([r0[:2, :2], r1[:2, :2], r0[:2, :2]])
     inverse = np.linalg.inv(axes)
-    delta = np.linalg.norm(FOOTPRINT) * np.abs(q1[3:6] - q0[3:6]).sum()
-    half = np.broadcast_to(FOOTPRINT, (3, 2)).copy()
+    delta = np.linalg.norm(SENSOR_HALF) * np.abs(q1[3:6] - q0[3:6]).sum()
+    half = np.broadcast_to(SENSOR_HALF, (3, 2)).copy()
     half[2] -= delta * np.linalg.norm(inverse[2], axis=1)
     centre = np.array([q0[:2], q1[:2], q0[:2]])
     travel = np.array([[0.0, 0.0], [0.0, 0.0], np.asarray(q1[:2]) - q0[:2]])

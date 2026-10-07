@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 
 from coursekit.gui.common import Diagnostics, pixmap
 from coursekit.inspection import copy_debug
-from coursekit.labs.line_following_course import Course
+from coursekit.labs.line_following_course import SENSOR_DEPTH, SENSOR_WIDTH, Course
 
 
 def recorded_courses(record):
@@ -123,10 +123,16 @@ class RobotView(QWidget):
         self.follow, self.overhead = QCheckBox("Follow robot"), QCheckBox("Top view")
         self.follow.toggled.connect(lambda value: self.camera("follow", value))
         self.overhead.toggled.connect(lambda value: self.camera("top", value))
+        self.sensing = QCheckBox("Sensor area")
+        self.sensing.setChecked(True)
+        self.sensing.setToolTip(
+            "Show the 16 sensing and route-coverage areas through the chassis."
+        )
+        self.sensing.toggled.connect(lambda value: self.camera("sensing", value))
         self.fit = QPushButton("Fit track")
         self.fit.clicked.connect(self.fit_track)
         camera = QHBoxLayout()
-        for widget in [self.follow, self.overhead, self.fit]:
+        for widget in [self.follow, self.overhead, self.sensing, self.fit]:
             camera.addWidget(widget)
         camera.addStretch()
         hint = QLabel("Wheel: zoom · drag: pan")
@@ -137,7 +143,11 @@ class RobotView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(camera)
         layout.addWidget(scene, 1)
-        layout.addWidget(QLabel("Optical sensor · left → right"))
+        layout.addWidget(
+            QLabel(
+                f"Optical sensor · {SENSOR_WIDTH * 1000:g}×{SENSOR_DEPTH * 1000:g} mm · left → right"
+            )
+        )
         layout.addWidget(self.sensor)
         split = QSplitter()
         split.addWidget(left)

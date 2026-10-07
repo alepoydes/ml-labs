@@ -358,6 +358,11 @@ def open_recording():
     QTest.mouseClick(robot.open_button,Qt.LeftButton)
     QTest.mouseClick(robot.playback.control,Qt.LeftButton)
     assert robot.timeline.value()==1 and robot.diagnostics.snapshot['left motor']==.2
+    assert robot.view.sensing.isChecked() and robot.scene.sensing
+    QTest.mouseClick(robot.view.sensing,Qt.LeftButton)
+    assert not robot.scene.sensing
+    QTest.mouseClick(robot.view.sensing,Qt.LeftButton)
+    assert robot.scene.sensing
     robot.diagnostics.table.selectRow(list(robot.diagnostics.snapshot).index('left motor'))
     QTest.mousePress(robot.scene,Qt.LeftButton,pos=QPoint(100,100))
     QTest.mouseMove(robot.scene,QPoint(120,110)); QTest.mouseRelease(robot.scene,Qt.LeftButton,pos=QPoint(120,110))
@@ -411,6 +416,10 @@ def inspect_pause():
     robot.timeline.setValue(0)
     assert robot.diagnostics.snapshot=={} and not robot.live
     window.grab().save(str(output/'robot-paused.png'))
+    robot.view.overhead.setChecked(True)
+    robot.view.follow.setChecked(True)
+    robot.scene.zoom=2.5
+    robot.scene.grabFramebuffer().save(str(output/'robot-sensor.png'))
     app.setActiveWindow(window)
     window.setFocus()
     QTest.keyClick(window,Qt.Key_Space)

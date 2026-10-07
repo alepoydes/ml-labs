@@ -11,11 +11,11 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from coursekit.labs import line_following as physics
 from coursekit.labs.line_following_course import (
     END,
-    FOOTPRINT,
     INK,
     LINE_WIDTH,
     MARKER_LENGTH,
     START,
+    sensor_areas,
 )
 
 
@@ -149,8 +149,9 @@ class Renderer:
             fragment_shader="""
             #version 330
             in vec3 tint;
+            uniform float opacity;
             out vec4 fragment;
-            void main() { fragment = vec4(tint, 1.0); }
+            void main() { fragment = vec4(tint, opacity); }
         """,
         )
         self.buffer = context.buffer(reserve=1024, dynamic=True)
@@ -170,6 +171,7 @@ class Renderer:
         *,
         top=False,
         follow=False,
+        sensing=True,
         zoom=1.0,
         pan=(0.0, 0.0),
     ):
@@ -178,7 +180,10 @@ class Renderer:
         rotation = physics.rotation(torch.from_numpy(q)).numpy()
         pieces = []
         for mesh, offset in [
-            (box(np.r_[FOOTPRINT, 0.005], [0.16, 0.5, 0.67]), np.array([0, 0, 0.008])),
+            (
+                box(np.array([0.070, 0.064, 0.005]), [0.16, 0.5, 0.67]),
+                np.array([0, 0, 0.008]),
+            ),
             (box(np.array([0.03, 0.035, 0.065]), [0.94, 0.58, 0.17]), model["offset"][0]),
             *[
                 (round_body(r, sphere=i == 2), model["offset"][i + 1])
@@ -230,7 +235,28 @@ class Renderer:
         self.ctx.viewport = (0, 0, width, height)
         framebuffer.clear(0.94, 0.94, 0.94, 1, depth=1)
         self.ctx.enable(moderngl.DEPTH_TEST)
+        self.program["opacity"].value = 1.0
         self.vao.render(moderngl.TRIANGLES, vertices=len(vertices))
+        if sensing:
+            # Inspection overlay: show the actual ground footprint through the chassis.
+            overlay = np.concatenate(
+                [
+                    triangles(
+                        np.c_[area, np.zeros(4)],
+                        [[0, 1, 2], [0, 2, 3]],
+                        [0.05, 0.85, 0.95] if i % 2 else [0.95, 0.8, 0.1],
+                    )
+                    for i, area in enumerate(sensor_areas(q[:3], rotation))
+                ]
+            )
+            self.buffer.orphan(overlay.nbytes)
+            self.buffer.write(overlay.tobytes())
+            self.ctx.disable(moderngl.DEPTH_TEST)
+            self.ctx.enable(moderngl.BLEND)
+            self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+            self.program["opacity"].value = 0.7
+            self.vao.render(moderngl.TRIANGLES, vertices=len(overlay))
+            self.ctx.disable(moderngl.BLEND)
 
     def release(self):
         self.vao.release()
@@ -264,6 +290,7 @@ class Scene(QOpenGLWidget):
         self.renderer = self.framebuffer = None
         self.pose = None
         self.top, self.follow, self.zoom = False, False, 1.0
+        self.sensing = True
         self.pan, self.drag = np.zeros(2), None
 
     def initializeGL(self):
@@ -305,6 +332,7 @@ class Scene(QOpenGLWidget):
                 *self.pose,
                 top=self.top,
                 follow=self.follow,
+                sensing=self.sensing,
                 zoom=self.zoom,
                 pan=self.pan,
             )

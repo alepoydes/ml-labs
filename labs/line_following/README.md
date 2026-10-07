@@ -14,7 +14,12 @@ viewer and isolated instructor evaluation use this same public environment.
 
 ## View the practice courses
 
-From the student project root, run:
+Open the [offline course atlas](resources/index.html) to see all 65 routes together,
+filter training/validation courses, and find their lengths and fixed robot seeds.
+After resource preparation, the same atlas is available at
+`data/line_following/index.html`. It works without Python or a network connection.
+
+For the interactive simulator, from the student project root run:
 
 ```sh
 ./view_lab line_following
@@ -34,17 +39,24 @@ in order, then mix earlier and later cases to avoid forgetting the basics:
 
 | Training courses | Suggested progression |
 | --- | --- |
-| 01–10 | Start, drive straight, read endpoint colours, return; then gentle bends. |
-| 11–20 | Repeated bends with varying direction, length and sharpness. |
-| 21–30 | Corners and braking, interspersed with smooth sections. |
-| 31–40 | Close branches and recovery without skipping the required route. |
-| 41–50 | Smooth branch continuation through crossings and longer mixed routes. |
+| 01–02 | The same one-metre straight route with two different robots; drive out and return. |
+| 03–10 | Wide curves, a rounded triangle and square, a broad S and varying-radius loops. |
+| 11–20 | Different radii and short left/right turn sequences; choose speed for each section. |
+| 21–30 | Hairpins, spirals, compact serpentine routes and increasingly close branches. |
+| 31–38 | An isolated sharp corner, then angular sequences and nearby branches. |
+| 39–44 | Smooth continuation through one crossing, then two crossings. |
+| 45–50 | Mixed compact layouts combining previously introduced manoeuvres. |
 
-The first three courses are straight. Each group has three independently drawn
-validation courses, in the same group order. These are a finite practice curriculum,
-not an exhaustive set: repeat training with different robot seeds, and use validation
-to compare controllers. Course length, bend shape, turn count, angles and branch
-spacing vary; later groups do not merely rotate or stretch the first courses.
+Only the first two courses are straight. All other routes have compact footprints;
+the aspect ratio of their smallest enclosing rectangle is at most 1.5, independently
+of orientation. Rotations and reflections alone do not make new routes. Course shapes,
+turn counts, radii, branch spacing and placement of technical sections vary.
+All routes remain open: return from the red endpoint along the same line.
+
+Validation has 2, 3, 3, 2, 2 and 3 independent courses corresponding to the six
+non-straight groups above. These are a finite practice curriculum, not an exhaustive
+set: repeat training with different robot seeds, and use validation to compare
+controllers. Robot seeds are sampled independently of the geometry generator.
 
 Their canonical spline geometry
 is in `labs/line_following/resources/courses.npz`; preparation copies it into
@@ -125,8 +137,8 @@ You can adapt using the robot's observed response to your actions.
 Your controller receives one transverse row of 16 colour measurements from
 under the chassis, together with gyroscope, accelerometer, and wheel-encoder
 readings. Each optical sector reports the average RGB colour over its sensing
-area. The line has a fixed physical width, intended to span approximately two
-sectors in the nominal sensor pose.
+area. The 94×8 mm row fits between the inner wheel edges, centred on the axle.
+The fixed 11.75 mm line spans two sectors in the nominal sensor pose.
 
 The row sees only its designated area beneath the chassis. It does not provide
 a forward view or a map. You can use the history of observations and actions to
@@ -145,7 +157,9 @@ observations; they do not indicate that the preceding route was accepted.
 ## Courses
 
 The ground is flat. Courses can contain straight sections, smooth bends, sharp
-corners, sections that pass close to one another, and self-intersections.
+corners, sections that pass close to one another, and self-intersections. Close
+parallel branches can be 47 mm apart (half the sensor width), so a single reading
+can contain two separate lines.
 
 At a crossing, follow the smooth continuation of the branch on which you arrived.
 The crossing angle is sufficiently large to distinguish the branches, and both
@@ -154,7 +168,7 @@ outside that neighbourhood. The pilot requires crossing angles of at least 50°
 and keeps marked corners at least 0.2 m from crossings.
 
 The endpoint markers are coloured portions of the line itself, with the same
-16 mm width as its dark middle section:
+11.75 mm width as its dark middle section:
 
 | Surface | Location along the route | Nominal RGB in `[0, 1]` |
 | --- | --- | --- |
@@ -179,10 +193,13 @@ rules. Expect to generalise beyond memorising the practice routes.
 
 ## Completing the route
 
-Every part of the line must pass under the designated chassis footprint in route
-order. The centre of the robot does not have to remain exactly over the centre
-of the line. The judge follows the continuation of the current route segment,
-including at crossings and near other branches.
+Every part of the route centreline must pass through the 94×8 mm optical row
+between the wheels, in route order. There is lateral freedom within that row.
+A section under a wheel or elsewhere under the chassis earns no progress.
+The judge follows the continuation of the current route segment, including at
+crossings and near other branches. Acceptance uses geometry, independently of
+RGB noise; a visible paint edge does not suffice if its centreline lies outside
+the sensing area.
 
 Coverage must remain continuous throughout movement, including between sensor
 updates. Being correctly placed at the beginning and end of an update interval
@@ -249,11 +266,12 @@ must use its permitted observations and action history.
 A simple supported reference controller is provided as `baseline`. It follows
 the optical centroid slowly, uses elementary line recovery, and returns in
 reverse. Its preparation function saves hand-tuned settings; it is not a learned
-solution. In a four-episode probe on the previous pilot-2 spline collection it
-completed two straight courses and one smooth course; the other smooth case
-timed out at the 60-second pilot cutoff. This does not establish performance on
-sharp corners, crossings, or the new 50-course curriculum or complete benchmark.
-Scores measured on the earlier polyline profile are obsolete. You should measure
+solution. With the current sensor-area coverage rule, a probe on the fixed
+train-01..04 episodes completed the two straights and the arc in 19.405, 19.699
+and 38.499 seconds. The S-shaped train-04 timed out at 120 seconds after missing
+route sections; its score was zero. This does not establish performance on the
+complete curriculum or benchmark. Scores from older coverage rules are not
+comparable. You should measure
 your own completion rate and journey time, including recovery costs, and compare
 performance on familiar and unfamiliar courses. Separate outward and return
 times can show whether experience from the first leg helps.
@@ -356,11 +374,12 @@ error of at most 0.01 mm. The judge erodes clipping halfplanes by this error bef
 accepting a curve interval. Optical projection evaluates the spline itself,
 initialized by these chords; its distance error is bounded by 0.02 mm. Rendering
 uses the same subdivision. Optical sectors average 4×4 samples
-over rectangles in one transverse row, 128 mm wide and 8 mm deep. Line width is
-16 mm; endpoint colours and lengths are listed under [Courses](#courses).
-The chassis footprint
-is the ground projection of a body-fixed 140×128 mm rectangle at the axle centre.
-Coverage uses a conservative inner approximation to its swept region at each
+over rectangles in one transverse row, 94 mm wide and 8 mm deep, between the
+inner wheel edges. Line width is 11.75 mm; endpoint colours and lengths are listed
+under [Courses](#courses).
+Route coverage uses the ground projection of this same body-fixed 94×8 mm
+rectangle at the axle centre. It uses a conservative inner approximation to the
+region swept by the sensor at each
 physical step, including the endpoint footprints and a certified translation
 sweep, with the additional spline-error erosion. It never substitutes the convex hull of two rotated footprints. See the
 small public `line_following_course` module for the calculation.

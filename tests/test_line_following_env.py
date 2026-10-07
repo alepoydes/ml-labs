@@ -138,7 +138,7 @@ for size, threads in ((1,1),(2,1),(1,2),(1,1)):
 
 def test_return_leg_allows_reverse_driving_without_rotating_body():
     env = Environment([straight(0.4)], [3], compiled=False, time_limit=1.0, noise=False)
-    positions = [0.12, 0.24, 0.36, 0.24, 0.12, 0.0]
+    positions = [0.12, 0.24, 0.36, 0.40, 0.24, 0.12, 0.0]
 
     def transport(state, action, model):
         # Prescribed poses exercise the judge/lifecycle, not motor feasibility.
@@ -155,14 +155,16 @@ def test_return_leg_allows_reverse_driving_without_rotating_body():
     )
     assert terminated.item() and not truncated.item()
     assert info["status"].tolist() == ["finished"]
-    assert info["time"].tolist() == [0.006]
-    assert info["outward_time"].tolist() == [0.003]
+    assert info["time"].tolist() == [0.007]
+    assert info["outward_time"].tolist() == [0.004]
     assert info["score"].tolist() == [100.0]
     assert reward.item() > 0.8
-    assert frames[2]["leg"].tolist() == [1]
+    # The chassis reaches the endpoint at x=.36, but the sensor has not reached it.
+    assert frames[2]["leg"].tolist() == [0]
+    assert frames[3]["leg"].tolist() == [1]
     assert all(frame["q"][0, 5] == 0 for frame in frames)
     assert not env.first.item()
-    assert obs["time"].item() == pytest.approx(0.006)
+    assert obs["time"].item() == pytest.approx(0.007)
 
 
 def test_fall_and_numerical_failure_remain_distinct():

@@ -71,7 +71,8 @@ Its offline `data/blindjack/index.html` also shows labeled examples and validati
 hands using the canonical PNG sheets, without Python or a server. Line Following
 previews every public course, then runs a prepared controller with live sensor plots,
 pause and rewind. Blue marks the start/return finish; red marks the far turnaround.
-Its 50 training courses progress from straight driving to mixed routes; 15 separate
+Its [course atlas](labs/line_following/resources/index.html) shows 50 training courses
+progressing from two straight episodes to compact mixed routes; 15 separate
 validation courses cover the same stages. On a fresh checkout, **Create baseline**
 copies and prepares the robot reference controller; **Start** then begins driving.
 The engine prepares in the background as the viewer opens. Course selection stays

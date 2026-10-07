@@ -1,20 +1,26 @@
 schema_version = 1
-revision = "line-following-pilot-3"
+revision = "line-following-pilot-5"
 
 [[files]]
 path = "courses.npz"
 source = "resources/courses.npz"
-size = 93346
-sha256 = "bf3332212a762e1ff75a989e25372c81e76162ddfafb863a7c5fd4a8ecd52dd3"
+size = 76601
+sha256 = "537d29ab44375fbcfe21ec4af570015bfc5950dfca0c913d017afc959b1a8c67"
 
 [[files]]
 path = "train.csv"
 source = "resources/train.csv"
 size = 984
-sha256 = "5a7064781a05047d04a493de4413c1f135dce36ba130a36a81992ea549101da6"
+sha256 = "110645244b85e35100204858831a9e989cccc1a981d357b0393cfa2c09ddfd1f"
 
 [[files]]
 path = "validation.csv"
 source = "resources/validation.csv"
-size = 379
-sha256 = "42e5f2dde36b7b2b865b9d0380ebb3927ef11ecec182baae42b2df3f64891c61"
+size = 380
+sha256 = "d46560a372dc3fdc59ba6a354954f1d1c98434f4701ad9f21e2145c7262bc2f3"
+
+[[files]]
+path = "index.html"
+source = "resources/index.html"
+size = 256136
+sha256 = "868ca0a8183c79c603e489468045405900072a876272339caa63857daa310e26"

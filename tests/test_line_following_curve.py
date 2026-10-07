@@ -7,6 +7,8 @@ from coursekit.labs.line_following import robot
 from coursekit.labs.line_following_course import (
     GROUND,
     INK,
+    LINE_WIDTH,
+    SENSOR_WIDTH,
     advance,
     colour,
     reference_time,
@@ -88,10 +90,11 @@ def test_sensor_uses_the_curve_and_certified_sweep_does_not_credit_its_chord():
     positions = np.c_[t, t**2]
     normals = np.c_[-2 * t, np.ones(3)] / np.sqrt(1 + 4 * t**2)[:, None]
     np.testing.assert_allclose(
-        colour(course, positions + 0.007999 * normals), np.tile(INK, (3, 1))
+        colour(course, positions + (LINE_WIDTH / 2 - 1e-6) * normals), np.tile(INK, (3, 1))
     )
     np.testing.assert_allclose(
-        colour(course, positions + 0.008001 * normals), np.tile(GROUND, (3, 1))
+        colour(course, positions + (LINE_WIDTH / 2 + 1e-6) * normals),
+        np.tile(GROUND, (3, 1)),
     )
     arch = Course("arch", np.array([[[0, 0], [0.3, 0.4], [0.7, 0.4], [1, 0]]]))
     start = np.array([0.0, 0, 0.035, 0, 0, 0, 0, 0])
@@ -100,7 +103,7 @@ def test_sensor_uses_the_curve_and_certified_sweep_does_not_credit_its_chord():
     frontier = advance(arch, 0.0, start, end, np.eye(3), np.eye(3))
     assert 0 < frontier < arch.length / 4
     points = arch.at(np.linspace(0, frontier, 301))
-    assert (np.abs(points[:, 1]) <= 0.064 + 1e-12).all()
+    assert (np.abs(points[:, 1]) <= SENSOR_WIDTH / 2 + 1e-12).all()
 
 
 def test_invalid_tangents_joins_and_old_archive_are_rejected(tmp_path):

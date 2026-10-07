@@ -3,6 +3,8 @@ from pathlib import Path
 
 import torch
 
+from coursekit.labs.line_following_course import SENSOR_WIDTH
+
 
 class Solution:
     """Slow supported driving with a line centroid, PD steering, and reverse return."""
@@ -31,7 +33,7 @@ class Solution:
         coordinates = (torch.arange(16, device=rgb.device) + 0.5) / 16 - 0.5
         self.visible = weight.sum(dim=1) > 0.2
         self.error = (weight * coordinates).sum(dim=1) / weight.sum(dim=1).clamp(min=0.01)
-        self.error *= 0.128
+        self.error *= SENSOR_WIDTH
         self.side = torch.where(
             self.visible & (self.error.abs() > 0.001), self.error.sign(), self.side
         )

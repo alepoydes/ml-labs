@@ -38,3 +38,8 @@ Robot setup stays visible. Prepare the engine at startup without invoking a solu
 Start/Restart and course changes begin moving automatically. Check queued starts,
 cancellation and close during preparation. Save recordings only on explicit request;
 do not interrupt routine switching with save/discard confirmations.
+
+Optics, route coverage and the GUI sensor overlay share the same projected
+sensor rectangle. Check its extent against the inner wheel edges and reject
+progress for lines visible only as paint edges or covered only by the chassis.
+Rendering the chassis body must not define the judge geometry.
