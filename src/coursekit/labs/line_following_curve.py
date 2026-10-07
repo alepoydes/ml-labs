@@ -319,6 +319,11 @@ def save_courses(path: Path, courses: list[Course]):
 
 
 def load_courses(path: Path) -> list[Course]:
+    return list(iter_courses(path))
+
+
+def iter_courses(path: Path):
+    """Validate the archive, then build course geometry one course at a time."""
     with np.load(path, allow_pickle=False) as data:
         if (
             set(data.files)
@@ -350,7 +355,5 @@ def load_courses(path: Path) -> list[Course]:
         or len(set(names)) != len(names)
     ):
         raise CourseError("Invalid spline course archive dimensions or values.")
-    return [
-        Course(str(name), c[:n], k[: n + 1], f[: n + 1])
-        for name, c, k, f, n in zip(names, controls, knots, corners, counts)
-    ]
+    for name, c, k, f, n in zip(names, controls, knots, corners, counts):
+        yield Course(str(name), c[:n], k[: n + 1], f[: n + 1])

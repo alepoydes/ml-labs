@@ -22,7 +22,8 @@ From the student project root, run:
 
 On Windows use `.\view_lab.cmd line_following`. The viewer prepares the bundled
 course files automatically; browsing does not require a working solution, training
-or **New run**. Before starting a run, choose **Course** under **Run setup**, then
+or **Start**. Choose **Course** in the always-visible row (or use
+**Previous course / Next course**), then
 enable **Top view** and click **Fit track**. Scroll to zoom and drag to pan. Blue
 marks the start and return finish; red marks the far turnaround. The status line
 shows the course name and one-way length.
@@ -58,19 +59,25 @@ from `coursekit.labs.line_following_course`; each course provides its name, leng
 and `at(s)` to evaluate the centreline at arc length `s`. The
 [batched example](#running-and-writing-a-solution) loads complete episodes from CSV.
 
-To drive the example controller on a fresh checkout, click **Create baseline** in
-**Run setup**. It copies the template into `work/line_following/baseline` and runs
-its preparation procedure, then enables **New run**. Existing solution code is never
+To drive the example controller on a fresh checkout, click **Create baseline** next
+to the solution path. It copies the template into `work/line_following/baseline` and
+runs its preparation procedure, then enables **Start**. Existing solution code is never
 replaced. For an existing working copy, **Prepare solution** runs its `train.py` and
 writes artifacts, just like `step_2_train`. Previewing courses performs no training.
 
-Changing **Course** after a run starts replaces it with a fresh paused run on the
-selected track. **New run** also restarts the selected solution. Unsaved frames
-are protected by a discard confirmation. The viewer keeps its physics process
-warm between runs: changing the course, seed or solution reuses compiled kernels
-at the same batch size. A new batch size needs its own specialization. A blocked
-controller or compiler is terminated on Stop or close; the next run then starts
-a new process. The controller itself is loaded afresh on every run.
+The engine prepares in the background as soon as the viewer opens, without loading
+student code. **Start** begins driving automatically; if preparation is still in
+progress, it queues the run until ready. **Cancel preparation** cancels both the
+preparation and any queued start. Changing **Course** during or after a run starts a
+fresh run immediately. **Restart** reloads the selected solution with the current
+seed and batch size. **Pause / Continue** and Space control the current run.
+
+Use **Save recording** explicitly for runs you want to keep. Switching runs or
+closing the viewer does not ask for confirmation. The viewer keeps its physics
+process warm between runs: changing the course, seed or solution reuses compiled
+kernels at the same batch size. A new batch size needs its own specialization.
+A blocked controller or compiler is terminated on Stop or close; the next run
+then starts a new process. The controller itself is loaded afresh on every run.
 New viewer processes load saved kernels from a local user cache. Changing the
 engine or Python/PyTorch environment invalidates that cache; see the
 [compilation notes](dynamics.md) for its location and limitations.

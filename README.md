@@ -7,7 +7,7 @@ are planned. Choose the lab assigned by your instructor:
 | Lab | Task and API | Inspect before training |
 | --- | --- | --- |
 | [Blindjack](labs/blindjack/README.md) | Learn image values and select cards with `select(images)`. | Open `data/blindjack/index.html` after resource preparation, or run `./view_lab blindjack`. |
-| [Line Following](labs/line_following/README.md) | Train an adaptive robot controller with `act(observation, reset)`. | Run `./view_lab line_following`; choose **Run setup → Course**, then **Top view** and **Fit track**. No trained solution is needed to preview courses. |
+| [Line Following](labs/line_following/README.md) | Train an adaptive robot controller with `act(observation, reset)`. | Run `./view_lab line_following`; choose **Course** in the top row, then **Top view** and **Fit track**. No trained solution is needed to preview courses. |
 
 The [student guide](docs/README.md) links the common development, environment and
 submission instructions. Task rules and score definitions live in each lab's statement.
@@ -73,7 +73,9 @@ previews every public course, then runs a prepared controller with live sensor p
 pause and rewind. Blue marks the start/return finish; red marks the far turnaround.
 Its 50 training courses progress from straight driving to mixed routes; 15 separate
 validation courses cover the same stages. On a fresh checkout, **Create baseline**
-copies and prepares the robot reference controller; **New run** then starts it paused.
+copies and prepares the robot reference controller; **Start** then begins driving.
+The engine prepares in the background as the viewer opens. Course selection stays
+visible during a run; **Restart** and course changes do not ask to save recordings.
 Both viewers save and open recordings with diagnostics. The launcher installs the
 optional Qt and ModernGL dependencies. See
 [graphical inspection](docs/development.md#graphical-inspection-and-manual-play).

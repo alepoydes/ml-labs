@@ -29,7 +29,11 @@ class Window(QMainWindow):
                 return
             self.closing = True
             self.page.setEnabled(False)
-        jobs = [self.page.job, getattr(self.page, "preparation", None)]
+        jobs = [
+            self.page.job,
+            getattr(self.page, "preparation", None),
+            getattr(self.page, "warmup", None),
+        ]
         if any(job is not None and job.isRunning() for job in jobs):
             if hasattr(self.page, "stop"):
                 self.page.stop()

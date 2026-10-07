@@ -292,7 +292,7 @@ def failed(kind,value,tb):
     for w in windows:
         try:
             w.closing=True
-            for job in [w.page.job,getattr(w.page,'preparation',None)]:
+            for job in [w.page.job,getattr(w.page,'preparation',None),getattr(w.page,'warmup',None)]:
                 if job is not None:
                     if hasattr(job,'command'): job.command(stop=True)
                     job.wait(3000)
@@ -330,10 +330,14 @@ def capture_cards():
     global robot,window
     robot=LineFollowingPage(project); window=Window(robot,'line_following'); windows.append(window)
     robot.scene.failed.connect(errors.append); window.resize(1024,700); window.show()
-    settled(lambda: robot.preparation is None and robot.scene.renderer is not None,prepare_baseline)
+    settled(lambda: robot.preparation is None and robot.scene.renderer is not None and robot.worker.process is not None,prepare_baseline)
 def prepare_baseline():
+    global warm_process
+    warm_process=robot.worker.process
     assert not (project/'work/line_following/baseline').exists()
     assert not robot.start_button.isEnabled() and robot.solution_button.isEnabled()
+    assert robot.job is None and (robot.warmup is not None or robot.warmed_batch == 1)
+    assert robot.course.isVisible() and robot.next_course.isVisible()
     assert window.width()<=1024 and window.height()<=700
     window.grab().save(str(output/'robot-first-launch.png'))
     QTest.mouseClick(robot.solution_button,Qt.LeftButton)
@@ -370,19 +374,21 @@ def capture_robot():
     run_started=time.monotonic()
     QTest.mouseClick(robot.start_button,Qt.LeftButton)
     assert not robot.play_button.isEnabled()
-    settled(lambda: robot.job.snapshot() is not None,start_motion,timeout=180)
+    settled(lambda: robot.job is not None and robot.job.snapshot() is not None,start_motion,timeout=180)
 def start_motion():
     global first_ready
     first_ready=time.monotonic()-run_started
     assert robot.job.error is None,robot.job.error
-    np.testing.assert_array_equal(robot.job.snapshot()[0]['time'],[0.])
-    assert robot.job.controls==[]
+    assert robot.job.process is warm_process
+    np.testing.assert_array_equal(robot.job.frames[0]['time'],[0.])
+    assert not robot.job.paused
     robot.refresh()
-    QTest.mouseClick(robot.play_button,Qt.LeftButton)
     settled(lambda: robot.job.snapshot()[0]['time'][0]>=.04,measure_motion,timeout=15)
 def measure_motion():
     global motion_started,sim_started
     robot.refresh()
+    np.testing.assert_array_equal(robot.job.controls[0]['observation']['time'],[0.])
+    assert robot.job.controls[0]['reset'].all()
     robot.diagnostics.table.selectRow(list(robot.diagnostics.snapshot).index('pitch (rad)'))
     motion_started=time.monotonic()
     sim_started=float(robot.job.snapshot()[0]['time'][0])
@@ -395,29 +401,47 @@ def capture_motion():
     measurements={'first_ready_seconds':first_ready,'live_wall_seconds':time.monotonic()-motion_started,'live_simulated_seconds':float(robot.job.snapshot()[0]['time'][0])-sim_started}
     window.grab().save(str(output/'robot-live.png'))
     process=robot.job.process
-    QMessageBox.question=lambda *a:QMessageBox.Discard
+    QTest.mouseClick(robot.play_button,Qt.LeftButton)
+    settled(lambda: robot.job.phase=='Paused',inspect_pause)
+def inspect_pause():
+    global paused_time
+    paused_time=float(robot.job.snapshot()[0]['time'][0])
+    robot.refresh()
+    assert robot.play_button.text()=='Continue'
+    robot.timeline.setValue(0)
+    assert robot.diagnostics.snapshot=={} and not robot.live
+    window.grab().save(str(output/'robot-paused.png'))
+    app.setActiveWindow(window)
+    window.setFocus()
+    QTest.keyClick(window,Qt.Key_Space)
+    settled(lambda: robot.job.snapshot()[0]['time'][0]>paused_time,replace_course)
+def replace_course():
+    global restart_started
+    assert robot.live and not robot.job.paused
+    QMessageBox.question=lambda *a: (_ for _ in ()).throw(AssertionError('Unexpected save prompt'))
     restart_started=time.monotonic()
-    robot.setup_button.setChecked(True)
-    robot.course.setCurrentIndex(1)
-    settled(lambda: robot.job.courses[0] is robot.courses[1] and robot.job.snapshot() is not None,course_restarted,timeout=4)
+    assert robot.course.isVisible() and robot.next_course.isVisible()
+    QTest.mouseClick(robot.next_course,Qt.LeftButton)
+    settled(lambda: robot.job.courses[0] is robot.courses[1] and robot.job.snapshot() is not None and robot.job.snapshot()[0]['time'][0]>=.02,course_restarted,timeout=4)
 def course_restarted():
     global restart_started
     measurements['course_restart_seconds']=time.monotonic()-restart_started
     assert robot.job.process is process
-    np.testing.assert_array_equal(robot.job.snapshot()[0]['time'],[0.])
-    assert robot.job.controls==[]
+    np.testing.assert_array_equal(robot.job.frames[0]['time'],[0.])
+    assert not robot.job.paused
     robot.refresh()
     assert robot.courses[1].name in robot.status.text()
     window.grab().save(str(output/'robot-new-course.png'))
     previous=robot.job
     restart_started=time.monotonic()
     QTest.mouseClick(robot.start_button,Qt.LeftButton)
-    settled(lambda: robot.job is not previous and robot.job.snapshot() is not None,new_run_ready,timeout=4)
+    settled(lambda: robot.job is not previous and robot.job.snapshot() is not None and robot.job.snapshot()[0]['time'][0]>=.02,new_run_ready,timeout=4)
 def new_run_ready():
     global close_started
     measurements['new_run_seconds']=time.monotonic()-restart_started
     assert robot.job.process is process
-    np.testing.assert_array_equal(robot.job.snapshot()[0]['time'],[0.])
+    np.testing.assert_array_equal(robot.job.frames[0]['time'],[0.])
+    assert not robot.job.paused
     (output/'robot-performance.json').write_text(json.dumps(measurements,indent=2))
     close_started=time.monotonic(); window.close()
     settled(lambda: not process.is_alive(),finish,timeout=2)
@@ -617,29 +641,22 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
     page.start()
     job = page.job
     try:
-        wait_for(lambda: job.snapshot() is not None)
-        page.step(False)
-        wait_for(lambda: job.snapshot()[2] == 2)
+        wait_for(lambda: page.job is not None and not page.job.isRunning())
+        job = page.job
         page.refresh()
-        assert page.timeline.value() == 1
+        assert page.timeline.value() == 3  # Start advances automatically, without Continue.
+        assert len(job.controls) == 1
+        assert page.course.isVisible() and page.next_course.isVisible()
         assert "command" in page.diagnostics.snapshot
+        questions = []
         monkeypatch.setattr(
-            QMessageBox, "question", lambda *a: QMessageBox.StandardButton.Cancel
+            QMessageBox,
+            "question",
+            lambda *args: questions.append(args) or QMessageBox.Cancel,
         )
-        window.close()
-        assert window.isVisible() and job.isRunning() and not job.stopping
-        page.course.setCurrentIndex(1)
-        assert page.course.currentIndex() == 0
-        assert page.job is job and not job.stopping
         page.timeline.setValue(0)
         assert page.diagnostics.snapshot == {}
         assert "No controller call" in page.sensors.text()
-        assert len(job.controls) == 1
-        page.resume()
-        wait_for(lambda: not job.isRunning())
-        app.processEvents()
-        page.refresh()
-        assert page.timeline.value() == 3
         assert len(job.controls) == 1
         page.episode.setValue(2)
         target = tmp_path / "run.npz"
@@ -658,28 +675,31 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
         assert "Missing files" in page.message.text()
         assert page.worker.process is process
         page.chooser.path.setText(str(work))
-        # A new course replaces the completed run and its visible scene.
-        page.course.setCurrentIndex(1)
-        wait_for(lambda: page.job.snapshot() is not None)
-        page.refresh()
-        assert page.worker.process is process and process.is_alive()
-        assert page.job.courses[0] is page.courses[1]
-        assert page.scene.pose[0] is page.courses[1]
-        assert page.job.controls == []
-        np.testing.assert_array_equal(page.job.snapshot()[0]["time"], [0.0, 0.0])
-        # Changing a course while paused, and New run while live, reuse the worker.
+        for index in (1, 2):
+            previous_job = page.job
+            page.next_course.click()
+            wait_for(lambda: page.job is not previous_job and not page.job.isRunning())
+            page.refresh()
+            assert page.worker.process is process and process.is_alive()
+            assert page.job.courses[0] is page.courses[index]
+            assert page.scene.pose[0] is page.courses[index]
+            np.testing.assert_array_equal(page.job.frames[0]["time"], [0.0, 0.0])
+            np.testing.assert_array_equal(
+                page.job.controls[0]["observation"]["time"], [0.0, 0.0]
+            )
+            assert page.job.controls[0]["reset"].all()
         previous_job = page.job
-        page.course.setCurrentIndex(2)
-        wait_for(lambda: page.job is not previous_job and page.job.snapshot() is not None)
-        assert page.worker.process is process
-        page.refresh()
-        assert page.scene.pose[0] is page.courses[2]
         page.start_button.click()
-        previous_job = page.job
-        wait_for(lambda: page.job is not previous_job and page.job.snapshot() is not None)
+        wait_for(lambda: page.job is not previous_job and not page.job.isRunning())
         assert page.worker.process is process
-        page.stop()
-        wait_for(lambda: not page.job.isRunning())
+        assert questions == []  # Replacing even an unsaved run is a routine action.
+        page.batch.setValue(1)
+        wait_for(lambda: page.warmup is None)
+        assert page.warmed_batch == 1 and page.worker.process is process
+        page.prepare_engine()
+        assert (
+            page.warmup is None
+        )  # The old two-row recording must not invalidate preparation.
         # Switching to a shorter, smaller recorded batch must clamp both controls first.
         saved["courses"] = saved["courses"][:1]
         saved["seeds"] = saved["seeds"][:1]
@@ -717,9 +737,10 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
             and "Invalid recorded frame field" in page.message.text()
         )
     finally:
-        if page.job is not None:
-            page.job.command(stop=True)
-            page.job.wait(10000)
+        page.stop()
+        for task in (page.job, page.warmup):
+            if task is not None:
+                task.wait(10000)
         monkeypatch.setattr(
             QMessageBox, "question", lambda *a: QMessageBox.StandardButton.Discard
         )
@@ -796,7 +817,98 @@ class Solution:
         assert run.wait(3000)
 
 
-def test_robot_window_closes_during_blocked_controller(app, tmp_path, monkeypatch):
+@pytest.mark.parametrize("cancel", [False, True])
+def test_robot_start_queues_latest_selection_behind_preparation(
+    app, tmp_path, monkeypatch, cancel
+):
+    import shutil
+    import threading
+    from pathlib import Path
+
+    from PySide6.QtCore import Signal
+    from PySide6.QtWidgets import QWidget
+
+    from coursekit import training
+    from coursekit.gui import line_following, line_run
+    from coursekit.gui.__main__ import Window
+
+    class Scene(QWidget):
+        failed = Signal(str)
+
+        def show_pose(self, *args):
+            pass
+
+        def cleanup(self):
+            pass
+
+    release = threading.Event()
+
+    class DelayedPreparation(line_run.Run):
+        def run(self):
+            if self.path is None:
+                release.wait(10)
+            super().run()
+
+    root = Path(__file__).resolve().parents[1]
+    shutil.copytree(root / "labs/line_following", tmp_path / "labs/line_following")
+    work = training.new_solution(tmp_path, "line_following", "baseline")
+    (work / "artifacts").mkdir()
+    (work / "artifacts/provenance.json").write_text("{}")
+    (work / "solution.py").write_text("""
+from pathlib import Path
+import torch
+class Solution:
+    def __init__(self, artifacts, config, seed):
+        (Path(artifacts).parent / 'loaded').write_text('controller loaded')
+    def act(self, observation, reset): return torch.zeros((len(reset), 2))
+""")
+    monkeypatch.setattr(line_following, "Scene", Scene)
+    monkeypatch.setattr(
+        line_following,
+        "Run",
+        lambda *args, **kwargs: DelayedPreparation(
+            *args, **kwargs, compiled=False, time_limit=0.002
+        ),
+    )
+    page = line_following.LineFollowingPage(tmp_path)
+    window = Window(page, "line_following")
+    window.show()
+    try:
+        wait_for(app, lambda: page.preparation is None)
+        assert page.warmup is not None and page.warmup.isRunning()
+        assert page.job is None and not (work / "loaded").exists()
+        page.start_button.click()
+        assert page.pending_start and page.job is None
+        page.course.setCurrentIndex(3)
+        page.seed.setValue(19)
+        page.batch.setValue(2)
+        if cancel:
+            page.stop_button.click()
+            assert not page.pending_start
+        release.set()
+        wait_for(app, lambda: page.warmup is None)
+        if cancel:
+            assert page.job is None and not (work / "loaded").exists()
+            page.start_button.click()
+        wait_for(app, lambda: page.job is not None and not page.job.isRunning())
+        assert page.job.error is None
+        assert page.job.courses == page.courses[3:5] and page.job.seeds == [19, 20]
+        assert (work / "loaded").is_file()
+        np.testing.assert_array_equal(page.job.frames[0]["time"], [0.0, 0.0])
+        np.testing.assert_array_equal(page.job.snapshot()[0]["time"], [0.002, 0.002])
+        assert page.job.controls[0]["reset"].all()
+    finally:
+        release.set()
+        page.stop()
+        for task in (page.job, page.warmup):
+            if task is not None:
+                assert task.wait(3000)
+        window.close()
+        app.processEvents()
+
+
+@pytest.mark.parametrize("stage", ["startup", "controller"])
+def test_robot_window_closes_during_background_work(app, tmp_path, monkeypatch, stage):
     import shutil
     from pathlib import Path
 
@@ -839,12 +951,17 @@ class Solution:
     window.destroyed.connect(lambda: closed.append(True))
     window.show()
     try:
-        wait_for(app, lambda: page.preparation is None)
-        page.start()
-        wait_for(app, lambda: page.job.snapshot() is not None)
-        page.resume()
-        wait_for(app, lambda: page.job.phase == "Calling controller")
-        process = page.job.process
+        if stage == "controller":
+            wait_for(app, lambda: page.preparation is None)
+            page.start()
+            wait_for(app, lambda: page.job is not None and page.job.snapshot() is not None)
+            wait_for(app, lambda: page.job.phase == "Calling controller")
+            process = page.job.process
+        else:
+            task = page.warmup
+            assert task is not None and task.isRunning() and page.job is None
+            wait_for(app, lambda: task.process is not None)
+            process = task.process
         started = time.monotonic()
         window.close()
         wait_for(app, lambda: bool(closed))
@@ -853,8 +970,9 @@ class Solution:
     finally:
         if not closed:
             page.stop()
-            if page.job is not None:
-                page.job.wait(3000)
+            for task in (page.job, page.warmup):
+                if task is not None:
+                    task.wait(3000)
             window.closing = True
             window.close()
             app.processEvents()

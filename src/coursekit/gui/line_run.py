@@ -43,8 +43,9 @@ def _simulate(connection, path, courses, seeds, options):
             current_phase = value
 
     try:
-        phase("Loading solution")
-        solution = load_solution(path)
+        if path is not None:
+            phase("Loading solution")
+            solution = load_solution(path)
         phase("Preparing physics")
         env = Environment(courses, seeds, **options)
         if options.get("compiled", True):
@@ -53,6 +54,8 @@ def _simulate(connection, path, courses, seeds, options):
             # Restore physical state and sensor RNG before the first controller call.
             env.step(torch.zeros((env.size, 2)))
             env.reset(seeds=seeds)
+        if path is None:
+            return  # Startup preparation warms this process without student code.
         connection.send(
             ("model", {k: v.numpy().copy() for k, v in env.model._asdict().items()})
         )
@@ -100,6 +103,7 @@ def _simulate(connection, path, courses, seeds, options):
                 gate()
 
         append()
+        flush()
         gate()
         while not env.done.all():
             phase("Calling controller")
@@ -194,6 +198,8 @@ class Worker:
 
 
 class Run(QThread):
+    """Run a solution, or prepare the engine when path is None."""
+
     def __init__(self, path, courses, seeds, parent=None, *, worker=None, **options):
         super().__init__(parent)
         self.path, self.courses, self.seeds = path, courses, seeds

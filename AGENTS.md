@@ -34,3 +34,7 @@ checks. Native compilation checks must cover initial tensor layouts, resets and
 mixed running/terminal batches, not just graph capture.
 Check saved kernel reuse in a fresh process with compilation forbidden and runtime
 guards enabled. Keep executable compiler artifacts in the local user cache.
+Robot setup stays visible. Prepare the engine at startup without invoking a solution;
+Start/Restart and course changes begin moving automatically. Check queued starts,
+cancellation and close during preparation. Save recordings only on explicit request;
+do not interrupt routine switching with save/discard confirmations.

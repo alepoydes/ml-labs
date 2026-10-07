@@ -65,7 +65,7 @@ class Playback(QWidget):
         timeline.addWidget(self.slider, 1)
         timeline.addWidget(self.label)
         layout.addLayout(timeline)
-        action = QAction("Play / pause recording", self)
+        action = self.play_action = QAction("Play / pause recording", self)
         action.setShortcut("Space")
         action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         action.triggered.connect(self.toggle)

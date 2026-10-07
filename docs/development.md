@@ -167,41 +167,44 @@ original browser until a resource update.
 ### Line Following
 
 To browse courses, run `./view_lab line_following` and select **Course** in
-**Run setup** before starting a run. The preview needs no trained solution and
+the top row or use **Previous course / Next course**. The preview needs no trained solution and
 prepares the bundled courses automatically. Use **Top view** and **Fit track** for a
 plan view. Blue marks the start/return finish; red marks the far turnaround.
 On a fresh checkout, click **Create baseline** to copy and prepare the reference
 controller. For an existing copy, **Prepare solution** runs its `train.py`. These
 are explicit training actions, using the same functions as the numbered scripts;
-existing source is preserved. **New run** remains disabled until artifacts exist.
+existing source is preserved. **Start** remains disabled until artifacts exist.
 See [the course guide](../labs/line_following/README.md#view-the-practice-courses)
 for files, fixed benchmark seeds and marker dimensions.
 There are 50 training courses ordered in five stages and 15 separate validation
 courses. Begin with `train-01` and gradually include later groups of ten.
 
-In Line Following, **Run setup** contains the solution, course, robot seed and batch
-size. Course preparation runs in the background; failed preparation can be retried.
-**New run** folds setup away and prepares the engine, then starts paused at time zero.
-The status shows loading and compilation separately, with elapsed time. First use
-compiles kernels for the selected batch size and can take several minutes. New
-windows load saved kernels; consecutive runs reuse the warm process. Engine or
-runtime updates invalidate the local cache. **Stop run** and closing
-the window cancel preparation or simulation, including blocked controller calls.
-Received frames remain available after stopping. **Resume live**, **Pause live**,
-**Step 1 ms**, and **Step control** operate the current simulation. **Play recording**
-uses recorded frames, with a speed selector, previous/next frame and **Next control**
-at an actual recorded controller call. Space toggles playback. Drag the timeline to
-seek; Home/End jump to its ends. Reviewing history pauses the live run. Resume live
-returns to its latest state without repeating old controller calls.
+The solution, course, robot seed and batch size stay visible during a run.
+The engine and course geometry prepare in the background on opening the viewer,
+without executing a student controller. **Start** begins moving automatically as
+soon as preparation is complete. **Cancel preparation** cancels a queued start;
+closing also cancels background preparation. The status shows preparation and
+simulation separately. First use compiles kernels for the selected batch size and
+can take several minutes; later windows load saved kernels. **Restart** reloads the
+solution, seed and batch settings. Course changes start a fresh run automatically.
+Ordinary restarts reuse the warm process; engine/runtime updates invalidate its cache.
+
+**Pause / Continue** controls simulation; Space does the same while a run is active.
+While paused, **Step 1 ms** and **Step control** advance the simulation. **Stop** ends
+it and retains received frames. **Play recording** uses recorded frames, with a
+speed selector, previous/next frame and **Next control** at an actual recorded
+controller call. Space toggles playback when viewing a finished run or saved file.
+Drag the timeline to seek; Home/End jump to its ends. Reviewing history pauses the
+run. **Continue** returns to its latest state without repeating old controller calls.
 
 Batch runs use consecutive course entries and seeds; **View robot** selects the row.
 The GUI's freely selected seeds do not automatically reproduce the fixed validation
 episodes; use the matching `course,seed` from `data/line_following/validation.csv`.
 Top view, follow camera, wheel zoom and dragging to pan help inspect the line, chassis
 and rear sphere; **Fit track** restores the full-course view. The RGB strip shows the
-latest actual optical reading. Unsaved motion is protected when replacing or closing
-a run. Saving while live stores the frames captured so far; subsequent frames need
-another save. Malformed recordings leave the currently open recording intact.
+latest actual optical reading. Use **Save recording** explicitly before replacing
+or closing a run you want to keep; these operations do not show save prompts.
+Saving while running stores the frames captured so far; subsequent frames need another save. Malformed recordings leave the currently open recording intact.
 
 ### Diagnostics and recordings
 
