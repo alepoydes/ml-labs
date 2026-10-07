@@ -8,6 +8,27 @@ import numpy as np
 from coursekit.common import CourseError
 
 
+def robot_metadata():
+    """Identify the geometry and coverage rules used by both robot recorders."""
+    from coursekit.labs import line_following_course as course
+
+    return {
+        "lab": "line_following",
+        "version": 3,
+        "coverage_version": course.COVERAGE_VERSION,
+        "geometry": {
+            "sensor_width": course.SENSOR_WIDTH,
+            "sensor_depth": course.SENSOR_DEPTH,
+            "line_width": course.LINE_WIDTH,
+            "marker_length": course.MARKER_LENGTH,
+            "ground": course.GROUND.tolist(),
+            "ink": course.INK.tolist(),
+            "start": course.START.tolist(),
+            "end": course.END.tolist(),
+        },
+    }
+
+
 def save(path, record):
     arrays = {}
 

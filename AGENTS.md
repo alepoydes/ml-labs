@@ -43,3 +43,6 @@ Optics, route coverage and the GUI sensor overlay share the same projected
 sensor rectangle. Check its extent against the inner wheel edges and reject
 progress for lines visible only as paint edges or covered only by the chassis.
 Rendering the chassis body must not define the judge geometry.
+Record sensor/paint geometry and the coverage rule version with robot runs. Reject
+incompatible recordings before replacing the current view. Label the RGB strip in
+its documented body-coordinate order, independently of the camera orientation.

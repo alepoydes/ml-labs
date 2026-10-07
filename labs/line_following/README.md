@@ -393,9 +393,11 @@ Exact subdivisions do not introduce artificial reference constraints. Speed pass
 use cumulative acceleration bounds; time is integrated along the spline's arc
 coordinate. Legal driving may beat this approximation.
 
-Course archives and robot recordings use format version 2. Earlier polyline files
-are rejected explicitly; update resources and create new robot recordings. Existing
-controller observations and actions retain their API.
+Course archives use spline format version 2. Robot recordings use version 3 and
+store sensor dimensions, line width, marker length, paint colours and the coverage
+rule version. Both viewers reject older recordings or settings incompatible with
+the installed environment; use the matching coursekit version to inspect historical
+runs, or create a new recording. Controller observations and actions retain their API.
 
 `sample_robot` publishes the complete pilot distribution. Component masses and
 their inertias scale together by 0.85–1.15; body centre-of-mass height scales by

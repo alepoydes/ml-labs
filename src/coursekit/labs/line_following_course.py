@@ -19,6 +19,7 @@ SENSOR_WIDTH = 0.094
 SENSOR_DEPTH = 0.008
 LINE_WIDTH = SENSOR_WIDTH / 8
 SENSOR_HALF = np.array([SENSOR_DEPTH, SENSOR_WIDTH]) / 2
+COVERAGE_VERSION = 1  # Centreline coverage by the certified sensor-row sweep.
 MARKER_LENGTH = 0.12
 GROUND = np.array([0.94, 0.94, 0.94])
 INK = np.array([0.06, 0.06, 0.06])

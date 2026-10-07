@@ -348,7 +348,7 @@ def open_recording():
     assert (project/'work/line_following/baseline/artifacts/controller.json').is_file()
     course=Course.polyline('recorded straight',np.array([[0.,0.],[1.,0.]]))
     model=physics.robot(); q=physics.initial_state(model).q.numpy(); end=q.copy(); end[0]+=.02
-    record=dict(lab='line_following',version=2,physics_dt=.02,
+    record=dict(**recording.robot_metadata(),physics_dt=.02,
       courses=[dict(name=course.name,controls=course.controls,knots=course.knots,corners=course.corners)],
       model={k:v.numpy()[None] for k,v in model._asdict().items()},
       frames=dict(q=np.array([q,end])[:,None,:],time=np.array([[0.],[.02]]),progress=np.array([[0.],[.02]]),score=np.zeros((2,1)),status=np.array([['running'],['running']]),control=np.array([-1,0])),
@@ -674,7 +674,7 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
         )
         page.save()
         saved = recording.load(target)
-        assert saved["version"] == 2
+        assert saved["version"] == 3
         assert "controls" in saved["courses"][0]
         assert saved["frames"]["q"].shape == (4, 2, 8)
         process = page.worker.process
@@ -726,12 +726,30 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
         assert page.job is None and page.timeline.maximum() == 0
         assert page.episode.maximum() == 1
         assert page.replay["frames"]["q"].shape == (1, 1, 8)
-        saved["version"] = 1
-        recording.save(target, saved)
-        page.open_recording()
-        assert "old polyline recordings are incompatible" in page.message.text()
         previous = page.replay
-        saved["version"] = 2
+        for version in (1, 2):
+            saved["version"] = version
+            recording.save(target, saved)
+            page.open_recording()
+            assert page.replay is previous
+            assert "Earlier recordings" in page.message.text()
+        saved["version"] = 3
+        # Current containers must also reject missing or incompatible rule metadata.
+        geometry, coverage = saved["geometry"], saved["coverage_version"]
+        for changed in (
+            {"geometry": None},
+            {"coverage_version": None},
+            {"coverage_version": coverage + 1},
+            {"geometry": geometry | {"sensor_width": 0.128}},
+            {"geometry": geometry | {"sensor_depth": 0.14}},
+            {"geometry": geometry | {"line_width": 0.016}},
+        ):
+            incompatible = saved | changed
+            incompatible = {k: v for k, v in incompatible.items() if v is not None}
+            recording.save(target, incompatible)
+            page.open_recording()
+            assert page.replay is previous
+            assert "geometry or coverage rules differ" in page.message.text()
         saved["frames"]["control"][0] = 999
         recording.save(target, saved)
         page.open_recording()

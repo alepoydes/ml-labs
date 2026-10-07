@@ -231,6 +231,8 @@ verified public resource set and reuse its PNG sheets. Robot recordings include
 course geometry, physical parameters, poses, observations, actions and diagnostics;
 they are local inspection artifacts, not resumable simulator checkpoints or submissions.
 
-Robot recordings now use the spline geometry format (version 2). Old polyline
-recordings are rejected with an explicit version message. Recreate them after
-updating course resources; no old recording is silently assigned a new curve.
+Robot recordings use version 3, including sensor/paint geometry and the coverage
+rule version. Both viewers reject older recordings or incompatible settings before
+replacing the open run. Use the original coursekit environment for historical
+recordings, or create new recordings with the current environment. Course archives
+remain in spline format version 2.

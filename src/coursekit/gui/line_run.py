@@ -12,6 +12,7 @@ import numpy as np
 from PySide6.QtCore import QThread
 
 from coursekit.labs.line_following_env import CONTROL_STEPS, PHYSICS_DT
+from coursekit.recording import robot_metadata
 
 
 class _StopRun(Exception):
@@ -286,8 +287,7 @@ class Run(QThread):
     def record(self):
         with self.lock:
             return {
-                "lab": "line_following",
-                "version": 2,
+                **robot_metadata(),
                 "solution": str(self.path),
                 "seeds": np.array(self.seeds),
                 "physics_dt": PHYSICS_DT,

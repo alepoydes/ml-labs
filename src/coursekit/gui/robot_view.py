@@ -15,13 +15,21 @@ from PySide6.QtWidgets import (
 from coursekit.gui.common import Diagnostics, pixmap
 from coursekit.inspection import copy_debug
 from coursekit.labs.line_following_course import SENSOR_DEPTH, SENSOR_WIDTH, Course
+from coursekit.recording import robot_metadata
 
 
 def recorded_courses(record):
     """Validate renderable frames before replacing the currently open recording."""
-    if (record["lab"], record["version"]) != ("line_following", 2):
+    expected = robot_metadata()
+    if any(record.get(key) != expected[key] for key in ("lab", "version")):
         raise ValueError(
-            "Expected Line Following spline recording version 2; old polyline recordings are incompatible."
+            "Expected Line Following recording version 3. Earlier recordings do not "
+            "identify compatible sensor geometry and coverage rules; create a new recording."
+        )
+    if any(record.get(key) != expected[key] for key in ("geometry", "coverage_version")):
+        raise ValueError(
+            "Recording geometry or coverage rules differ from this viewer. "
+            "Use the matching coursekit version or create a new recording."
         )
     courses = [Course(**c) for c in record["courses"]]
     n = len(courses)
@@ -145,7 +153,7 @@ class RobotView(QWidget):
         layout.addWidget(scene, 1)
         layout.addWidget(
             QLabel(
-                f"Optical sensor · {SENSOR_WIDTH * 1000:g}×{SENSOR_DEPTH * 1000:g} mm · left → right"
+                f"Optical sensor · {SENSOR_WIDTH * 1000:g}×{SENSOR_DEPTH * 1000:g} mm · body right (0) → left (15)"
             )
         )
         layout.addWidget(self.sensor)
