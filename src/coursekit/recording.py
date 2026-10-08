@@ -7,6 +7,16 @@ import numpy as np
 
 from coursekit.common import CourseError
 
+ROBOT_FRAME_FIELDS = (
+    "q",
+    "time",
+    "progress",
+    "travelled_distance",
+    "leg",
+    "status",
+    "score",
+)
+
 
 def robot_metadata():
     """Identify the geometry and coverage rules used by both robot recorders."""

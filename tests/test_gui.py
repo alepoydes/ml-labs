@@ -373,6 +373,7 @@ def capture_robot():
     global run_started
     assert robot.scene.isValid() and not robot.scene.grabFramebuffer().isNull()
     assert robot.scene.renderer.ctx.error=='GL_NO_ERROR'
+    assert 'Travelled: —' in robot.view.status.text()
     window.grab().save(str(output/'robot.png'))
     assert not window.windowFlags() & Qt.FramelessWindowHint
     if app.platformName()=='wayland': assert window.windowHandle().frameMargins().top()>0
@@ -403,6 +404,10 @@ def capture_motion():
     assert robot.job.error is None,robot.job.error
     assert np.linalg.norm(robot.job.snapshot()[0]['q'][0,:2]-robot.job.frames[0]['q'][0,:2])>1e-4
     assert robot.timeline.value()>0
+    assert robot.job.frames[0]['travelled_distance'][0] == 0
+    assert robot.job.snapshot()[0]['travelled_distance'][0] > 1e-4
+    robot.render()
+    assert 'Travelled:' in robot.view.status.text() and 'Accepted:' in robot.view.status.text()
     measurements={'first_ready_seconds':first_ready,'live_wall_seconds':time.monotonic()-motion_started,'live_simulated_seconds':float(robot.job.snapshot()[0]['time'][0])-sim_started}
     window.grab().save(str(output/'robot-live.png'))
     process=robot.job.process
@@ -560,6 +565,16 @@ class Solution:
         recording.save(path, run.record())
         saved = recording.load(path)
         assert saved["frames"]["q"].shape == (51, 2, 8)
+        xy = saved["frames"]["q"][:, :, :2]
+        expected = np.concatenate(
+            [
+                np.zeros((1, 2)),
+                np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=2), axis=0),
+            ]
+        )
+        np.testing.assert_allclose(
+            saved["frames"]["travelled_distance"], expected, atol=1e-12
+        )
         np.testing.assert_array_equal(
             saved["controls"][1]["observation"]["time"],
             run.controls[1]["observation"]["time"],
@@ -571,6 +586,7 @@ class Solution:
         run.start()
         wait_for(lambda: run.snapshot() is not None)
         assert run.process is process and run.snapshot()[2] == 1
+        assert run.snapshot()[0]["travelled_distance"].tolist() == [0.0]
         run.command(steps=1)
         wait_for(lambda: run.snapshot()[2] == 2)
         assert run.controls[0]["debug"][0]["calls"] == 1
@@ -727,6 +743,14 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
         assert page.episode.maximum() == 1
         assert page.replay["frames"]["q"].shape == (1, 1, 8)
         previous = page.replay
+        distance = saved["frames"]["travelled_distance"].copy()
+        for invalid in (np.array([[-1.0]]), np.array([[np.nan]]), np.zeros((1, 2))):
+            saved["frames"]["travelled_distance"] = invalid
+            recording.save(target, saved)
+            page.open_recording()
+            assert page.replay is previous
+            assert "Invalid recorded travelled distance" in page.message.text()
+        saved["frames"]["travelled_distance"] = distance
         for version in (1, 2):
             saved["version"] = version
             recording.save(target, saved)

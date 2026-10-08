@@ -8,6 +8,7 @@ import numpy as np
 from coursekit.common import CourseError, file_hashes, fingerprint
 from coursekit.labs.line_following_course import load_courses
 from coursekit.labs.line_following_env import Environment, validate_action
+from coursekit.labs.line_following_results import episode_metrics
 
 
 def benchmark(data: Path, split="validation"):
@@ -57,7 +58,7 @@ def evaluate(
     episodes = benchmark(data, split)
     settings = {} if time_limit is None else {"time_limit": time_limit}
     env = Environment([episodes[0][0]], [episodes[0][1]], compiled=compiled, **settings)
-    scores, times, statuses = [], [], []
+    scores, times, statuses, completion = [], [], [], []
     for index, (course, seed) in enumerate(episodes):
         if index:
             env.reset(courses=[course], seeds=[seed])
@@ -70,39 +71,41 @@ def evaluate(
                 }
             )
         steps = 0
-        while not env.done.all():
-            action = solution.act(env.observe(), env.first)
-            validate_action(action, 1)
-            env.step(action)
-            steps += 1
-            if progress and (steps % 25 == 0 or env.done.all()):
+        try:
+            while not env.done.all():
+                action = solution.act(env.observe(), env.first)
+                validate_action(action, 1)
+                env.step(action)
+                steps += 1
+                if progress and (steps % 25 == 0 or env.done.all()):
+                    progress(
+                        {
+                            "case": index + 1,
+                            "cases": len(episodes),
+                            "seconds": float(env.info()["time"][0]),
+                        }
+                    )
+        except BaseException:
+            if progress:
                 progress(
                     {
                         "case": index + 1,
                         "cases": len(episodes),
-                        "seconds": float(env.info()["time"][0]),
+                        "metrics": episode_metrics(env.info())
+                        | {"status": "interrupted", "score": None},
                     }
                 )
+            raise
         info = env.info()
         scores.append(float(info["score"][0]))
         statuses.append(str(info["status"][0]))
+        completion.append(float(info["completion_fraction"][0]))
         if progress:
             progress(
                 {
                     "case": index + 1,
                     "cases": len(episodes),
-                    "metrics": {
-                        "score": scores[-1],
-                        "status": statuses[-1],
-                        "time": float(info["time"][0]),
-                        "reference_time": float(info["reference_time"][0]),
-                        "progress": float(info["progress"][0]),
-                        "route_length": 2 * course.length,
-                        "leg": "return" if info["leg"][0] else "outward",
-                        "outward_time": float(info["outward_time"][0])
-                        if np.isfinite(info["outward_time"][0])
-                        else None,
-                    },
+                    "metrics": episode_metrics(info),
                 }
             )
         if statuses[-1] == "finished":
@@ -111,6 +114,7 @@ def evaluate(
         "episodes": len(episodes),
         "score": float(np.mean(scores)),
         "completion_rate": statuses.count("finished") / len(episodes),
+        "mean_completion_fraction": float(np.mean(completion)),
         "fall_rate": statuses.count("fallen") / len(episodes),
         "timeout_rate": statuses.count("timeout") / len(episodes),
         "mean_success_time": float(np.mean(times)) if times else None,

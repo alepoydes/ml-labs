@@ -1,6 +1,5 @@
-# A deliberately simple supported controller, not a trained policy.
-throttle = 0.09
-kp = 2.0
-kd = 0.45
-yaw_damping = 0.02
-search_turn = 0.08
+# Hand-tuned supported driving; train.py saves these settings without learning.
+# Cruise speed (m/s), offset feedback ((rad/s)/m), heading feedback (1/s).
+speed = 0.23
+kp = 80.0
+heading_gain = 4.0

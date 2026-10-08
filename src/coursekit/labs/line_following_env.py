@@ -189,6 +189,7 @@ class Environment:
         self.leg = np.zeros(self.size, dtype=np.int64)
         self.frontier = np.zeros(self.size)
         self.outward_time = np.full(self.size, np.nan)
+        self.travelled_distance = np.zeros(self.size)
         self.status = np.full(self.size, "running", dtype="U8")
         self.reference = np.zeros(self.size)
         self._first = torch.ones(self.size, dtype=torch.bool)
@@ -249,6 +250,7 @@ class Environment:
             self.ticks[i] = self.leg[i] = 0
             self.status[i] = "running"
             self.outward_time[i] = np.nan
+            self.travelled_distance[i] = 0.0
             self.reference[i] = reference_time(self.courses[i], model)
             q = state.q.numpy()
             r = physics.rotation(state.q).numpy()
@@ -331,6 +333,9 @@ class Environment:
                 self.state.q.numpy(),
                 self.state.fallen.numpy(),
             )
+            # Ground path of the axle centre, including slips and the falling step.
+            # Count physical steps, independently of sensing and recording frequency.
+            self.travelled_distance += np.linalg.norm(q1[:, :2] - q0[:, :2], axis=1)
             for i in np.flatnonzero(active):
                 if fallen[i]:
                     self.status[i] = "fallen"
@@ -366,6 +371,8 @@ class Environment:
 
     def info(self):
         elapsed = self.ticks * PHYSICS_DT
+        progress = self.progress
+        route_length = 2 * np.array([c.length for c in self.courses])
         score = np.where(
             self.status == "finished",
             np.minimum(100.0, 100 * self.reference / np.maximum(elapsed, PHYSICS_DT)),
@@ -373,7 +380,10 @@ class Environment:
         )
         return {
             "time": elapsed.copy(),
-            "progress": self.progress.copy(),
+            "progress": progress,
+            "route_length": route_length,
+            "completion_fraction": progress / route_length,
+            "travelled_distance": self.travelled_distance.copy(),
             "leg": self.leg.copy(),
             "status": self.status.copy(),
             "score": score,

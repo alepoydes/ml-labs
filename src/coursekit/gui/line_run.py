@@ -12,7 +12,7 @@ import numpy as np
 from PySide6.QtCore import QThread
 
 from coursekit.labs.line_following_env import CONTROL_STEPS, PHYSICS_DT
-from coursekit.recording import robot_metadata
+from coursekit.recording import ROBOT_FRAME_FIELDS, robot_metadata
 
 
 class _StopRun(Exception):
@@ -65,9 +65,7 @@ def _simulate(connection, path, courses, seeds, options):
 
         def append():
             info = env.info()
-            frame = {
-                k: info[k] for k in ("q", "time", "progress", "leg", "status", "score")
-            }
+            frame = {k: info[k] for k in ROBOT_FRAME_FIELDS}
             pending.append(frame | {"control": control_index})
             if len(pending) >= CONTROL_STEPS:
                 flush()

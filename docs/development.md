@@ -68,6 +68,9 @@ artifacts and current configuration. Numeric history may be empty, as it is for 
 hand-tuned robot baseline. `get_lab(lab).evaluate` runs every validation hand or
 episode and returns aggregate metrics. All calls run in the same Python process;
 the numbered evaluation scripts also save the result dictionary under `runs/`.
+Line Following scripts additionally print episode tables and save companion
+`.cases.json` and `.cases.csv` diagnostics, including accepted distance, actual path
+and failure outcome. See the [result-file description](../labs/line_following/README.md#development-and-submission-workflow).
 
 For one Blindjack decision:
 

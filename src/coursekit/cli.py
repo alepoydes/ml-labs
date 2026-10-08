@@ -1,4 +1,5 @@
 import argparse
+import csv
 import json
 import tempfile
 from pathlib import Path
@@ -65,10 +66,53 @@ def main():
             run_dir.mkdir(parents=True, exist_ok=True)
             result_path = run_dir / f"{args.step}.json"
             result_path.unlink(missing_ok=True)
+            cases = []
+            case_path = run_dir / f"{args.step}.cases.json"
+            csv_path = case_path.with_suffix(".csv")
+            robot = info["lab"] == "line_following"
+            if robot:
+                case_path.unlink(missing_ok=True)
+                csv_path.unlink(missing_ok=True)
+
+            def record_case(event):
+                if "metrics" in event:
+                    cases.append({"case": event["case"], **event["metrics"]})
+
             with FileLock(str(data / ".update.lock"), timeout=0):
                 resource_hash = resources.ready(data, spec)
-                instance = training.load_solution(solution, args.seed)
-                result = get_lab(info["lab"]).evaluate(instance, data)
+                complete = False
+                failure = None
+                try:
+                    instance = training.load_solution(solution, args.seed)
+                    result = get_lab(info["lab"]).evaluate(
+                        instance, data, **({"progress": record_case} if robot else {})
+                    )
+                    complete = True
+                except BaseException as exc:
+                    failure = {"type": type(exc).__name__, "message": str(exc)}
+                    raise
+                finally:
+                    if robot:
+                        from coursekit.labs.line_following_results import (
+                            EPISODE_COLUMNS,
+                            text_table,
+                        )
+
+                        write_json(
+                            case_path,
+                            {"complete": complete, "cases": cases, "error": failure},
+                        )
+                        with csv_path.open("w", encoding="utf-8", newline="") as stream:
+                            fields = [*EPISODE_COLUMNS, "reference_time", "outward_time"]
+                            writer = csv.DictWriter(stream, fieldnames=fields)
+                            writer.writeheader()
+                            writer.writerows(cases)
+                        print(text_table(cases))
+                        print(f"Episode diagnostics: {case_path}\nCSV: {csv_path}")
+                        if not complete:
+                            print(
+                                "Incomplete evaluation; diagnostics have no official aggregate score."
+                            )
                 result["resource_hash"] = resource_hash
                 write_json(result_path, result)
                 print(json.dumps(result, indent=2))

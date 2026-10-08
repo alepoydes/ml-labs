@@ -238,9 +238,53 @@ continuity become useful. At crossings, the intended continuation is smooth.
 Endpoint colour detection also needs memory: entering red paint is earlier than
 covering its final point, and it does not prove that the outward leg was accepted.
 
-These limitations explain the role of the supplied baseline. It gives a small,
-inspectable feedback controller and a reproducible reference, while leaving
-robust perception, recovery, balance and speed selection to your solution.
+### The reference controller
+
+The supplied baseline implements conventional supported driving. Its optical
+detector selects a connected dark stripe near the previous observation before
+computing a centroid. This avoids averaging separate branches into their white
+gap; it does not resolve every ambiguous crossing or merged stripe.
+
+The steering estimate combines short-term gyro integration with changes in the
+observed line offset. In a planar rolling approximation, let $v$ be forward
+velocity, $\omega$ yaw rate, and $\alpha$ the local line heading relative to the
+body. The point where the line crosses the transverse sensor is $(0,e)$. Its
+world velocity, expressed in body coordinates, is $(v-\omega e,\dot e)$ and must
+follow the line tangent. Consequently,
+
+$$
+\dot e=(v-\omega e)\tan\alpha.
+$$
+
+The rotational term matters when the robot turns slowly with a large lateral
+offset. The baseline predicts the heading change from the gyro and corrects it
+with optical differences when $|v-\omega e|$ is sufficiently large. It smooths
+this correction, accounts for the line's orientation ambiguity modulo $\pi$,
+and discards the old heading estimate when reacquiring a stripe. Encoders and
+body gyro components provide approximate velocities: slip, body tilt, broad paint
+regions and sharp corners limit the planar model.
+
+Offset and heading feedback request a yaw rate. A separate gyro feedback loop
+drives the motor difference; PI speed control drives their common input. Speed
+decreases with steering activity, offset and stripe width. A rate limit on the
+speed request avoids abrupt acceleration and braking that can lift the body off
+its rear support. Red paint reduces speed; the controller proceeds beyond the
+visible endpoint before reversing, then follows the line backwards.
+
+After ordinary line loss, the controller attempts to retrace the last 40 pairs
+of wheel positions, covering 0.8 seconds at the standard control interval. A
+bounded wheel-position servo visits these samples in reverse order. It then
+retries slowly. This short history uses only permitted encoder observations;
+it is not a route map. Wheel slip means that recovering encoder positions need
+not recover the exact ground path, and finding paint does not certify accepted
+coverage.
+
+`debug()` exposes offset, estimated heading and speed, recovery state, travel
+direction, yaw rate and motor inputs. Compare these estimates with the simulator
+in training and inspect unsuccessful runs. The baseline does not balance upright,
+learn dynamics, build a route map or optimise the return journey. Its measured
+reference results and remaining failures are given in the
+[lab statement](README.md#reference-measurements-and-experimental-comparison).
 
 ## Learning a controller from interaction
 

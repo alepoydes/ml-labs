@@ -98,12 +98,20 @@ def test_native_batches_resets_and_terminal_masks_match_eager(tmp_path, monkeypa
             for name in a[0]:
                 torch.testing.assert_close(a[0][name], b[0][name], atol=2e-6, rtol=1e-6)
             np.testing.assert_allclose(a[4]["progress"], b[4]["progress"], atol=1e-12)
+            np.testing.assert_allclose(
+                a[4]["travelled_distance"], b[4]["travelled_distance"], atol=1e-12
+            )
+            np.testing.assert_allclose(
+                a[4]["completion_fraction"], b[4]["completion_fraction"], atol=1e-12
+            )
             np.testing.assert_array_equal(a[4]["status"], b[4]["status"])
         ticks = native.ticks.copy()
+        distance = native.travelled_distance.copy()
         native.state.p[0, 0] = float("nan")
         with pytest.raises(FloatingPointError, match="Non-finite"):
             native.step(action)
         np.testing.assert_array_equal(native.ticks, ticks)
+        np.testing.assert_array_equal(native.travelled_distance, distance)
 
     # A fresh interpreter must load usable artifacts without tracing or compiling.
     script = """
@@ -129,6 +137,7 @@ for size, threads in ((1,1),(2,1),(1,2),(1,1)):
     env.step(action); reference.step(action)
     for actual, expected in zip(env.state, reference.state):
         torch.testing.assert_close(actual, expected, atol=1e-11, rtol=1e-9)
+    np.testing.assert_allclose(env.info()['travelled_distance'], reference.info()['travelled_distance'], atol=1e-12)
 """
     result = subprocess.run(
         [sys.executable, "-c", script], capture_output=True, text=True, timeout=90
@@ -158,6 +167,9 @@ def test_return_leg_allows_reverse_driving_without_rotating_body():
     assert info["time"].tolist() == [0.007]
     assert info["outward_time"].tolist() == [0.004]
     assert info["score"].tolist() == [100.0]
+    np.testing.assert_allclose(info["travelled_distance"], [0.8], atol=1e-12)
+    np.testing.assert_allclose(info["progress"], [0.8], atol=1e-12)
+    np.testing.assert_allclose(info["completion_fraction"], [1.0], atol=1e-12)
     assert reward.item() > 0.8
     # The chassis reaches the endpoint at x=.36, but the sensor has not reached it.
     assert frames[2]["leg"].tolist() == [0]
@@ -215,3 +227,56 @@ def test_reset_does_not_convert_numeric_values_to_boolean_masks():
     env = Environment([straight()], [0], compiled=False)
     with pytest.raises(CourseError, match="Boolean"):
         env.reset([1])
+
+
+def test_ground_path_counts_every_step_and_freezes_and_resets_independent_rows():
+    env = Environment(
+        [straight(), straight()], [7, 11], compiled=False, time_limit=0.004, noise=False
+    )
+    positions = np.array(
+        [
+            [[0.003, 0.004], [0.0, 0.006]],
+            [[0.0, 0.0], [0.0, 0.006]],
+            [[1.0, 1.0], [0.0, -0.002]],
+            [[2.0, 2.0], [0.0, -0.002]],
+        ]
+    )
+    calls = 0
+
+    def move(state, action, model):
+        nonlocal calls
+        q = state.q.clone()
+        q[:, :2] = torch.from_numpy(positions[calls])
+        q[:, 2] += 0.01  # Vertical movement and wheel spin do not add ground distance.
+        q[:, 5] += 0.1
+        q[:, 6:] += 123
+        fallen = state.fallen.clone()
+        fallen[0] |= calls >= 1
+        calls += 1
+        return _inspect(
+            state._replace(q=q, fallen=fallen),
+            physics.Diagnostics(torch.zeros(2), torch.zeros((2, 3, 3))),
+        )
+
+    env._advance = move
+    frames = []
+    result = env.step(torch.zeros((2, 2)), on_step=lambda e: frames.append(e.info()))
+    info = result[-1]
+    assert info["status"].tolist() == ["fallen", "timeout"]
+    assert info["score"].tolist() == [0.0, 0.0]
+    np.testing.assert_allclose(info["travelled_distance"], [0.010, 0.014], atol=1e-12)
+    np.testing.assert_allclose(
+        info["completion_fraction"], info["progress"] / info["route_length"]
+    )
+    np.testing.assert_allclose(
+        [f["travelled_distance"][0] for f in frames], [0.005, 0.010, 0.010, 0.010]
+    )
+    env.step(torch.ones((2, 2)))
+    np.testing.assert_array_equal(
+        env.info()["travelled_distance"], info["travelled_distance"]
+    )
+    info["travelled_distance"][:] = 99  # Returned diagnostics never alias the counters.
+    env.reset([True, False], seeds=[7])
+    np.testing.assert_allclose(env.info()["travelled_distance"], [0.0, 0.014], atol=1e-12)
+    env.reset([False, True])
+    np.testing.assert_array_equal(env.info()["travelled_distance"], [0.0, 0.0])

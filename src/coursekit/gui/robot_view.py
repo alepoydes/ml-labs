@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from coursekit.gui.common import Diagnostics, pixmap
 from coursekit.inspection import copy_debug
 from coursekit.labs.line_following_course import SENSOR_DEPTH, SENSOR_WIDTH, Course
+from coursekit.labs.line_following_results import OUTCOMES
 from coursekit.recording import robot_metadata
 
 
@@ -60,6 +61,16 @@ def recorded_courses(record):
             or not np.isfinite(value).all()
         ):
             raise ValueError(f"Invalid recorded {name}.")
+    if "travelled_distance" in frames:
+        distance = frames["travelled_distance"]
+        if (
+            distance.shape != (count, n)
+            or distance.dtype.kind not in "fiu"
+            or not np.isfinite(distance).all()
+            or (distance < 0).any()
+            or (distance[1:] < distance[:-1]).any()
+        ):
+            raise ValueError("Invalid recorded travelled distance.")
     if (
         np.asarray(frames["status"]).shape != (count, n)
         or "leg" in frames
@@ -178,9 +189,16 @@ class RobotView(QWidget):
     def show_frame(self, course, frame, model, controls, row=0, *, pitch_history=None):
         self.scene.show_pose(course, frame["q"][row], {k: v[row] for k, v in model.items()})
         leg = "return" if "leg" in frame and frame["leg"][row] else "outward"
+        outcome = OUTCOMES.get(str(frame["status"][row]), str(frame["status"][row]))
+        distance = (
+            f"{frame['travelled_distance'][row]:.3f} m"
+            if "travelled_distance" in frame
+            else "—"
+        )
         self.status.setText(
-            f"{course.name} · {frame['time'][row]:.3f} s · {frame['status'][row]} · {leg} · "
-            f"{frame['progress'][row]:.3f} / {2 * course.length:.3f} m · {frame['score'][row]:.2f} points"
+            f"{course.name} · {frame['time'][row]:.3f} s · {outcome} · {leg} · {frame['score'][row]:.2f} points\n"
+            f"Accepted: {frame['progress'][row]:.3f} / {2 * course.length:.3f} m "
+            f"({100 * frame['progress'][row] / (2 * course.length):.1f}%) · Travelled: {distance}"
         )
         index = int(frame["control"])
         if index < 0:

@@ -180,6 +180,22 @@ journeys can compensate for some failures. Simulator and infrastructure failures
 are reported separately; an interrupted evaluation does not yield an official
 aggregate. Academic grade thresholds remain to be defined before assessment.
 
+Results also record **accepted distance**, **route completion** and **travelled
+distance**. Accepted distance counts the two legs in order, from zero to twice the
+one-way course length; completion is that fraction, displayed as a percentage.
+Travelled distance is the horizontal path of the axle centre, accumulated at every
+1 ms physical step, including searches, reverse travel, slipping and the final step
+before a fall. It is not wheel odometry. Vertical motion and rotation about a fixed
+axle centre add no distance. These values explain how far a zero-point attempt got;
+they do not change scores. A sensor area can cover line without the axle centre
+travelling the same distance, so accepted and travelled distances need not coincide.
+
+Episode tables distinguish completion, falling and the time limit, and show the
+outward/return leg at termination. A recoverable loss of the line is not itself a
+terminal outcome. Interrupted checks retain available diagnostics without an
+official aggregate score; controller and infrastructure errors are reported
+separately from physical outcomes.
+
 ## Required work
 
 Implement a controller and a reproducible training or fitting procedure. You may
@@ -195,10 +211,14 @@ under `work/line_following/`; the [workflow](#development-and-submission-workflo
 creates it without modifying the supplied templates.
 
 Two templates are provided. `starter` demonstrates the minimum interface and
-commands zero motor effort. `baseline` is a slow controller that drives with the
-sphere on the floor, follows the optical centroid, searches after losing the line
-and returns in reverse. Its preparation procedure saves hand-tuned settings; it
-does not learn. Replace or extend that procedure with learning or fitting.
+commands zero motor effort. `baseline` drives with the sphere on the floor. It
+tracks one connected optical stripe, estimates its direction using observation
+history and the gyro, and regulates speed using the encoders. It slows for turns,
+retraces a short wheel-position history after losing the line, and returns in
+reverse. Its preparation procedure saves hand-tuned settings; it does not learn.
+The [control guide](control_hints.md#the-reference-controller) explains the design
+and its limitations. Replace or extend the preparation procedure with learning or
+fitting.
 
 Your submission must contain reproducible training, inference code and all
 required inference artifacts. In the accompanying report, explain the learned
@@ -518,6 +538,9 @@ another reward from `info`:
 | `q` | `(B, 8)` | True configuration: axle x/y/z, roll/pitch/yaw, left/right wheel angles. |
 | `time` | `(B,)` | Elapsed simulated seconds. |
 | `progress` | `(B,)` | Accepted distance across both legs, in metres. |
+| `route_length` | `(B,)` | Required distance across both legs, in metres (`2 * course.length`). |
+| `completion_fraction` | `(B,)` | `progress / route_length`, from 0 to 1. |
+| `travelled_distance` | `(B,)` | Horizontal path of the axle centre, in metres, including recovery and slipping. |
 | `leg` | `(B,)` | `0` outward, `1` return. |
 | `status` | `(B,)` | `running`, `finished`, `fallen` or `timeout`. |
 | `score` | `(B,)` | Episode points; zero until successful completion. |
@@ -527,6 +550,8 @@ another reward from `info`:
 These diagnostics are never supplied to evaluated `act` calls. `env.info()` reads
 the same fields without advancing simulation. Numerical failures raise an exception
 instead of returning a scored episode.
+Distance counters freeze for finished rows and reset independently with their
+episodes. They are diagnostics, not additional controller observations or rewards.
 
 Use `compiled=False` for short Python debugging runs. Normal evaluation uses the
 compiled engine; its first call includes compiler startup. For longer training,
@@ -611,10 +636,28 @@ packaging. Saved artifacts and provenance are written under the working copy's
 `artifacts/`; results and numeric learning histories are stored under `runs/`.
 
 `step_3_evaluate` runs the complete fixed validation set. It reports mean score,
-completion, fall and timeout rates, and mean successful journey time. Local
+completion, fall and timeout rates, mean successful journey time and mean route
+completion (`mean_completion_fraction`, on a 0–1 scale). It also prints a table of
+individual episode outcomes, accepted/required distance, completion percentage and
+travelled distance. Local
 training and evaluation run directly in Python, so ordinary prints, breakpoints
 and tracebacks are available. The [development guide](../../docs/development.md)
 shows the same operations as Python calls.
+
+Under `runs/line_following/<variant>/`, `evaluate.json` stores the completed
+aggregate; `evaluate.cases.json` and `evaluate.cases.csv` store episode diagnostics.
+Episode numbers follow `validation.csv` row order. JSON has `complete`, `cases`
+and `error` fields (null on success, otherwise exception type and message).
+CSV uses the metric names from the API (`case` is one-based and `leg` is
+`outward` or `return`). Fractions in saved files are 0–1; tables display percentages.
+Case records also contain reference and outward times; an unfinished outward leg
+has JSON null / an empty CSV field. On an error, completed cases and the interrupted
+episode's last valid measurements remain available, with `complete=false` and no
+aggregate result. The interrupted episode has no score. A new invocation replaces
+these local result files; copy them elsewhere to retain earlier experiments.
+`step_5_check_submission` writes equivalent `check.*` files after extraction.
+For Python evaluation, pass a `progress` callback to `evaluate`; its events containing
+`metrics` carry the same episode snapshots.
 
 Package the completed solution and check the resulting ZIP:
 
@@ -632,12 +675,37 @@ anything. Follow the [submission format](../../docs/submissions.md) and
 
 ### Reference measurements and experimental comparison
 
-With the current sensor-area coverage rule, the hand-tuned baseline completed
-fixed `train-01`, `train-02` and `train-03` in 19.405, 19.699 and 38.499 simulated
-seconds respectively. The S-shaped `train-04` timed out at 120 seconds after
-missing route sections and scored zero. These four measurements do not establish
-performance on the complete collection or assessment benchmark. Results obtained
-under earlier coverage rules are not directly comparable.
+The supported baseline was measured on 2026-10-08 using every published episode,
+its fixed robot seed, sensor noise and the standard 120-second limit. The table
+compares the previous centroid/PD controller with the current reference under the
+same physics, sensor-area coverage and scoring rules. Mean scores include failed
+episodes as zero.
+
+| Public split | Previous completions | Current completions | Previous mean score | Current mean score |
+| --- | ---: | ---: | ---: | ---: |
+| Training | 6 / 50 | 33 / 50 | 1.03 | 7.86 |
+| Validation | 1 / 15 | 8 / 15 | 0.52 | 6.02 |
+
+The current controller completed every episode from `train-01` through `train-18`.
+All remaining failures in this sweep were timeouts; there were no falls. Mean
+accepted route coverage increased from 22.1% to 84.3% on training episodes and
+from 20.6% to 74.8% on validation episodes. Coverage remains diagnostic and does
+not contribute points.
+
+Selected out-and-back times, in simulated seconds:
+
+| Episode | Previous controller | Current controller |
+| --- | ---: | ---: |
+| `train-01` | 19.405 | 10.485 |
+| `train-02` | 19.699 | 11.044 |
+| `train-03` | 38.499 | 28.047 |
+| `train-04` | Timeout at 120 s | 58.747 |
+
+Hand tuning used training episodes; settings were held fixed for validation. The
+controller still has difficulty with some advanced routes and does not guarantee
+completion for other robot seeds or the assessment benchmark. Results obtained
+under earlier coverage rules are not directly comparable. Learned-controller
+calibration and academic grade thresholds remain separate work.
 
 Record the courses, robot seeds, training seed, configuration and computational
 cost of your experiments. Compare learned changes against a reference on the same
@@ -721,6 +789,10 @@ run stores received frames so far; later frames require another save. A recordin
 contains courses, sampled physical parameters, poses, observations, actions and
 diagnostics. It supports inspection without executing solution code; it is not a
 resumable simulator checkpoint or an inference artifact.
+The status display shows accepted distance, completion percentage, travelled
+distance and the episode outcome for the selected robot and frame. New recordings
+save travelled distance directly. Compatible older recordings without this field
+show a dash; the viewer does not infer an exact path length from sparse frames.
 
 Robot recordings use format version 3 and include sensor dimensions, line width,
 marker length, paint colours and the coverage rule version. Both the local and
