@@ -33,7 +33,7 @@ code in source files and import it into analysis scripts or notebooks.
 
 The numbered scripts are conveniences around ordinary functions. After resource
 preparation and a completed `step_2_train` run, start `uv run --locked python` from
-the student project root. These calls work for either lab:
+the [project directory](../README.md#start-here). These calls work for either lab:
 
 ```python
 from pathlib import Path
@@ -105,7 +105,7 @@ compiled engine. Reuse an environment and its batch size to amortise compiler st
 The controller must reset the indicated rows of memory when `reset` is true. Memory
 persists through the turnaround. Use `info` to analyse training, but the evaluated
 controller receives only observations and the reset mask. See the lab statement for
-the [complete robot API](../labs/line_following/README.md#running-and-writing-a-solution).
+the [complete robot API](../labs/line_following/README.md#controller-and-environment-api).
 
 You can also call functions from your own modules directly during an experiment.
 Use `train_local` or `step_2_train` for the completed run you intend to package,
@@ -116,14 +116,15 @@ requires retraining before packaging, but saved learning curves remain viewable.
 
 Add `print()` or `breakpoint()` in `train.py`, `solution.py`, or a helper. Choose
 this project's `.venv` interpreter in your editor and run a small script containing
-the calls above, with the student project root as its working directory. Exceptions
-show the original file, line, and traceback. No special debug flag is required.
+the calls above, with the [project directory](../README.md#start-here) as its working
+directory. Exceptions show the original file, line, and traceback. No special debug
+flag is required.
 
 Blindjack includes a [marimo notebook](notebook.md) with opt-in training and saved
 learning curves. After editing imported modules, rerun the loading cells or restart
-the notebook. For the robot, start with the viewer's sensor plots and recordings,
-or use the batched environment from Python. You can write your own notebooks for
-either lab; none is required in a submission.
+the notebook. For the robot, start with the graphical simulator's sensor plots and
+recordings, or use the batched environment from Python. You can write your own
+notebooks for either lab; none is required in a submission.
 Create a new variant to retain a separate experiment. When ready, run
 `step_4_pack` and `step_5_check_submission`, then submit the ZIP.
 
@@ -174,8 +175,10 @@ On a fresh checkout, click **Create baseline** to copy and prepare the reference
 controller. For an existing copy, **Prepare solution** runs its `train.py`. These
 are explicit training actions, using the same functions as the numbered scripts;
 existing source is preserved. **Start** remains disabled until artifacts exist.
-See [the course guide](../labs/line_following/README.md#view-the-practice-courses)
-for files, fixed benchmark seeds and marker dimensions.
+See the [data description](../labs/line_following/README.md#data-and-course-collection)
+for files and fixed episode seeds, and the
+[episode rules](../labs/line_following/README.md#rules-of-the-episode) for marker
+dimensions and route coverage.
 There are 50 training courses and 15 separate validation courses. Begin with the two
 straight episodes, then progress through compact curves, turn sequences, hairpins,
 sharp corners, crossings and mixed layouts. The

@@ -15,6 +15,9 @@ the notebook. Use plain assignments and commented training calls in notebooks,
 without mode-selection widgets. See `docs/development.md` for direct entry points.
 Shared guides cover both runnable labs. Label lab-specific APIs, limits and examples,
 and provide visual entry points before requiring training.
+Lab statements introduce the task and rules before data, APIs, workflow and graphical
+tools. Define the project directory by its launchers and configuration files. Keep
+data formats independently readable, and verify examples and cross-document links.
 
 Images are stored once in lossless PNG sheets. Labels use CSV with the PNG filename
 and one-based row/column. Hands use CSV with hand/card numbers and PNG coordinates,

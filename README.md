@@ -15,7 +15,10 @@ submission instructions. Task rules and score definitions live in each lab's sta
 ## Start here
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/), clone the
-student repository supplied by your instructor, and enter its root directory.
+repository supplied by your instructor, and enter the project directory: the
+directory containing `pyproject.toml`, `uv.lock`, `view_lab` and the numbered
+`step_*` scripts. Locate these files before running the commands below; a lab's
+`labs/<lab>/` directory contains its statement and templates, not the launchers.
 Commands use one shared locked Python environment.
 
 Each `labs/<lab>/` provides `starter`, a minimal API example, and `baseline`, a
@@ -56,7 +59,7 @@ Do not submit the template in `labs/` or the working directory itself; packaging
 does not upload anything.
 
 On Windows use, for example, `.\step_2_train.cmd work\line_following\my-controller`.
-All paths are relative to the student project root, or absolute. The wrappers use
+All paths are relative to the project directory, or absolute. The wrappers use
 their own directory even when called from somewhere else.
 
 ## Inspect data and behaviour

@@ -1,112 +1,36 @@
 # Line Following
 
-Train a controller for a simulated robot that follows a line to a marked endpoint
-and returns to the start as quickly as possible. The whole journey
-is timed, including both directions, the turnaround, stops, and recovery from
-mistakes. The robot must remain upright and cover every part of the route in
-order.
+Develop and train a controller for a simulated robot that follows a marked line
+to its far endpoint and returns to the start as quickly as possible. The robot
+must complete the route in order without falling. Both directions, the reversal,
+stops and recovery from mistakes contribute to a single journey time.
 
-The public dynamics are described in the [mechanics guide](dynamics.md). Prepared
-practice courses, a batched environment, and a slow baseline are available.
-The current settings are a pilot profile; controller performance and the full
-parameter family still need calibration before the assessed release. The local
-viewer and isolated instructor evaluation use this same public environment.
+This laboratory combines feedback control, learning from interaction, adaptation
+to unknown dynamics and memory. Observations are local: the controller must
+estimate motion and line direction from measurements over time. The outward leg
+can provide information useful on the return leg, but its time also counts.
 
-## View the practice courses
+The supplied materials include the simulator, 50 training courses, 15 validation
+courses, a batched environment and a simple reference controller. Training and
+assessment use the same physics and episode rules. This release uses a pilot
+parameter profile; broader controller calibration and academic grade thresholds
+remain to be established before the assessed release.
 
-Open the [offline course atlas](resources/index.html) to see all 65 routes together,
-filter training/validation courses, and find their lengths and fixed robot seeds.
-After resource preparation, the same atlas is available at
-`data/line_following/index.html`. It works without Python or a network connection.
+Read this statement for the task, data and programming interface. The
+[mechanics guide](dynamics.md) derives the physical model and numerical method.
+The [control and learning guide](control_hints.md) introduces balancing, state
+estimation, line following and reinforcement learning. The final section of this
+statement explains the [graphical simulator and debugging tools](#visualisation-and-debugging).
 
-For the interactive simulator, from the student project root run:
+- [Robot and observations](#robot-and-observations)
+- [Rules of the episode](#rules-of-the-episode)
+- [Required work](#required-work)
+- [Data and course collection](#data-and-course-collection)
+- [Controller and environment API](#controller-and-environment-api)
+- [Development and submission workflow](#development-and-submission-workflow)
+- [Visualisation and debugging](#visualisation-and-debugging)
 
-```sh
-./view_lab line_following
-```
-
-On Windows use `.\view_lab.cmd line_following`. The viewer prepares the bundled
-course files automatically; browsing does not require a working solution, training
-or **Start**. Choose **Course** in the always-visible row (or use
-**Previous course / Next course**), then
-enable **Top view** and click **Fit track**. Scroll to zoom and drag to pan. Blue
-marks the start and return finish; red marks the far turnaround. The status line
-shows the course name and one-way length.
-
-The current collection has **50 training courses** (`train-01`…`train-50`) and
-**15 validation courses** (`validation-01`…`validation-15`). Work through training
-in order, then mix earlier and later cases to avoid forgetting the basics:
-
-| Training courses | Suggested progression |
-| --- | --- |
-| 01–02 | The same one-metre straight route with two different robots; drive out and return. |
-| 03–10 | Wide curves, a rounded triangle and square, a broad S and varying-radius loops. |
-| 11–20 | Different radii and short left/right turn sequences; choose speed for each section. |
-| 21–30 | Hairpins, spirals, compact serpentine routes and increasingly close branches. |
-| 31–38 | An isolated sharp corner, then angular sequences and nearby branches. |
-| 39–44 | Smooth continuation through one crossing, then two crossings. |
-| 45–50 | Mixed compact layouts combining previously introduced manoeuvres. |
-
-Only the first two courses are straight. All other routes have compact footprints;
-the aspect ratio of their smallest enclosing rectangle is at most 1.5, independently
-of orientation. Rotations and reflections alone do not make new routes. Course shapes,
-turn counts, radii, branch spacing and placement of technical sections vary.
-All routes remain open: return from the red endpoint along the same line.
-
-Validation has 2, 3, 3, 2, 2 and 3 independent courses corresponding to the six
-non-straight groups above. These are a finite practice curriculum, not an exhaustive
-set: repeat training with different robot seeds, and use validation to compare
-controllers. Robot seeds are sampled independently of the geometry generator.
-
-Their canonical spline geometry
-is in `labs/line_following/resources/courses.npz`; preparation copies it into
-`data/line_following/courses.npz`. The adjacent `train.csv` and `validation.csv` list
-fixed episodes as `course,seed`, where the seed chooses the robot parameters and
-sensor randomness. To reproduce one of those episodes in the viewer, select its
-**Course**, enter that **Robot seed**, and set **Batch** to 1. The viewer's default
-seed is an exploration setting, not the seed from the benchmark CSV.
-
-For direct Python access, use `load_courses(Path("data/line_following/courses.npz"))`
-from `coursekit.labs.line_following_course`; each course provides its name, length,
-and `at(s)` to evaluate the centreline at arc length `s`. The
-[batched example](#running-and-writing-a-solution) loads complete episodes from CSV.
-
-To drive the example controller on a fresh checkout, click **Create baseline** next
-to the solution path. It copies the template into `work/line_following/baseline` and
-runs its preparation procedure, then enables **Start**. Existing solution code is never
-replaced. For an existing working copy, **Prepare solution** runs its `train.py` and
-writes artifacts, just like `step_2_train`. Previewing courses performs no training.
-
-The engine prepares in the background as soon as the viewer opens, without loading
-student code. **Start** begins driving automatically; if preparation is still in
-progress, it queues the run until ready. **Cancel preparation** cancels both the
-preparation and any queued start. Changing **Course** during or after a run starts a
-fresh run immediately. **Restart** reloads the selected solution with the current
-seed and batch size. **Pause / Continue** and Space control the current run.
-
-Use **Save recording** explicitly for runs you want to keep. Switching runs or
-closing the viewer does not ask for confirmation. The viewer keeps its physics
-process warm between runs: changing the course, seed or solution reuses compiled
-kernels at the same batch size. A new batch size needs its own specialization.
-A blocked controller or compiler is terminated on Stop or close; the next run
-then starts a new process. The controller itself is loaded afresh on every run.
-New viewer processes load saved kernels from a local user cache. Changing the
-engine or Python/PyTorch environment invalidates that cache; see the
-[compilation notes](dynamics.md) for its location and limitations.
-
-## What you will learn
-
-The task combines feedback control, learning from interaction, adaptation to
-unknown dynamics, and memory. You must choose how fast to travel while following
-the line, maintaining balance, and recovering from mistakes. The observations
-are local, so their history can help you estimate direction and motion.
-
-You may combine conventional control with learned components, train a policy
-directly, or learn a model for use by a controller. Your solution must include
-training or fitting, and you should explain what it learns and measure the
-effect. Explicitly identifying every physical parameter is not required.
-
-## The robot
+## Robot and observations
 
 The robot has two independently driven wheels on a common axle. A passive sphere
 behind the wheels provides a third point of support. It can rotate in any
@@ -132,8 +56,6 @@ parameters are chosen at the start of each episode and are not supplied to your
 controller. They stay unchanged for the complete outward and return journey.
 You can adapt using the robot's observed response to your actions.
 
-## Observations and control
-
 Your controller receives one transverse row of 16 colour measurements from
 under the chassis, together with gyroscope, accelerometer, and wheel-encoder
 readings. Each optical sector reports the average RGB colour over its sensing
@@ -147,14 +69,16 @@ estimate the local direction of the line, motion, and dynamics.
 The controller commands the left and right drives. Its memory and internal
 estimates persist through the turnaround and return journey, and are reset
 between independent episodes. Sensor/action units, rates, and pilot limits appear
-below with the simulator API.
+in the [programming interface](#controller-and-environment-api).
 
 During evaluation, the controller is not told its true position, distance along
 the route, sampled physical parameters, which branch the judge is tracking, or
 whether a movement earned progress. Endpoint colours are ordinary physical
 observations; they do not indicate that the preceding route was accepted.
 
-## Courses
+## Rules of the episode
+
+### Course geometry and markers
 
 The ground is flat. Courses can contain straight sections, smooth bends, sharp
 corners, sections that pass close to one another, and self-intersections. Close
@@ -186,12 +110,12 @@ with sensor noise added. Do not rely on exact RGB equality. Colours identify
 endpoints, not directions at crossings or future manoeuvres. Seeing the red area
 does not itself complete the outward leg: its remaining line must also be covered.
 
-You will receive several prepared practice courses with varied geometry. Hidden
-evaluation courses will differ from them and may combine permitted situations
+The supplied practice collection contains varied geometry. Hidden
+evaluation courses have different geometry and may combine permitted situations
 in ways absent from the practice collection. All courses obey the same published
 rules. Expect to generalise beyond memorising the practice routes.
 
-## Completing the route
+### Covering the route
 
 Every part of the route centreline must pass through the 94×8 mm optical row
 between the wheels, in route order. There is lateral freedom within that row.
@@ -212,15 +136,15 @@ progress you must reach the previous frontier and follow the remaining line.
 Rejoining ahead of that frontier does not earn progress, even if you keep driving
 forward from there.
 
-For example, if you leave after 10 metres and rejoin at 12 metres, those two metres
-remain missing. You must return to 10 metres or earlier and follow the missing
+For example, if you leave after 0.5 m and rejoin at 0.7 m, those 0.2 m
+remain missing. You must return to 0.5 m or earlier and follow the missing
 section. Returning to an earlier point does not erase the progress already earned.
 The same rule applies independently on the return journey.
 
 Seeing an endpoint marker is insufficient if part of that leg was skipped.
 The judge does not tell the controller whether individual movements were accepted.
 
-## Timing and failure
+### Timing, failure and score
 
 There is one uninterrupted timed episode. The first leg is not a free scouting
 run. The controller may use it to learn the route and dynamics, but that time
@@ -229,7 +153,8 @@ turning time counts too.
 
 Falling fails the episode and ends simulation immediately. Ordinary contact with
 the support sphere is allowed. Falling forward or sideways is not a recovery
-technique. The pilot fall boundary and episode time limit are specified below.
+technique. In this release, a body tilt of 0.9 radians from vertical is a fall, and the
+episode time limit is 120 simulated seconds.
 
 For a completed journey taking simulated time $T$, the episode score is
 
@@ -248,95 +173,315 @@ The reference is an approximate normalisation. Legal corner cutting within the
 coverage rule or useful sliding may beat it; the score is capped at 100. Taking
 $1.67\,T_{100}$ earns approximately 60 points; taking $2.5\,T_{100}$ earns 40.
 
-A fall or failure to complete the journey before the episode time limit earns
+A fall or failure to complete the journey within the episode time limit earns
 zero. Partial progress earns no points. The final score is the mean over all
 scheduled evaluation episodes, including failed episodes. Thus faster successful
 journeys can compensate for some failures. Simulator and infrastructure failures
 are reported separately; an interrupted evaluation does not yield an official
 aggregate. Academic grade thresholds remain to be defined before assessment.
 
-## Training and reporting
+## Required work
 
-You may repeat practice episodes with different permitted physical parameters,
-use their outcomes for learning, and compare different controllers. Training
-rewards can guide optimisation, but accepted progress and rewards are not part
-of the acting controller's evaluation observations. Within an episode, adaptation
-must use its permitted observations and action history.
+Implement a controller and a reproducible training or fitting procedure. You may
+combine conventional control with learned components, train a policy directly,
+or learn a model used by a controller. Explain what is learned and measure its
+effect. Explicit identification of every physical parameter is not required.
 
-A simple supported reference controller is provided as `baseline`. It follows
-the optical centroid slowly, uses elementary line recovery, and returns in
-reverse. Its preparation function saves hand-tuned settings; it is not a learned
-solution. With the current sensor-area coverage rule, a probe on the fixed
-train-01..04 episodes completed the two straights and the arc in 19.405, 19.699
-and 38.499 seconds. The S-shaped train-04 timed out at 120 seconds after missing
-route sections; its score was zero. This does not establish performance on the
-complete curriculum or benchmark. Scores from older coverage rules are not
-comparable. You should measure
-your own completion rate and journey time, including recovery costs, and compare
-performance on familiar and unfamiliar courses. Separate outward and return
-times can show whether experience from the first leg helps.
+The project supplies the physical simulator, observations, episode lifecycle,
+route judge and scoring. You implement `train.py` and `solution.py`, choose
+settings in `config.toml`, and save the parameters or models needed for inference
+in `artifacts/`. Optional shared helpers belong in `lib/`. Develop a working copy
+under `work/line_following/`; the [workflow](#development-and-submission-workflow)
+creates it without modifying the supplied templates.
 
-Submit a self-contained solution with reproducible training, inference and all
-required artifacts, an explanation of the learned component and experiments,
-and an honest declaration of AI assistance. Final inference and adaptation run
-on CPU without network access, within the [published pilot limits](../../docs/environment.md).
+Two templates are provided. `starter` demonstrates the minimum interface and
+commands zero motor effort. `baseline` is a slow controller that drives with the
+sphere on the floor, follows the optical centroid, searches after losing the line
+and returns in reverse. Its preparation procedure saves hand-tuned settings; it
+does not learn. Replace or extend that procedure with learning or fitting.
 
-## Running and writing a solution
+Your submission must contain reproducible training, inference code and all
+required inference artifacts. In the accompanying report, explain the learned
+component, experimental method and results, and declare AI assistance honestly.
+Measure completion rate and total journey time, including recovery. Compare
+familiar and unfamiliar courses; outward and return times can help assess the
+value of memory. Include failures when comparing scores.
 
-From the student project root:
+Practice episodes may be repeated with different robot seeds. Training can use
+simulator diagnostics to construct rewards or learning targets. During assessment,
+adaptation must use the permitted observations and action history: accepted
+progress, true pose and rewards are not controller inputs. Final inference and
+adaptation run on CPU without network access, within the
+[published execution limits](../../docs/environment.md).
 
-```sh
-./step_0_update_resources
-./step_1_new_solution line_following my-controller --template baseline
-./step_2_train work/line_following/my-controller
-./step_3_evaluate work/line_following/my-controller
-./step_4_pack work/line_following/my-controller
-./view_lab line_following --solution work/line_following/my-controller
+## Data and course collection
+
+### Project directory and supplied files
+
+In these instructions, the **project directory** is the directory containing
+`pyproject.toml`, `uv.lock`, `view_lab` and the numbered `step_*` scripts. Paths in
+this statement are relative to that directory. Locate those files before running
+a command; the directory containing this statement, `labs/line_following/`, is
+not the command working directory.
+
+```text
+project-directory/
+    pyproject.toml
+    uv.lock
+    view_lab                 view_lab.cmd on Windows
+    step_0_update_resources  and step_1_* through step_5_*; .cmd equivalents on Windows
+    labs/line_following/
+        README.md
+        dynamics.md
+        control_hints.md
+        resources.toml
+        resources/           bundled course files and atlas
+        starter/
+        baseline/
+    src/coursekit/           simulator and shared tools
+    data/line_following/     verified working data, created during preparation
+    work/line_following/     your solution variants
+    runs/line_following/     local results and training histories
+    dist/                    packaged solutions
 ```
 
-The small course collection is bundled with this pilot and copied into `data/`
-with the same size/hash checks as downloaded resources. Use the `.cmd` scripts
-on Windows. Replace the baseline's preparation procedure with your own learning
-or fitting. `starter` demonstrates the smallest interface and commands zero
-motor effort.
+The course collection is bundled under `labs/line_following/resources/`.
+Resource preparation copies it into `data/line_following/`, verifying file sizes
+and SHA-256 hashes against `resources.toml`. The same verification applies to
+resources distributed by download. Treat `data/` as managed storage; save your
+experiments under `work/` and `runs/`.
 
-The viewer supports pause, one physical step, one controller interval, speed control,
-batch-row selection, and rewind of recorded history. Resuming returns to the live
-simulation state. Optional `debug(index=0)` diagnostics are copied after each action;
-see [graphical inspection](../../docs/development.md#graphical-inspection-and-manual-play).
+| File in `data/line_following/` | Contents |
+| --- | --- |
+| `courses.npz` | Canonical centreline geometry for all 65 courses. |
+| `train.csv` | The 50 fixed training episodes, one course and robot seed per row. |
+| `validation.csv` | The 15 fixed validation episodes. |
+| `index.html` | An offline atlas with course drawings, lengths and fixed episode seeds. |
 
-The constructor is `Solution(artifact_dir, config, seed)`. Inference is
-`act(observation, reset)`: observations are float32 PyTorch tensors with a leading
-batch dimension, even for one robot. Return float32 commands `(B, 2)` in `[-1, 1]`.
-Positive equal commands drive forward. The Boolean mask `reset` has shape `(B,)`;
-clear the indicated rows of controller memory before processing their inputs.
-`act` runs with autograd available in both local and isolated evaluation, so online
-adaptation may use `backward()`. Use your own `torch.no_grad()` for inference that
-does not need gradients.
-Memory persists across the far endpoint. Reset must restore the episode's initial
-controller state, including any within-episode adaptation.
+### Composition of the collection
 
-| Observation | Shape | Meaning |
+Training courses are named `train-01` through `train-50`; validation courses are
+named `validation-01` through `validation-15`.
+
+| Training courses | Validation courses | Geometric characteristics |
 | --- | --- | --- |
-| `time` | `(B,)` | Simulated seconds since the episode began |
-| `rgb` | `(B, 16, 3)` | RGB averages in `[0, 1]`, sectors ordered from body right to left |
-| `gyro` | `(B, 3)` | Body-frame angular velocity in rad/s |
-| `accel` | `(B, 3)` | Body-frame specific acceleration at the axle centre in m/s² |
-| `encoders` | `(B, 2)` | Left/right wheel angles relative to the body in radians |
+| 01–02 | — | The same one-metre straight route with two different robot seeds. |
+| 03–10 | 01–02 | Broad curves and an S bend, rounded triangular and rectangular routes, meanders and asymmetric loop-shaped sections. |
+| 11–20 | 03–05 | Compact meanders, slaloms, S bends and a spiral; varying radii and successive left/right turns. |
+| 21–30 | 06–08 | Hairpins, spirals, compact serpentine routes and closely spaced parallel branches. |
+| 31–38 | 09–10 | Individual sharp corners, sequences of corners and nearby branches. |
+| 39–44 | 11–12 | Smooth continuation through one crossing, followed by routes with two crossings. |
+| 45–50 | 13–15 | Mixed compact layouts combining the manoeuvres introduced earlier. |
 
-The current CPU environment uses float64 physics at 1 ms and observations/actions
-every 20 ms. The first compiled step includes compiler startup; reuse an environment
-and its batch size. Use `compiled=False` for ordinary Python debugging. Never wrap
-the simulator in `torch.inference_mode()`; its kinematics uses differentiation.
+Only the first two training courses are straight. Every other course has a compact
+footprint: the aspect ratio of its smallest enclosing rectangle is at most 1.5,
+independently of orientation. Shapes, turn counts, radii, branch spacing and the
+placement of difficult sections vary; rotated or reflected copies alone do not
+constitute additional layouts. All courses are open routes with distinct endpoints.
+
+Begin experiments with the early training courses, then mix earlier and later
+cases to retain basic skills while adding difficulty. The validation courses have
+separate geometry corresponding to the six non-straight groups. Use them to compare
+controllers and report generalisation; repeatedly selecting settings on the same
+validation set also fits those choices to that set. This finite collection does
+not cover every permitted situation in assessment.
+
+A fixed episode is a pair `(course, seed)`. Its seed determines the sampled robot
+parameters and sensor randomness, independently of the controller's own random
+seed. Robot seeds are sampled independently of course geometry. Repeating a course
+with other seeds exposes the controller to different dynamics. The randomisation
+sequence on successive resets is described in the [environment API](#batched-environment).
+
+### Loading with the supplied functions
+
+Prepare the data as described in the [workflow](#development-and-submission-workflow),
+then run Python examples from the project directory with `uv run --locked python`.
+`load_courses` reads geometry; `benchmark` also reads an episode CSV and preserves
+its row order:
 
 ```python
 from pathlib import Path
+import numpy as np
+
+from coursekit.labs.line_following_course import load_courses
+from coursekit.labs.line_following_task import benchmark
+
+courses = load_courses(Path("data/line_following/courses.npz"))
+cases = benchmark(Path("data/line_following"), "train")
+course, robot_seed = cases[0]
+s = np.linspace(0.0, course.length, 101)
+points = course.at(s)  # Shape (101, 2), world x/y in metres.
+curvature, change = course.geometry(s)
+print(course.name, course.length, robot_seed)
+```
+
+`benchmark(..., "validation")` loads the fixed validation episodes; validation
+is its default split. `Course.at(s)` accepts a scalar or an array of distances
+along the route. `Course.geometry(s)` returns signed curvature in m⁻¹ and its
+derivative with respect to arc length in m⁻². Values at a sharp corner must be
+interpreted using the one-sided smooth segments; the tangent is discontinuous there.
+At an interior join, these methods select the following segment; at the final
+endpoint, they use the last segment. Distances outside `[0, course.length]` are
+clamped to the corresponding endpoint.
+
+### CSV episode format
+
+Both CSV files are UTF-8 text with comma separators and the exact header
+`course,seed`. Each subsequent row contains a course name present in `names` in
+the NPZ archive and a nonnegative decimal integer seed smaller than `2**63`.
+Rows define episode order; identical `(course, seed)` pairs do not repeat within
+one file. A course may in general occur with several different seeds.
+
+### NPZ geometry format
+
+`courses.npz` is a compressed NumPy archive. Read it with
+`numpy.load(path, allow_pickle=False)`; it contains no Python objects. Format
+version 2 has exactly the following arrays. Let `N` be the number of courses,
+`M` the maximum segment count, and `m = counts[i]` for course `i`.
+
+| Array | Shape | Stored type | Meaning |
+| --- | --- | --- | --- |
+| `version` | `()` | `int64` | Format identifier, equal to `2`. |
+| `names` | `(N,)` | NumPy Unicode strings | Unique, nonempty course names. |
+| `counts` | `(N,)` | `int64` | Number of cubic segments in each course, between 1 and 2048. |
+| `controls` | `(N, M, 4, 2)` | `float64` | Four ordered `(x, y)` control points per cubic segment, in metres. |
+| `knots` | `(N, M + 1)` | `float64` | Parameter values at the segment boundaries. |
+| `corners` | `(N, M + 1)` | Boolean | Whether a boundary is an intentional sharp corner. |
+
+The supplied archive has `N = 65` and `M = 42`; a loader should read these sizes
+from the arrays. For course `i`, retain `controls[i, :m]`, `knots[i, :m+1]` and
+`corners[i, :m+1]`. Remaining entries are zero padding, not additional segments.
+The retained knots start at zero and increase strictly. The first and last corner
+flags are false. Control points and knots are finite. Adjacent segments meet;
+position and the first two derivatives with respect to the knot parameter are
+continuous at every unmarked join (C2 continuity). A marked join preserves
+position but permits a discontinuity of tangent direction.
+
+For segment `j`, let its control points be $P_0,P_1,P_2,P_3$. For a knot parameter
+$u$ between $u_j$ and $u_{j+1}$, set $t=(u-u_j)/(u_{j+1}-u_j)$. Its centreline is
+
+$$
+B_j(t)=(1-t)^3P_0+3(1-t)^2tP_1+3(1-t)t^2P_2+t^3P_3,
+\qquad 0\leq t\leq1.
+$$
+
+The knot parameter is neither elapsed time nor arc length. Segment length is
+$\ell_j=\int_0^1\lVert B'_j(t)\rVert\,dt$. Arc distance within a segment is the
+sum of preceding segment lengths plus the same integral up to $t$.
+To implement evaluation by arc length independently, integrate these speeds and
+invert the accumulated length within the selected segment. Tangents never vanish.
+For derivatives with respect to $u$, divide the local $t$ derivative of order
+$k$ by $(u_{j+1}-u_j)^k$.
+
+The archive contains geometry only. The line width, endpoint paint, marker length
+and sensor dimensions are defined by the [episode rules](#rules-of-the-episode).
+The blue and red sections occupy the first and last 0.12 m of arc length. Their
+positions must be derived from the curve, rather than from a fixed number of
+control points. The atlas is a visual aid; its drawings are not simulation input.
+
+The following example reads both geometry and episodes without importing
+`coursekit`:
+
+```python
+import csv
+from pathlib import Path
+import numpy as np
+
+root = Path("data/line_following")
+with np.load(root / "courses.npz", allow_pickle=False) as archive:
+    if archive["version"].item() != 2:
+        raise ValueError("Expected spline course format 2")
+    controls, knots, corners = (archive[key] for key in ("controls", "knots", "corners"))
+    names, counts = archive["names"], archive["counts"]
+    raw_courses = {}
+    for i, name in enumerate(names):
+        m = int(counts[i])
+        raw_courses[str(name)] = {
+            "controls": controls[i, :m].copy(),
+            "knots": knots[i, : m + 1].copy(),
+            "corners": corners[i, : m + 1].copy(),
+        }
+with (root / "train.csv").open(encoding="utf-8", newline="") as stream:
+    episodes = [(row["course"], int(row["seed"])) for row in csv.DictReader(stream)]
+name, seed = episodes[0]
+p0, p1, p2, p3 = raw_courses[name]["controls"][0]
+t = 0.5
+point = (1 - t) ** 3 * p0 + 3 * (1 - t) ** 2 * t * p1 + 3 * (1 - t) * t**2 * p2 + t**3 * p3
+```
+
+This compact example assumes verified course resources. An independent loader for
+other archives should also validate the dimensions and geometric conditions above.
+
+## Controller and environment API
+
+### Solution files and lifecycle
+
+The shared [submission format](../../docs/submissions.md) specifies the files in a
+solution. For this lab, the required entry points are:
+
+| Entry point | Responsibility |
+| --- | --- |
+| `train(data_dir, output_dir, config, seed)` in `train.py` | Learn or fit from prepared data and simulation; save inference artifacts under `output_dir`. |
+| `Solution(artifact_dir, config, seed)` in `solution.py` | Load saved artifacts and initialise controller state. |
+| `act(observation, reset)` | Update state from the current observations and return left/right motor commands. |
+
+Directory arguments are `pathlib.Path` objects; `config` is a dictionary read from
+`config.toml`. Training may return `None` or a dictionary of finite numeric NumPy
+arrays for saved learning histories. Initialise your random generators using the
+supplied seed to make experiments reproducible. Load models relative to
+`artifact_dir`, so the solution also works after packaging and extraction.
+
+All observations are float32 PyTorch tensors on CPU with a leading batch dimension
+`B`, including when `B = 1`. Return finite float32 commands of shape `(B, 2)` in
+`[-1, 1]`; columns are the left and right drives. Commands are normalised motor
+inputs, not target wheel speeds. Positive equal inputs drive forward; zero input
+includes electrical braking in the motor model.
+
+The Boolean tensor `reset` has shape `(B,)`. Clear the indicated rows of controller
+memory before processing their inputs; other rows continue unchanged. Memory
+persists across the far endpoint and throughout the return journey. A reset must
+also restore the initial state of any adaptation performed within an episode.
+Assessment starts a fresh controller process for each episode; do not rely on
+memory of earlier assessment episodes.
+
+`act` runs with autograd available in both local and isolated evaluation, so online
+adaptation may use `backward()`. Use `torch.no_grad()` for computations that do not
+need gradients. This support does not expose the simulator state to the controller.
+
+| Observation | Shape | Meaning |
+| --- | --- | --- |
+| `time` | `(B,)` | Simulated seconds since the episode began. |
+| `rgb` | `(B, 16, 3)` | RGB averages in `[0, 1]`, ordered from body right (sector 0) to left (sector 15). |
+| `gyro` | `(B, 3)` | Body-frame angular velocity about x/y/z in rad/s. |
+| `accel` | `(B, 3)` | Body-frame specific acceleration at the axle centre in m/s². |
+| `encoders` | `(B, 2)` | Left/right wheel angles relative to the body, in radians. |
+
+The body axes are x forward, y left and z up. Specific acceleration includes the
+upward support response to gravity: a stationary upright robot reads approximately
+`(0, 0, 9.81)`, not zero. Neither `gyro` nor `accel` is a direct orientation reading.
+Encoder increments can differ from ground displacement because wheels may slip.
+
+### Batched environment
+
+`Environment(courses, seeds=None, *, compiled=True, time_limit=120.0, noise=True)`
+constructs one independent episode per course. If supplied, `seeds` contains one
+nonnegative 63-bit integer per row; otherwise the initial seeds are `0, ..., B-1`.
+Courses must be at least 0.3 m long. The environment uses float64 CPU physics with
+a 1 ms physical step and a 20 ms control interval (50 observations/actions per
+simulated second).
+
+This example advances two robots for one control interval. It uses the prepared
+working solution created in the [workflow](#development-and-submission-workflow):
+
+```python
+from pathlib import Path
+
 from coursekit.labs.line_following_env import Environment
 from coursekit.labs.line_following_task import benchmark
 from coursekit.training import load_solution
 
-cases = benchmark(Path("data/line_following"), "train")
-env = Environment([c for c, seed in cases], [seed for c, seed in cases])
+cases = benchmark(Path("data/line_following"), "train")[:2]
+env = Environment([c for c, seed in cases], [seed for c, seed in cases], compiled=False)
 controller = load_solution(Path("work/line_following/my-controller"))
 observation = env.observe()
 action = controller.act(observation, env.first)
@@ -346,19 +491,52 @@ if done.any():
     observation = env.reset(done)
 ```
 
-`step` holds each action for one control interval and freezes finished rows.
+`observe()` returns the current observations; `first` gives the reset mask for the
+next controller call. `step` holds commands for one control interval, ending an
+episode immediately if a physical step reaches a terminal condition. Its outputs
+are observations, float32 reward `(B,)`, Boolean `terminated` and `truncated` tensors
+`(B,)`, and a dictionary of diagnostic NumPy arrays.
+
 `terminated` identifies completion or falling; `truncated` identifies the time
-limit, which scores zero. The final observation is retained until explicit reset.
-`reset(mask)` samples a new episode only for the selected rows. Supply `courses`
-and `seeds` for those rows to reproduce particular episodes. Environment randomness
-is independent between rows and from policy randomness.
+limit, which scores zero. Finished rows and their final observations remain frozen
+until explicitly reset. After `env.reset(done)`, pass the updated `env.first` to
+the next `act` call. `reset(mask)` samples new episodes for the selected rows only.
+It increments each selected row's episode counter; the RNG is initialised from its
+seed and counter. Supplying `seeds=[...]` resets those counters to zero and reproduces
+the specified initial episodes. Optional `courses=[...]` and `seeds=[...]` must each
+have one entry per selected row, in row order. Randomness is independent between
+rows and from the controller's random generators.
 
-The default training reward is newly accepted distance divided by the full
-out-and-back distance. It is zero on retraced ground. Construct your own reward
-using `info` if useful. `info` contains true pose, progress, leg, outcome, timing,
-reference time, and score; it is never passed to evaluated `act` calls.
+The default training reward is newly accepted distance divided by the complete
+out-and-back route length. Revisiting an already accepted portion of the current
+leg earns no additional reward; the return leg has its own progress. This reward
+is a learning signal, not the competition score. Training code can construct
+another reward from `info`:
 
-## Pilot geometry and parameter settings
+| `info` key | Shape | Meaning |
+| --- | --- | --- |
+| `q` | `(B, 8)` | True configuration: axle x/y/z, roll/pitch/yaw, left/right wheel angles. |
+| `time` | `(B,)` | Elapsed simulated seconds. |
+| `progress` | `(B,)` | Accepted distance across both legs, in metres. |
+| `leg` | `(B,)` | `0` outward, `1` return. |
+| `status` | `(B,)` | `running`, `finished`, `fallen` or `timeout`. |
+| `score` | `(B,)` | Episode points; zero until successful completion. |
+| `reference_time` | `(B,)` | Mechanical reference time, in seconds. |
+| `outward_time` | `(B,)` | Outward completion time, or NaN until that leg is complete. |
+
+These diagnostics are never supplied to evaluated `act` calls. `env.info()` reads
+the same fields without advancing simulation. Numerical failures raise an exception
+instead of returning a scored episode.
+
+Use `compiled=False` for short Python debugging runs. Normal evaluation uses the
+compiled engine; its first call includes compiler startup. For longer training,
+use the default compiled environment and retain the same batch size. Never put
+simulator calls inside `torch.inference_mode()`: kinematics requires automatic
+differentiation. Ordinary `torch.no_grad()` is supported. The complete environment
+is not a differentiable policy-training interface; see the
+[mechanics guide](dynamics.md#running-and-inspecting-the-core).
+
+### Pilot geometry and parameter settings
 
 The canonical course is an ordered cubic Bezier spline, stored as control points,
 parameter knots, and explicit corner flags. Smooth joins are C2; genuine corners
@@ -376,13 +554,14 @@ initialized by these chords; its distance error is bounded by 0.02 mm. Rendering
 uses the same subdivision. Optical sectors average 4×4 samples
 over rectangles in one transverse row, 94 mm wide and 8 mm deep, between the
 inner wheel edges. Line width is 11.75 mm; endpoint colours and lengths are listed
-under [Courses](#courses).
+under [Course geometry and markers](#course-geometry-and-markers).
 Route coverage uses the ground projection of this same body-fixed 94×8 mm
 rectangle at the axle centre. It uses a conservative inner approximation to the
-region swept by the sensor at each
-physical step, including the endpoint footprints and a certified translation
-sweep, with the additional spline-error erosion. It never substitutes the convex hull of two rotated footprints. See the
-small public `line_following_course` module for the calculation.
+region swept by the sensor at each physical step, including the endpoint footprints
+and a certified translation sweep, with the additional spline-error erosion.
+The convex hull of two rotated footprints is not used: it could include regions
+never covered during the rotation. See the public `line_following_course` module
+for the calculation.
 
 The reference profile starts at rest, stops to reverse travel at the far endpoint,
 and allows a moving finish. Marked sharp corners include a stop and an in-place
@@ -393,12 +572,6 @@ Exact subdivisions do not introduce artificial reference constraints. Speed pass
 use cumulative acceleration bounds; time is integrated along the spline's arc
 coordinate. Legal driving may beat this approximation.
 
-Course archives use spline format version 2. Robot recordings use version 3 and
-store sensor dimensions, line width, marker length, paint colours and the coverage
-rule version. Both viewers reject older recordings or settings incompatible with
-the installed environment; use the matching coursekit version to inspect historical
-runs, or create a new recording. Controller observations and actions retain their API.
-
 `sample_robot` publishes the complete pilot distribution. Component masses and
 their inertias scale together by 0.85–1.15; body centre-of-mass height scales by
 0.9–1.1 with consistent inertia scaling. Wheel friction lies in 0.65–0.95, support
@@ -408,3 +581,165 @@ stiffness use the nominal mechanics profile. Independent zero-mean Gaussian
 sensor noise has standard deviations 0.008 for RGB, 0.004 rad/s for gyro,
 0.025 m/s² for acceleration, and 0.0005 rad for encoders. RGB is clipped to `[0, 1]`.
 The pilot time limit is 120 simulated seconds; a body-up tilt of 0.9 rad is a fall.
+
+## Development and submission workflow
+
+Install `uv` and obtain the project as described in the
+[project setup instructions](../../README.md#start-here). Open a terminal in the
+[project directory](#project-directory-and-supplied-files). The scripts prepare and
+use its locked Python environment automatically.
+
+```sh
+./step_0_update_resources
+./step_1_new_solution line_following my-controller --template baseline
+./step_2_train work/line_following/my-controller
+./step_3_evaluate work/line_following/my-controller
+```
+
+On Windows use the `.cmd` counterparts, for example
+`.\step_2_train.cmd work\line_following\my-controller`. The wrappers resolve
+relative arguments from their own directory even if invoked from elsewhere.
+For Python examples and your own scripts, set the working directory explicitly
+to the project directory, then use `uv run --locked python your_script.py`.
+
+`step_0_update_resources` prepares data for the available labs. The new-solution
+command copies a template and refuses to overwrite an existing variant. Replace
+`baseline` with `starter` to begin from the minimal interface. Edit your copy's
+`train.py`, `solution.py` and `config.toml`, then repeat training and evaluation.
+Source or configuration changes require a new completed training run before
+packaging. Saved artifacts and provenance are written under the working copy's
+`artifacts/`; results and numeric learning histories are stored under `runs/`.
+
+`step_3_evaluate` runs the complete fixed validation set. It reports mean score,
+completion, fall and timeout rates, and mean successful journey time. Local
+training and evaluation run directly in Python, so ordinary prints, breakpoints
+and tracebacks are available. The [development guide](../../docs/development.md)
+shows the same operations as Python calls.
+
+Package the completed solution and check the resulting ZIP:
+
+```sh
+./step_4_pack work/line_following/my-controller
+./step_5_check_submission dist/line_following-my-controller-<hash>.zip
+```
+
+Replace `<hash>` with the filename printed by packaging. The check evaluates a
+fresh extraction in your local environment; it catches missing artifacts but does
+not reproduce assessment isolation or resource limits. Submit the ZIP and your
+report through the instructor's designated channel. Packaging does not upload
+anything. Follow the [submission format](../../docs/submissions.md) and
+[AI-use declaration](../../docs/ai-use.md).
+
+### Reference measurements and experimental comparison
+
+With the current sensor-area coverage rule, the hand-tuned baseline completed
+fixed `train-01`, `train-02` and `train-03` in 19.405, 19.699 and 38.499 simulated
+seconds respectively. The S-shaped `train-04` timed out at 120 seconds after
+missing route sections and scored zero. These four measurements do not establish
+performance on the complete collection or assessment benchmark. Results obtained
+under earlier coverage rules are not directly comparable.
+
+Record the courses, robot seeds, training seed, configuration and computational
+cost of your experiments. Compare learned changes against a reference on the same
+episodes, report failures as well as successful times, and examine outward and
+return performance separately. A faster controller on familiar routes may still
+have a lower average score on unfamiliar routes.
+
+## Visualisation and debugging
+
+### Offline course atlas
+
+The [course atlas](resources/index.html) is an HTML page containing drawings of all
+65 routes, training/validation filters, lengths and fixed robot seeds. Open it in
+a web browser; no Python process or network connection is required. After resource
+preparation, the same page is available at `data/line_following/index.html`.
+
+### Graphical simulator
+
+The graphical simulator is the desktop application for previewing courses, running
+a controller and examining its behaviour. From the
+[project directory](#project-directory-and-supplied-files), launch it with:
+
+```sh
+./view_lab line_following
+```
+
+On Windows use `.\view_lab.cmd line_following`. The launcher installs the locked
+optional Qt and ModernGL dependencies. A desktop display and OpenGL 3.3 or newer
+are required; training and command-line evaluation do not require graphics.
+
+The application prepares the bundled courses automatically. Previewing a course
+requires neither a solution nor training. Select **Course**, or use **Previous
+course / Next course**; enable **Top view** and click **Fit track**. The status line
+shows the course name and one-way length. Blue marks the start/return finish;
+red marks the far endpoint. Scroll to zoom and drag to pan. **Follow robot** keeps
+the camera centred on the robot. **Sensor area** overlays the 16 measured ground
+sectors through the chassis, including the exact 94×8 mm route-coverage region.
+The RGB strip displays readings in body order, from right (0) to left (15).
+
+To reproduce a fixed episode, select its **Course** and **Robot seed** from the CSV
+and set **Batch** to 1. The initial GUI seed is for exploration; it is not taken
+from the benchmark CSV. Larger batches use consecutive course entries and seeds;
+**View robot** chooses the displayed row.
+
+On a fresh checkout, **Create baseline** copies the template into
+`work/line_following/baseline`, runs its preparation procedure and enables **Start**.
+Existing source is never replaced. For a working copy, **Prepare solution** runs
+its `train.py`, just like `step_2_train`. These are explicit preparation actions;
+previewing a course performs no training. To select your own prepared solution
+at launch:
+
+```sh
+./view_lab line_following --solution work/line_following/my-controller
+```
+
+The engine prepares in the background when the application opens, without loading
+controller code. **Start** begins motion automatically; during preparation it queues
+the run. **Cancel preparation** cancels preparation and any queued start. Changing
+**Course** during or after a run starts a fresh run. **Restart** reloads the selected
+solution with the current seed and batch size, including a fresh controller state.
+The setup controls remain visible during simulation.
+
+### Time controls, diagnostics and recordings
+
+**Pause / Continue** and Space control the active run. While paused, **Step 1 ms**
+advances one physical step and **Step control** advances one controller interval.
+The timeline allows inspection of recorded history. Continuing returns to the latest
+live state; seeking does not rerun the controller or branch simulation from an old
+state. Playback offers a speed selector, previous/next frame and **Next control**
+navigation between recorded calls. Space controls playback when no run is active.
+
+An optional `debug(index=0)` method returns small diagnostic values for a batch row.
+The application copies them after each action and can display or plot them. The
+method must not change controller behaviour. See the
+[diagnostic value contract](../../docs/development.md#diagnostics-and-recordings)
+for supported values and limits. The judge never calls this method.
+
+Use **Save recording** explicitly before replacing or closing a run you want to
+keep. Routine switching and closing do not ask for confirmation. Saving during a
+run stores received frames so far; later frames require another save. A recording
+contains courses, sampled physical parameters, poses, observations, actions and
+diagnostics. It supports inspection without executing solution code; it is not a
+resumable simulator checkpoint or an inference artifact.
+
+Robot recordings use format version 3 and include sensor dimensions, line width,
+marker length, paint colours and the coverage rule version. Both the local and
+instructor applications reject older or incompatible recordings without replacing
+the currently open view. Use the matching coursekit environment to inspect such
+historical recordings, or create a new recording. Course archives retain their
+separate format version 2; controller observations and actions retain their API.
+
+### Compilation and stopping a run
+
+The physics process stays available between runs. Changing courses, seeds or
+solutions reuses compiled kernels at the same batch size. A new batch size needs
+its own specialisation. New application processes load saved kernels from a local
+user cache; engine or Python/PyTorch changes invalidate that cache. Compilation is
+separate from simulated time. See the [compilation notes](dynamics.md#running-and-inspecting-the-core)
+for cache location, first-run cost and limitations.
+
+**Stop** ends a run and retains received frames. A blocked controller or compiler
+is terminated on Stop or close; the next run starts a new process. The controller
+is loaded afresh on every run even when the physics process is reused. The shared
+[graphical tools guide](../../docs/development.md#graphical-inspection-and-manual-play)
+also describes window controls, diagnostic plots and playback shortcuts.

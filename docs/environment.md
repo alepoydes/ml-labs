@@ -1,8 +1,9 @@
 # Python environment
 
 Python 3.12.14 and dependencies are frozen by `.python-version` and `uv.lock`.
-Run commands with `uv run --locked` from the student project root, or use the
-numbered wrappers. The first run prepares the environment automatically.
+Run commands with `uv run --locked` from the
+[project directory](../README.md#start-here), or use the numbered wrappers. The first
+run prepares the environment automatically.
 The environment includes NumPy, SciPy, scikit-learn, joblib, Pillow, Matplotlib,
 CPU PyTorch, and marimo. Both labs use this environment; the supplied
 [development notebook](notebook.md) belongs to the Blindjack baseline.

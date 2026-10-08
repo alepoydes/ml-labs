@@ -18,7 +18,7 @@ Different masks can be equally good. Selecting a zero-valued card has no effect.
 
 ## Templates, working copies, and submissions
 
-Paths below are relative to the student project root:
+Paths below are relative to the [project directory](../../README.md#start-here):
 
 | Path | Purpose |
 | --- | --- |
@@ -31,7 +31,8 @@ Before running a template, copy it into `work/`. Keep the tracked course files,
 including the templates in `labs/`, unchanged to avoid conflicts with course
 updates. Your ignored working copies are independent of those templates.
 
-From the student project root, choose a template and optionally name the copy:
+From the [project directory](../../README.md#start-here), choose a template and
+optionally name the copy:
 
 ```sh
 ./step_1_new_solution blindjack

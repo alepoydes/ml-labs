@@ -1,5 +1,11 @@
 # Robot dynamics
 
+This guide explains how the robot's geometry and energy define its equations of
+motion, how contacts and motors act on those equations, and how the simulator
+advances them in time. Read the [task and episode rules](README.md) first. For
+feedback control, state estimation and learning methods, see the
+[control and learning guide](control_hints.md).
+
 The dynamics core is a single [public PyTorch module](../../src/coursekit/labs/line_following.py).
 The training environment and instructor evaluator import this same module. It needs
 no additional Python dependencies. Course geometry, observations, route coverage,
@@ -31,6 +37,19 @@ $$
 L(q,v)=T(q,v)-V(q),\qquad
 p=\partial_v L,\qquad M(q)=\partial_v^2 L,\qquad v=M(q)^{-1}p.
 $$
+
+Here $T$ is kinetic energy and $V$ contains gravity and contact elasticity.
+The gravitational contribution is $g\sum_i m_i c_{i,z}$. The momentum $p$ is
+conjugate to the configuration coordinates, rather than a vector of Cartesian
+velocities. For these coordinates the Hamiltonian is
+
+$$
+H(q,p,s)=\tfrac12 p^T M(q)^{-1}p+V(q)+\frac{\lVert s\rVert^2}{2I_b},
+$$
+
+where $s$ is the sphere's angular momentum and $I_b$ its scalar rotational inertia.
+The integrator below evolves $(q,p)$ using the equivalent discrete Lagrangian
+formulation; the sphere's rotation and dissipative interactions are handled separately.
 
 The implementation avoids the velocity Hessian. Stack linear and angular
 velocities weighted by square roots of masses and inertias into $w(q,v)$, so that
@@ -71,8 +90,8 @@ $\omega_b-\omega_{body}$, with equal and opposite torques. An implicit solve
 dissipates its energy even when the sphere is airborne. Lifting the sphere
 removes its floor friction, not its inertia or internal bearing resistance.
 
-Motor actions are normalized to $[-1,1]$ and clipped to that interval. The motor
-law is
+The environment requires normalised motor actions in $[-1,1]$ and rejects invalid
+commands. The motor law then limits the resulting torque:
 
 $$
 \tau_i=\tau_{stall,i}\,\operatorname{clip}
@@ -127,7 +146,9 @@ elastic normal forces are already integrated by the conservative core.
 
 ## Running and inspecting the core
 
-From the student project environment:
+Run the following example in the project's locked environment. The
+[project directory](README.md#project-directory-and-supplied-files) contains
+`pyproject.toml` and `uv.lock`; open `uv run --locked python` there:
 
 ```python
 import torch

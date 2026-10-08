@@ -10,7 +10,10 @@ training methods and scores are defined by each lab's statement.
 | Install, choose a lab and run a template | [Project quick start](../README.md) |
 | Write, train and debug a solution | [Development](development.md) |
 | Inspect data or controller behaviour | [Graphical tools](development.md#graphical-inspection-and-manual-play) |
-| Browse robot courses and endpoint markers | [Course preview](../labs/line_following/README.md#view-the-practice-courses) |
+| Understand the robot task, data and API | [Line Following statement](../labs/line_following/README.md) |
+| Study robot mechanics and numerical integration | [Robot dynamics](../labs/line_following/dynamics.md) |
+| Learn about balancing, line following and reinforcement learning | [Control and learning](../labs/line_following/control_hints.md) |
+| Browse robot courses and endpoint markers | [Graphical simulator and atlas](../labs/line_following/README.md#visualisation-and-debugging) |
 | Inspect the Blindjack MLP's learning curves | [Blindjack notebook](notebook.md) |
 | Understand local execution and grading limits | [Environment](environment.md) |
 | Package and submit one variant | [Submission format](submissions.md) |
