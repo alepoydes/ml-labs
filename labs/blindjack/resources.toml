@@ -2,7 +2,7 @@ schema_version = 1
 revision = "pilot-2"
 
 [archive]
-url = "https://github.com/alepoydes/ml-labs/releases/download/blindjack-pilot-2/blindjack-data.zip"
+url = "https://github.com/alepoydes/ml-labs/releases/download/ml-labs-pilot-3/ml-labs-pilot-3-data.zip"
 sha256 = "66273f84ae4c54a77d637f58b8f4a0e429171c535da17f9a4eb7bf2f3811df66"
 size = 20512750
 

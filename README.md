@@ -123,7 +123,9 @@ git pull --ff-only
 The resource updater does not pull Git changes. It validates SHA-256 hashes, replaces
 changed resources, and removes obsolete course-managed files. Interrupted updates
 must be rerun before training or evaluation.
-Blindjack's dataset arrives in a ZIP: the updater verifies the archive and each
+Blindjack's dataset is available from the
+[ML Labs pilot release](https://github.com/alepoydes/ml-labs/releases/tag/ml-labs-pilot-3).
+The updater downloads its ZIP, verifies the archive and each
 extracted file, then removes the downloaded ZIP. Unchanged data are not downloaded
 again. PNG sheets remain directly viewable under `data/blindjack/`. The smaller robot
 course collection is bundled in `labs/line_following/resources/` and copied to
@@ -135,5 +137,5 @@ for your work. `data/` is managed course storage. Updating a template never chan
 an existing variant. A new-solution command refuses to overwrite it.
 
 See [submission format](docs/submissions.md), [environment](docs/environment.md), and
-[AI use](docs/ai-use.md). If resources have not yet been published, ask the instructor
-for the release rather than inventing download URLs.
+[AI use](docs/ai-use.md). The release link becomes usable after the instructor
+publishes the assets; until then, ask the instructor for the dataset.

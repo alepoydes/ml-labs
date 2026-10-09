@@ -87,6 +87,10 @@ environment. Final inference runs on CPU without external services.
 
 ## Data
 
+Prepare the dataset with `./step_0_update_resources` from the project directory.
+The [resource instructions](../../README.md#course-updates-and-ownership) link to
+the pilot release and explain how updates are verified.
+
 `data/blindjack/` contains `train/`, `validation/`, and `dataset.json`. Each split has
 lossless `images-0000.png`, `images-0001.png`, … sheets and `labels.csv`:
 
