@@ -213,9 +213,10 @@ creates it without modifying the supplied templates.
 Two templates are provided. `starter` demonstrates the minimum interface and
 commands zero motor effort. `baseline` drives with the sphere on the floor. It
 tracks one connected optical stripe, estimates its direction using observation
-history and the gyro, and regulates speed using the encoders. It slows for turns,
-retraces a short wheel-position history after losing the line, and returns in
-reverse. Its preparation procedure saves hand-tuned settings; it does not learn.
+history and the gyro, and regulates speed using the encoders. Two observed line
+points estimate its direction; gyro feedback damps steering. It slows for turns,
+backs up to an earlier observed point after losing the line, aligns with the
+observed continuation, and retries slowly. It returns in reverse. Its preparation procedure saves hand-tuned settings; it does not learn.
 The [control guide](control_hints.md#the-reference-controller) explains the design
 and its limitations. Replace or extend the preparation procedure with learning or
 fitting.
@@ -547,11 +548,40 @@ another reward from `info`:
 | `reference_time` | `(B,)` | Mechanical reference time, in seconds. |
 | `outward_time` | `(B,)` | Outward completion time, or NaN until that leg is complete. |
 
+The accepted distance `info["progress"]` is available to the **training algorithm**
+after every control interval, including intervals with zero competition points.
+Its increment indicates whether the movement covered a new, continuously connected
+part of the route. An unchanged value means no new distance was accepted; this
+also occurs during a valid return to an earlier point. Use this feedback for reward
+shaping, critic targets or diagnostics during training. For example, with the
+environment and controller above:
+
+```python
+import torch
+
+accepted_before = env.info()["progress"]
+observation = env.observe()
+action = controller.act(observation, env.first)
+next_observation, reward, terminated, truncated, info = env.step(action)
+training_feedback = {
+    "accepted_distance": torch.as_tensor(info["progress"], dtype=torch.float32),
+    "accepted_increment": torch.as_tensor(
+        info["progress"] - accepted_before, dtype=torch.float32
+    ),
+}
+```
+
+Store these targets with the transition in a training buffer or use them in a
+training update. The deployed controller must infer successful recovery from its
+sensors and memory. Neither accepted distance nor reward is an input to `act()`
+in public validation, graphical runs or instructor grading. Keep training feedback
+separate from the observation dictionary and from the deployed actor's inputs.
+
 These diagnostics are never supplied to evaluated `act` calls. `env.info()` reads
 the same fields without advancing simulation. Numerical failures raise an exception
 instead of returning a scored episode.
 Distance counters freeze for finished rows and reset independently with their
-episodes. They are diagnostics, not additional controller observations or rewards.
+episodes. They do not add controller observations or alter competition scoring.
 
 Normal evaluation uses the Numba engine, including a native loop over the 20
 physical steps between controller calls. Its first call includes compiler startup;
@@ -677,36 +707,50 @@ anything. Follow the [submission format](../../docs/submissions.md) and
 
 ### Reference measurements and experimental comparison
 
-The supported baseline was measured on 2026-10-08 using every published episode,
-its fixed robot seed, sensor noise and the standard 120-second limit. The table
-compares the previous centroid/PD controller with the current reference under the
-same physics, sensor-area coverage and scoring rules. Mean scores include failed
-episodes as zero.
+The two-point baseline was measured on 2026-10-09 using every published episode,
+its fixed robot seed, sensor noise and the standard 120-second limit. It completed
+37 training and 9 validation episodes. The table retains measurements of the two
+previous reference controllers under the same mechanical, sensor-area coverage
+and scoring rules. Mean scores include failed episodes as zero.
 
-| Public split | Previous completions | Current completions | Previous mean score | Current mean score |
-| --- | ---: | ---: | ---: | ---: |
-| Training | 6 / 50 | 33 / 50 | 1.03 | 7.86 |
-| Validation | 1 / 15 | 8 / 15 | 0.52 | 6.02 |
+| Measurement | Earlier centroid/PD | Encoder replay (2026-10-08) | Two-point recovery (2026-10-09) |
+| --- | ---: | ---: | ---: |
+| Training completions | 6 / 50 | 33 / 50 | 37 / 50 |
+| Validation completions | 1 / 15 | 8 / 15 | 9 / 15 |
+| Training mean score | 1.03 | 7.86 | 8.46 |
+| Validation mean score | 0.52 | 6.02 | 7.00 |
+| Training mean accepted coverage | 22.1% | 84.3% | 83.4% |
+| Validation mean accepted coverage | 20.6% | 74.8% | 79.4% |
 
-The current controller completed every episode from `train-01` through `train-18`.
-All remaining failures in this sweep were timeouts; there were no falls. Mean
-accepted route coverage increased from 22.1% to 84.3% on training episodes and
-from 20.6% to 74.8% on validation episodes. Coverage remains diagnostic and does
-not contribute points.
+The current controller completed every episode from `train-01` through `train-27`.
+All 19 remaining failures were timeouts; there were no falls. The previous
+encoder-replay controller completed every episode through `train-18`, also with
+no falls. More completions do not imply improvement on every course: some close
+branches and crossings still cause incorrect continuation or failed recovery.
+Accepted coverage remains diagnostic and does not contribute points.
 
 Selected out-and-back times, in simulated seconds:
 
-| Episode | Previous controller | Current controller |
-| --- | ---: | ---: |
-| `train-01` | 19.405 | 10.485 |
-| `train-02` | 19.699 | 11.044 |
-| `train-03` | 38.499 | 28.047 |
-| `train-04` | Timeout at 120 s | 58.747 |
+| Episode | Earlier centroid/PD | Encoder replay | Two-point recovery |
+| --- | ---: | ---: | ---: |
+| `train-01` | 19.405 | 10.485 | 14.277 |
+| `train-02` | 19.699 | 11.044 | 14.361 |
+| `train-03` | 38.499 | 28.047 | 31.039 |
+| `train-04` | Timeout at 120 s | 58.747 | 50.193 |
+| `train-19` | — | Timeout at 120 s | 63.046 |
+| `train-25` | — | Timeout at 120 s | 80.706 |
+| `train-34` | — | Timeout at 120 s | 98.531 |
+
+The lower cruise speed makes straight courses slower but gives feedback more time
+to recover after turns. A separate regression check covers sharp and C2-rounded
+90-degree turns, both left and right, with eight robot seeds: all 32 journeys
+completed both legs. It also checks reverse recovery and bounds lateral and
+heading errors on the straight after the turn. These checks do not establish
+stability for every admissible robot or route.
 
 Hand tuning used training episodes; settings were held fixed for validation. The
-controller still has difficulty with some advanced routes and does not guarantee
-completion for other robot seeds or the assessment benchmark. Results obtained
-under earlier coverage rules are not directly comparable. Learned-controller
+controller does not guarantee completion on the assessment benchmark. Results
+obtained under earlier coverage rules are not directly comparable. Learned-controller
 calibration and academic grade thresholds remain separate work.
 
 Record the courses, robot seeds, training seed, configuration and computational

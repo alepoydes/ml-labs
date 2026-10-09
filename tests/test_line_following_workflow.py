@@ -200,6 +200,65 @@ def test_baseline_heading_estimate_while_turning_with_an_offset_line(project):
         q[5] += dt * yaw_rate
 
 
+@pytest.mark.parametrize("rounded", [False, True])
+def test_baseline_recovers_corners_and_settles_with_varied_robots(project, rounded):
+    from coursekit.labs.line_following_course import Course
+    from coursekit.labs.line_following_env import Environment
+
+    work = training.new_solution(project, "line_following", "baseline", "corners")
+    training.train_local(work, project)
+    solution = training.load_solution(work)
+    if rounded:
+        # Two cubic pieces round a right angle, with C2 joins to both straight legs.
+        controls = np.array(
+            [
+                [[0, 0], [0.1, 0], [0.2, 0], [0.3, 0]],
+                [[0.3, 0], [0.32, 0], [0.34, 0], [0.35, 0.01]],
+                [[0.35, 0.01], [0.36, 0.02], [0.36, 0.04], [0.36, 0.06]],
+                [[0.36, 0.06], [0.36, 0.16], [0.36, 0.26], [0.36, 0.36]],
+            ]
+        )
+        course = Course("rounded", controls, np.array([0, 5, 6, 7, 12]))
+        straight_x = 0.36
+    else:
+        course = Course.polyline("corner", [[0, 0], [0.5, 0], [0.5, 0.5]])
+        straight_x = 0.5
+    mirrored = Course("right turn", course.controls * [1, -1], course.knots, course.corners)
+    seeds = list(range(8)) * 2
+    env = Environment([course] * 8 + [mirrored] * 8, seeds, time_limit=40)
+    signs = np.repeat([1, -1], 8)
+    reversed_on_loss = np.zeros(16, dtype=bool)
+    sampled_straight = np.zeros(16, dtype=bool)
+    worst_offset = np.zeros(16)
+    worst_heading = np.zeros(16)
+    with torch.no_grad():
+        while not env.done.all():
+            q = env.state.q.numpy().copy()
+            action = solution.act(env.observe(), env.first)
+            recovering = np.array([solution.debug(i)["recovering"] == 1 for i in range(16)])
+            outward = env.leg == 0
+            env.step(action)
+            travel = env.state.q.numpy()[:, :2] - q[:, :2]
+            forward = travel[:, 0] * np.cos(q[:, 5]) + travel[:, 1] * np.sin(q[:, 5])
+            reversed_on_loss |= recovering & outward & (forward < -0.0001)
+            # Measure the straight after the bend, before the endpoint marker.
+            settled = outward & (q[:, 1] * signs > 0.20) & (q[:, 1] * signs < 0.24)
+            sampled_straight |= settled
+            worst_offset = np.maximum(
+                worst_offset, np.where(settled, abs(q[:, 0] - straight_x), 0)
+            )
+            worst_heading = np.maximum(
+                worst_heading, np.where(settled, abs(q[:, 5] - signs * np.pi / 2), 0)
+            )
+    assert (env.status == "finished").all(), env.info()
+    np.testing.assert_allclose(env.info()["completion_fraction"], 1)
+    assert sampled_straight.all()
+    assert (worst_offset < 0.006).all(), worst_offset
+    assert (worst_heading < 0.15).all(), worst_heading
+    if not rounded:
+        assert reversed_on_loss.all()
+
+
 def test_local_evaluation_allows_online_gradient_adaptation(project):
     class Adaptive:
         def __init__(self):
@@ -207,6 +266,7 @@ def test_local_evaluation_allows_online_gradient_adaptation(project):
             self.calls = 0
 
         def act(self, observation, reset):
+            assert set(observation) == {"time", "rgb", "gyro", "accel", "encoders"}
             loss = (self.parameter - observation["gyro"][0, 0]).square()
             loss.backward()
             with torch.no_grad():

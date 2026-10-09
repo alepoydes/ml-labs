@@ -68,6 +68,23 @@ def test_observations_have_no_alias_to_environment_and_terminal_rows_freeze():
         torch.testing.assert_close(before, after, rtol=0, atol=0)
 
 
+def test_accepted_distance_is_training_feedback_separate_from_observations():
+    env = Environment([straight()], [13], noise=False, time_limit=0.08)
+    initial = previous = env.info()["progress"]
+    while not env.done.all():
+        observation, reward, _, _, info = env.step(torch.full((1, 2), 0.2))
+        validate_observation(observation, env.first)
+        assert "progress" not in observation and "reward" not in observation
+        np.testing.assert_allclose(
+            reward.numpy(), (info["progress"] - previous) / info["route_length"]
+        )
+        assert (info["progress"] >= previous).all()
+        previous = info["progress"]
+    assert (previous > initial).all() and info["score"].tolist() == [0.0]
+    info["progress"][:] = -1
+    assert (env.info()["progress"] > initial).all()
+
+
 def test_native_batches_resets_and_terminal_masks_match_eager():
     import subprocess
     import sys

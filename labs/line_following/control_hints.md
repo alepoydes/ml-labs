@@ -245,39 +245,59 @@ detector selects a connected dark stripe near the previous observation before
 computing a centroid. This avoids averaging separate branches into their white
 gap; it does not resolve every ambiguous crossing or merged stripe.
 
-The steering estimate combines short-term gyro integration with changes in the
-observed line offset. In a planar rolling approximation, let $v$ be forward
-velocity, $\omega$ yaw rate, and $\alpha$ the local line heading relative to the
-body. The point where the line crosses the transverse sensor is $(0,e)$. Its
-world velocity, expressed in body coordinates, is $(v-\omega e,\dot e)$ and must
-follow the line tangent. Consequently,
+The direction estimate uses two observed line points. Wheel rotation and the gyro
+provide approximate planar odometry $(\hat x,\hat y,\hat\psi)$ in a local frame
+whose origin is the start pose. An optical intersection $(0,e)$ becomes
+
+$$
+\hat p=(\hat x,\hat y)+e(-\sin\hat\psi,\cos\hat\psi).
+$$
+
+The vector between an earlier point and the current point estimates the line
+tangent. The controller waits for 12 mm separation before updating this estimate
+and replaces the earlier point after 30 mm. Separating measurements in space
+reduces the effect of pixel noise; too long a separation delays the estimate on
+a tight bend. The estimate is smoothed and its orientation is selected modulo
+$\pi$ near the previous estimate, so a small noisy displacement cannot cause an
+accidental reversal. Reverse travel changes the sign of the point difference.
+These points describe the line already observed; extrapolating their tangent is
+a local prediction, not a forward sensor or a map of the unobserved route.
+
+A related differential estimate follows from planar rolling. If $v$ is body
+forward speed, $\omega$ yaw rate, and $\alpha$ the line heading relative to the
+body, the world velocity of the intersection $(0,e)$, expressed in body
+coordinates, is $(v-\omega e,\dot e)$. Therefore
 
 $$
 \dot e=(v-\omega e)\tan\alpha.
 $$
 
-The rotational term matters when the robot turns slowly with a large lateral
-offset. The baseline predicts the heading change from the gyro and corrects it
-with optical differences when $|v-\omega e|$ is sufficiently large. It smooths
-this correction, accounts for the line's orientation ambiguity modulo $\pi$,
-and discards the old heading estimate when reacquiring a stripe. Encoders and
-body gyro components provide approximate velocities: slip, body tilt, broad paint
-regions and sharp corners limit the planar model.
+The rotational term matters during slow turns with a large offset. Directly
+estimating this derivative from consecutive optical rows amplifies noise and
+becomes ill-conditioned when $v-\omega e$ is small; spatially separated points
+avoid that division. Neither method removes errors from slip, body tilt or
+ambiguous paint. The baseline uses the public wheel radius
+and planar gyro integration; it is not a full state observer.
 
-Offset and heading feedback request a yaw rate. A separate gyro feedback loop
-drives the motor difference; PI speed control drives their common input. Speed
-decreases with steering activity, offset and stripe width. A rate limit on the
-speed request avoids abrupt acceleration and braking that can lift the body off
-its rear support. Red paint reduces speed; the controller proceeds beyond the
-visible endpoint before reversing, then follows the line backwards.
+The heading error is corrected by a signed lateral-offset term. Proportional
+and bounded integral feedback request a yaw rate; measured gyro rate damps the
+motor difference. This is a simple cascaded PID-like steering controller, not
+a numerical derivative of optical noise. PI speed control drives the common
+motor input. Speed decreases with offset, heading error and stripe width, and
+its rate of change is limited to retain sphere support. Red paint reduces speed;
+the controller proceeds beyond the visible endpoint before reversing, then
+follows the line backwards.
 
-After ordinary line loss, the controller attempts to retrace the last 40 pairs
-of wheel positions, covering 0.8 seconds at the standard control interval. A
-bounded wheel-position servo visits these samples in reverse order. It then
-retries slowly. This short history uses only permitted encoder observations;
-it is not a route map. Wheel slip means that recovering encoder positions need
-not recover the exact ground path, and finding paint does not certify accepted
-coverage.
+Recovery has three states: follow, reverse, and align. On line loss or an offset
+near the row edge, the controller drives slowly back towards an older observed
+line point. It keeps this target fixed until the line is visible near that point.
+The vector from the recovered intersection to the last reliable point before
+loss gives a new direction estimate. The robot aligns with it before retrying
+at reduced speed. During alignment, $v=\omega e$ approximately keeps the optical
+intersection stationary while the body turns. The controller uses only RGB,
+encoders and gyro; it cannot certify that this recovered position lies before
+the judge's frontier. Odometry drift and a wrong branch can still defeat this
+short recovery procedure.
 
 `debug()` exposes offset, estimated heading and speed, recovery state, travel
 direction, yaw rate and motor inputs. Compare these estimates with the simulator
@@ -305,6 +325,12 @@ row does not reveal the full state, route direction or robot parameters. It can
 be an explicit estimator, a short observation history or a recurrent network.
 Sutton and Barto's [Reinforcement Learning: An Introduction](https://mitpress.mit.edu/9780262039246/reinforcement-learning/)
 provides the background on returns, value functions and policy learning.
+
+Training code can read `info["progress"]` in metres and its per-step increment.
+These values can supervise a progress predictor, shape a reward or train a critic.
+Keep them outside the policy observation: validation and assessment call `act()`
+with only the published sensor dictionary and reset mask. A recurrent policy must
+infer successful recovery from those sensors.
 
 The default progress reward helps discover motion along the route, but by itself
 it does not reproduce the time-based competition score. Partial progress can give
