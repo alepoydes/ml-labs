@@ -20,6 +20,8 @@ directory containing `pyproject.toml`, `uv.lock`, `view_lab` and the numbered
 `step_*` scripts. Locate these files before running the commands below; a lab's
 `labs/<lab>/` directory contains its statement and templates, not the launchers.
 Commands use one shared locked Python environment.
+Line Following's Numba simulator needs no separate C++ compiler. Build tools for
+accelerating its educational PyTorch example are [optional](docs/environment.md#optional-acceleration-of-the-pytorch-mechanics-example).
 
 Each `labs/<lab>/` provides `starter`, a minimal API example, and `baseline`, a
 runnable reference. Blindjack's baseline trains an MLP; Line Following's baseline

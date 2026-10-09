@@ -170,6 +170,8 @@ def test_another_variant_loads_its_own_helpers(tmp_path):
 
 @pytest.mark.parametrize("entry", ["solution", "train"])
 def test_same_size_edits_reload_source_and_helpers(tmp_path, entry):
+    import py_compile
+
     (tmp_path / "lib").mkdir()
     (tmp_path / "lib/__init__.py").write_text("")
     (tmp_path / "train.py").write_text("from solution import local, value\n")
@@ -179,5 +181,31 @@ def test_same_size_edits_reload_source_and_helpers(tmp_path, entry):
         helper.write_text(f"value = {value}\n")
         for path in (source, helper):
             os.utime(path, (1700000000, 1700000000))
+            if value == 1:
+                py_compile.compile(str(path), doraise=True)
         module = load_module(tmp_path, entry)
         assert (module.local, module.value) == (value, value)
+
+
+def test_loading_preserves_read_only_source_and_stale_bytecode(tmp_path, monkeypatch):
+    import py_compile
+    from pathlib import Path
+
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib/__init__.py").write_text("")
+    source, helper = tmp_path / "solution.py", tmp_path / "lib/model.py"
+    source.write_text("def value():\n from lib.model import value\n return value\n")
+    helper.write_text("value = 1\n")
+    os.utime(helper, (1700000000, 1700000000))
+    for path in (source, helper):
+        py_compile.compile(str(path), doraise=True)
+    helper.write_text("value = 2\n")
+    os.utime(helper, (1700000000, 1700000000))
+    before = file_hashes(tmp_path)
+
+    def read_only(*args, **kwargs):
+        raise OSError(30, "Read-only file system")
+
+    monkeypatch.setattr(Path, "unlink", read_only)
+    assert load_module(tmp_path, "solution").value() == 2  # includes a lazy helper import
+    assert file_hashes(tmp_path) == before

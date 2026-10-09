@@ -7,15 +7,16 @@ compatible with the mechanics; torch.inference_mode is not.
 """
 
 from collections.abc import Callable, Sequence
-from functools import lru_cache, partial
 
+import numba
 import numpy as np
 import torch
 from torch.func import vmap
 
 from coursekit.common import CourseError
 from coursekit.labs import line_following as physics
-from coursekit.labs.line_following_cache import ahead
+from coursekit.labs import line_following_geometry as geometry
+from coursekit.labs import line_following_rollout as rollout
 from coursekit.labs.line_following_course import Course, advance, optical, reference_time
 
 PHYSICS_DT = 0.001
@@ -81,28 +82,6 @@ def validate_action(action: torch.Tensor, size: int) -> None:
         raise CourseError("act() must return finite float32 commands (B, 2) in [-1, 1].")
 
 
-@lru_cache(maxsize=32)
-def _compiled_step(size, threads):
-    advance = physics.compile_step(batched=True, model_batched=True)
-    conservative, resist, _ = advance.keywords["kernels"]
-    finish = torch.compile(
-        _finish,
-        fullgraph=True,
-        dynamic=False,
-        isolate_recompiles=True,
-        recompile_limit=32,
-        options={"cpp_wrapper": True},
-    )
-    return partial(
-        physics.step,
-        kernels=(
-            ahead(conservative, size),
-            partial(physics.resistance_step, kernel=ahead(resist.keywords["kernel"], size)),
-            ahead(finish, size),
-        ),
-    )
-
-
 def _kinematics(state, model):
     velocity = physics.velocity(state, model)
     _, angular, rotation = physics.motion(state.q, velocity, model)
@@ -117,26 +96,8 @@ def _inspect(state, diagnostics):
     )
 
 
-def _finish(state, last, residual, impulse):
-    return _inspect(*vmap(physics.finish_step)(state, last, residual, impulse))
-
-
 def _step(state, action, model):
     return _inspect(*vmap(physics.step)(state, action, model))
-
-
-@lru_cache(maxsize=32)
-def _compiled_kinematics(size, threads):
-    return ahead(
-        torch.compile(
-            vmap(_kinematics),
-            fullgraph=True,
-            dynamic=False,
-            isolate_recompiles=True,
-            recompile_limit=32,
-        ),
-        size,
-    )
 
 
 def _seeds(values, size):
@@ -175,11 +136,9 @@ class Environment:
         self.rng = [None] * self.size
         self.noise = noise
         self.limit_steps = int(np.ceil(time_limit / PHYSICS_DT))
-        threads = torch.get_num_threads()
-        self._advance = _compiled_step(self.size, threads) if compiled else _step
-        self._kinematics = (
-            _compiled_kinematics(self.size, threads) if compiled else vmap(_kinematics)
-        )
+        self.compiled = compiled
+        self._advance = _step
+        self._kinematics = vmap(_kinematics)
         nominal = physics.robot()
         state = physics.initial_state(nominal)
         self.model = physics.Robot(*(v.repeat(self.size, *([1] * v.ndim)) for v in nominal))
@@ -255,13 +214,26 @@ class Environment:
             q = state.q.numpy()
             r = physics.rotation(state.q).numpy()
             self.frontier[i] = advance(self.courses[i], 0.0, q, q, r, r)
+        if self.compiled:
+            # Views share the parameter storage; resets update those same bytes.
+            self._models = physics.Robot(*(v.numpy() for v in self.model))
+            self._courses = geometry.pack(self.courses)
+            self._reverse = geometry.pack(self.reverse)
         self._first |= torch.from_numpy(mask.copy())
         self._sense(mask, np.zeros(self.size))
         return self.observe()
 
     @torch.no_grad()
     def _sense(self, mask, elapsed):
-        velocity, angular, rotation = self._kinematics(self.state, self.model)
+        if self.compiled:
+            velocity, angular, rotation = (
+                torch.from_numpy(v)
+                for v in rollout.kinematics(
+                    self.state.q.numpy(), self.state.p.numpy(), self._models
+                )
+            )
+        else:
+            velocity, angular, rotation = self._kinematics(self.state, self.model)
         acceleration = (velocity[:, :3] - self._linear) / torch.from_numpy(
             np.maximum(elapsed, PHYSICS_DT)
         )[:, None]
@@ -274,7 +246,11 @@ class Environment:
             q, r = self.state.q[i].numpy(), rotation[i].numpy()
             readings = {
                 "time": np.array(self.ticks[i] * PHYSICS_DT),
-                "rgb": optical(self.courses[i], q[:3], r),
+                "rgb": (
+                    geometry.optical(geometry.row(self._courses, i), q, r)
+                    if self.compiled
+                    else optical(self.courses[i], q[:3], r)
+                ),
                 "gyro": local_angular[i].numpy(),
                 "accel": local_acceleration[i].numpy(),
                 "encoders": q[6:].copy(),
@@ -297,10 +273,102 @@ class Environment:
     @torch.no_grad()
     def step(self, action: torch.Tensor, *, on_step: Callable | None = None):
         validate_action(action, self.size)
-        action = action.detach().to(dtype=torch.float64, device="cpu")
+        # Controller views must reuse the layout compiled during engine warmup.
+        action = action.detach().to(
+            dtype=torch.float64, device="cpu", memory_format=torch.contiguous_format
+        )
         beginning, old_progress = self.ticks.copy(), self.progress.copy()
         was_active = self.status == "running"
         self._first.zero_()
+        if self.compiled:
+            self._native_block(action.numpy(), on_step)
+        else:
+            self._reference_block(action, on_step)
+        elapsed = (self.ticks - beginning) * PHYSICS_DT
+        self._sense(was_active, elapsed)
+        length = np.array([c.length for c in self.courses])
+        reward = torch.from_numpy(
+            ((self.progress - old_progress) / (2 * length)).astype(np.float32)
+        )
+        terminated = torch.from_numpy(np.isin(self.status, ["finished", "fallen"]))
+        truncated = torch.from_numpy(self.status == "timeout")
+        return self.observe(), reward, terminated, truncated, self.info()
+
+    def _install_native(self, q, p, spin, fallen, counters):
+        self.state = physics.State(
+            *(torch.from_numpy(np.ascontiguousarray(v)) for v in (q, p, spin, fallen))
+        )
+        self.ticks[:] = counters[:, 0]
+        self.leg[:] = counters[:, 1]
+        self.frontier[:] = counters[:, 2]
+        self.outward_time[:] = counters[:, 3]
+        self.travelled_distance[:] = counters[:, 4]
+        self.status[:] = np.array(["running", "finished", "fallen", "timeout"])[
+            counters[:, 5].astype(np.int64)
+        ]
+
+    def _native_block(self, action, on_step):
+        # Commit only a numerically valid block. Each row stops at its own terminal
+        # step; optional snapshots let the viewer pace/replay every physical frame.
+        q, p, spin, fallen = (v.numpy().copy() for v in self.state)
+        statuses = np.array(["running", "finished", "fallen", "timeout"])
+        codes = (self.status[:, None] == statuses).argmax(axis=1)
+        counters = np.column_stack(
+            (
+                self.ticks,
+                self.leg,
+                self.frontier,
+                self.outward_time,
+                self.travelled_distance,
+                codes,
+            )
+        )
+        beginning = self.ticks.copy()
+        steps = CONTROL_STEPS
+        history = np.empty((self.size, steps if on_step else 0, 26))
+        if on_step:
+            history[:] = np.column_stack((q, p, spin, fallen, counters))[:, None, :]
+        errors = np.zeros(self.size, dtype=np.int64)
+        # Tiny matrix operations scale poorly with a large thread pool. Bound the
+        # engine's parallelism while preserving the calling thread's Numba mask.
+        threads = numba.get_num_threads()
+        numba.set_num_threads(min(threads, 4))
+        try:
+            rollout.block(
+                q,
+                p,
+                spin,
+                fallen,
+                self._models,
+                self._courses,
+                self._reverse,
+                action,
+                counters,
+                self.limit_steps,
+                steps,
+                history,
+                errors,
+                PHYSICS_DT,
+            )
+        finally:
+            numba.set_num_threads(threads)
+        if errors.any():
+            raise FloatingPointError("Non-finite or nonconvergent robot dynamics.")
+        if on_step:
+            counts = counters[:, 0].astype(np.int64) - beginning
+            for row, count in enumerate(counts):
+                if count:
+                    history[row, count:] = history[row, count - 1]
+            for i in range(int(counts.max())):
+                f = history[:, i]
+                self._install_native(
+                    f[:, :8], f[:, 8:16], f[:, 16:19], f[:, 19].astype(bool), f[:, 20:]
+                )
+                on_step(self)
+        else:
+            self._install_native(q, p, spin, fallen, counters)
+
+    def _reference_block(self, action, on_step):
         r0 = vmap(physics.rotation)(self.state.q).numpy()
         for _ in range(CONTROL_STEPS):
             active = self.status == "running"
@@ -359,15 +427,6 @@ class Environment:
             r0 = r1
             if on_step is not None:
                 on_step(self)
-        elapsed = (self.ticks - beginning) * PHYSICS_DT
-        self._sense(was_active, elapsed)
-        length = np.array([c.length for c in self.courses])
-        reward = torch.from_numpy(
-            ((self.progress - old_progress) / (2 * length)).astype(np.float32)
-        )
-        terminated = torch.from_numpy(np.isin(self.status, ["finished", "fallen"]))
-        truncated = torch.from_numpy(self.status == "timeout")
-        return self.observe(), reward, terminated, truncated, self.info()
 
     def info(self):
         elapsed = self.ticks * PHYSICS_DT

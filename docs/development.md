@@ -94,7 +94,7 @@ from coursekit.labs.line_following_task import benchmark
 from coursekit.training import load_solution
 
 cases = benchmark(Path("data/line_following"), "train")[:2]
-env = Environment([c for c, seed in cases], [seed for c, seed in cases], compiled=False)
+env = Environment([c for c, seed in cases], [seed for c, seed in cases])
 controller = load_solution(Path("work/line_following/my-controller"))
 action = controller.act(env.observe(), env.first)
 observation, reward, terminated, truncated, info = env.step(action)
@@ -103,8 +103,9 @@ if done.any():
     observation = env.reset(done)
 ```
 
-`compiled=False` makes short debugging runs easier; normal evaluation uses the
-compiled engine. Reuse an environment and its batch size to amortise compiler startup.
+`compiled=False` selects the PyTorch autodiff reference for study and comparison; normal evaluation uses the
+Numba engine. Reuse an environment to amortise startup; changing the batch length
+does not require a new specialization with matching array types and layouts.
 The controller must reset the indicated rows of memory when `reset` is true. Memory
 persists through the turnaround. Use `info` to analyse training, but the evaluated
 controller receives only observations and the reset mask. See the lab statement for
@@ -193,8 +194,8 @@ The engine and course geometry prepare in the background on opening the viewer,
 without executing a student controller. **Start** begins moving automatically as
 soon as preparation is complete. **Cancel preparation** cancels a queued start;
 closing also cancels background preparation. The status shows preparation and
-simulation separately. First use compiles kernels for the selected batch size and
-can take several minutes; later windows load saved kernels. **Restart** reloads the
+simulation separately. First use compiles the Numba functions; later windows load
+saved functions. A different batch length reuses the same array-type specialization. **Restart** reloads the
 solution, seed and batch settings. Course changes start a fresh run automatically.
 Ordinary restarts reuse the warm process; engine/runtime updates invalidate its cache.
 

@@ -341,8 +341,8 @@ should be measured explicitly.
 
 ### Organising robot experiments
 
-Use the batched environment to collect experience from several episodes. Keep its
-batch size fixed to reuse compilation; reset completed rows independently and
+Use the batched environment to collect experience from several episodes. The Numba
+engine reuses compilation across batch lengths; reset completed rows independently and
 clear only their controller memories. Preserve the final observation before
 resetting. In this lab, the 120 s timeout is a scored failure: although the API
 labels it `truncated`, it is not merely an arbitrary training rollout cutoff.
@@ -355,7 +355,7 @@ seeds to estimate sensitivity to dynamics. Keep model selection separate from th
 experiments used to report generalisation. Record training cost and failed episodes,
 and compare against the conventional controller under the same conditions.
 
-Finally, automatic differentiation inside the mechanics does not make
+Finally, the autodiff mechanics example does not make
 `Environment.step` differentiable through an entire trajectory. The environment
 detaches actions and uses NumPy for geometry and judging; contacts and termination
 also introduce nonsmooth events. Policy-gradient methods learn from collected

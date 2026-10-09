@@ -501,7 +501,7 @@ from coursekit.labs.line_following_task import benchmark
 from coursekit.training import load_solution
 
 cases = benchmark(Path("data/line_following"), "train")[:2]
-env = Environment([c for c, seed in cases], [seed for c, seed in cases], compiled=False)
+env = Environment([c for c, seed in cases], [seed for c, seed in cases])
 controller = load_solution(Path("work/line_following/my-controller"))
 observation = env.observe()
 action = controller.act(observation, env.first)
@@ -553,10 +553,12 @@ instead of returning a scored episode.
 Distance counters freeze for finished rows and reset independently with their
 episodes. They are diagnostics, not additional controller observations or rewards.
 
-Use `compiled=False` for short Python debugging runs. Normal evaluation uses the
-compiled engine; its first call includes compiler startup. For longer training,
-use the default compiled environment and retain the same batch size. Never put
-simulator calls inside `torch.inference_mode()`: kinematics requires automatic
+Normal evaluation uses the Numba engine, including a native loop over the 20
+physical steps between controller calls. Its first call includes compiler startup;
+subsequent processes reuse a disk cache. Batch lengths may change without new
+compilation when array types and layouts are unchanged. `compiled=False` selects
+the slower PyTorch autodiff reference for study and numerical comparison. Do not
+put that reference inside `torch.inference_mode()`: its kinematics requires forward
 differentiation. Ordinary `torch.no_grad()` is supported. The complete environment
 is not a differentiable policy-training interface; see the
 [mechanics guide](dynamics.md#running-and-inspecting-the-core).
@@ -803,10 +805,10 @@ separate format version 2; controller observations and actions retain their API.
 
 ### Compilation and stopping a run
 
-The physics process stays available between runs. Changing courses, seeds or
-solutions reuses compiled kernels at the same batch size. A new batch size needs
-its own specialisation. New application processes load saved kernels from a local
-user cache; engine or Python/PyTorch changes invalidate that cache. Compilation is
+The physics process stays available between runs. Changing courses, seeds,
+solutions or batch lengths reuses the Numba functions with matching array types
+and layouts. New application processes load saved functions from a local user
+cache; engine or Python/Numba changes invalidate that cache. Compilation is
 separate from simulated time. See the [compilation notes](dynamics.md#running-and-inspecting-the-core)
 for cache location, first-run cost and limitations.
 

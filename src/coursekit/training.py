@@ -1,3 +1,4 @@
+import importlib.machinery
 import importlib.metadata
 import importlib.util
 import json
@@ -45,6 +46,13 @@ def new_solution(project: Path, lab: str, template="starter", variant=None) -> P
     return destination
 
 
+class _SourceLoader(importlib.machinery.SourceFileLoader):
+    """Read current source even if stale bytecode exists on a read-only mount."""
+
+    def get_code(self, fullname):
+        return self.source_to_code(self.get_data(self.path), self.path)
+
+
 def load_module(solution: Path, name: str):
     """Import one of your working copy's Python files in the current process."""
     solution = solution.resolve()
@@ -57,14 +65,21 @@ def load_module(solution: Path, name: str):
         if key in {"train", "solution", "lib"} or key.startswith("lib."):
             del sys.modules[key]
     # Timestamp-based bytecode can miss same-size edits within one second.
-    # Remove only this working copy's generated caches, including its helpers.
-    for source in [*solution.glob("*.py"), *(solution / "lib").rglob("*.py")]:
-        Path(importlib.util.cache_from_source(str(source))).unlink(missing_ok=True)
+    # A source-only finder also covers imports performed later by the controller;
+    # it never modifies the submission and leaves external library loaders alone.
+    directories = {solution, *(p.parent for p in (solution / "lib").rglob("*.py"))}
+    for directory in directories:
+        sys.path_importer_cache[str(directory)] = importlib.machinery.FileFinder(
+            str(directory), (_SourceLoader, importlib.machinery.SOURCE_SUFFIXES)
+        )
     importlib.invalidate_caches()
     if str(solution) in sys.path:
         sys.path.remove(str(solution))
     sys.path.insert(0, str(solution))
-    spec = importlib.util.spec_from_file_location(name, solution / f"{name}.py")
+    path = solution / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(
+        name, path, loader=_SourceLoader(name, str(path))
+    )
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)

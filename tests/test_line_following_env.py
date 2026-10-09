@@ -68,19 +68,16 @@ def test_observations_have_no_alias_to_environment_and_terminal_rows_freeze():
         torch.testing.assert_close(before, after, rtol=0, atol=0)
 
 
-@pytest.mark.skipif(
-    os.environ.get("COURSE_TEST_NATIVE") != "1",
-    reason="Set COURSE_TEST_NATIVE=1 for native compiler checks",
-)
-def test_native_batches_resets_and_terminal_masks_match_eager(tmp_path, monkeypatch):
+def test_native_batches_resets_and_terminal_masks_match_eager():
     import subprocess
     import sys
 
-    monkeypatch.setenv(
-        "COURSEKIT_COMPILE_CACHE",
-        os.environ.get("COURSEKIT_COMPILE_CACHE", str(tmp_path / "kernels")),
-    )
-    for size, threads in ((1, 1), (2, 1), (1, 2), (1, 1)):
+    import numba
+
+    from coursekit.labs.line_following_jit import CACHE_DIR
+
+    original_numba_threads = numba.get_num_threads()
+    for size, threads in ((1, 1), (2, 1), (8, 2), (1, 1)):
         torch.set_num_threads(threads)
         courses, seeds = [straight()] * size, list(range(size))
         native = Environment(courses, seeds)
@@ -93,6 +90,7 @@ def test_native_batches_resets_and_terminal_masks_match_eager(tmp_path, monkeypa
                     env.reset(seeds=[31 + i for i in range(size)])
             action = torch.full((size, 2), 0.1 * (phase + 1))
             a, b = native.step(action), eager.step(action)
+            assert numba.get_num_threads() == original_numba_threads
             for observed, expected in zip(native.state, eager.state):
                 torch.testing.assert_close(observed, expected, atol=1e-11, rtol=1e-9)
             for name in a[0]:
@@ -114,33 +112,58 @@ def test_native_batches_resets_and_terminal_masks_match_eager(tmp_path, monkeypa
         np.testing.assert_array_equal(native.travelled_distance, distance)
 
     # A fresh interpreter must load usable artifacts without tracing or compiling.
+    assert any(CACHE_DIR.rglob("*.nbc"))
     script = """
 import numpy as np
 import torch
+from coursekit.labs import line_following_rollout as rollout
 from coursekit.labs.line_following_course import Course
 from coursekit.labs.line_following_env import Environment
 torch.set_num_threads(1)
-original = torch.compile
+import numba
+from llvmlite import binding as llvm
+# Initialize Numba's runtime itself before forbidding compilation of engine code.
+@numba.njit
+def runtime_warmup(x):
+    return x.copy()
+runtime_warmup(np.zeros(1))
 def forbidden(*args, **kwargs):
-    raise AssertionError('A cached kernel was recompiled')
-def cached_only(*args, **kwargs):
-    fn = original(*args, **kwargs)
-    fn.aot_compile = forbidden
-    return fn
-torch.compile = cached_only
+    raise AssertionError('A cached engine kernel was recompiled')
+torch.compile = forbidden
+llvm.ModulePassManager.run = forbidden
+llvm.FunctionPassManager.run = forbidden
 course = Course.polyline('cached', np.array([[0.,0.],[1.,0.]]))
-for size, threads in ((1,1),(2,1),(1,2),(1,1)):
+warmed = None
+for size, threads in ((1,1),(2,1),(8,2),(1,1)):
     torch.set_num_threads(threads)
+    numba.set_num_threads(min(threads, numba.config.NUMBA_NUM_THREADS))
     env = Environment([course] * size, [51+i for i in range(size)])
     reference = Environment([course] * size, [51+i for i in range(size)], compiled=False)
-    action = torch.full((size,2), .2)
-    env.step(action); reference.step(action)
-    for actual, expected in zip(env.state, reference.state):
-        torch.testing.assert_close(actual, expected, atol=1e-11, rtol=1e-9)
-    np.testing.assert_allclose(env.info()['travelled_distance'], reference.info()['travelled_distance'], atol=1e-12)
+    commands = torch.linspace(-.2, .3, 2 * size).reshape(2, size).T
+    # Transposed, sliced and broadcast outputs are all valid controller commands.
+    actions = (
+        commands.contiguous(),
+        commands,
+        commands.repeat_interleave(2, dim=0)[::2],
+        commands[:1].expand(size, -1),
+    )
+    for action in actions:
+        env.step(action); reference.step(action)
+        if warmed is None:
+            warmed = tuple(rollout.block.signatures)
+        assert tuple(rollout.block.signatures) == warmed, 'Controller layout required another kernel'
+        for actual, expected in zip(env.state, reference.state):
+            torch.testing.assert_close(actual, expected, atol=1e-11, rtol=1e-9)
+        np.testing.assert_allclose(env.info()['travelled_distance'], reference.info()['travelled_distance'], atol=1e-12)
 """
     result = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, timeout=90
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=90,
+        # Cache configuration is fixed when the engine is imported. Share that
+        # actual directory, including when the test runner supplied its own root.
+        env={**os.environ, "NUMBA_CACHE_DIR": str(CACHE_DIR.parents[1])},
     )
     assert result.returncode == 0, result.stdout + result.stderr
 

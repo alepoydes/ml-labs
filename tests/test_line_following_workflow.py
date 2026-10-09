@@ -36,7 +36,6 @@ def test_bundled_resources_training_archive_and_local_evaluation(project):
     result = adapter.evaluate(
         solution,
         project / "data/line_following",
-        compiled=False,
         time_limit=0.002,
         progress=events.append,
     )
@@ -218,7 +217,7 @@ def test_local_evaluation_allows_online_gradient_adaptation(project):
 
     solution = Adaptive()
     result = get_lab("line_following").evaluate(
-        solution, project / "data/line_following", compiled=False, time_limit=0.001
+        solution, project / "data/line_following", time_limit=0.001
     )
     assert (
         solution.calls

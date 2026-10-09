@@ -27,9 +27,14 @@ def pose(x=0.0, y=0.0, yaw=0.0, roll=0.0, pitch=0.0):
 
 
 def move(course, frontier, start, end):
+    from coursekit.labs import line_following_geometry as native
+
     q0, r0 = start
     q1, r1 = end
-    return advance(course, frontier, q0, q1, r0, r1)
+    expected = advance(course, frontier, q0, q1, r0, r1)
+    actual = native.advance(native.prepare(course), frontier, q0, q1, r0, r1)
+    assert actual == pytest.approx(expected, abs=1e-12, rel=1e-12)
+    return actual
 
 
 def test_long_step_covers_whole_translation_without_progress_cap():

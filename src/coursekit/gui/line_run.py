@@ -138,8 +138,10 @@ def _worker(connection):
     if os.name == "posix":
         os.setsid()
     import torch
+    from numba import set_num_threads
 
     torch.set_num_threads(1)
+    set_num_threads(1)
     try:
         while True:
             kind, request = connection.recv()

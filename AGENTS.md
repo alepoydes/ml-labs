@@ -1,5 +1,10 @@
 # Student project
 
+Line Following uses the public Numba engine for actual runs. Keep PyTorch autodiff
+as a teaching reference and check analytic derivatives against it. System build
+tools for the optional PyTorch compiler must stay optional in installation guides.
+Keep physical steps, coverage and terminal handling in the same native loop.
+
 Write solutions in `work/<lab>/<variant>/`. Course updates own tracked files;
 never store a solution, dataset, or model in those files. Use the shared locked
 environment. Keep code short and explain the mathematical idea and invariants.

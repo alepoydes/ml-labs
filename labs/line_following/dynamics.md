@@ -6,16 +6,21 @@ advances them in time. Read the [task and episode rules](README.md) first. For
 feedback control, state estimation and learning methods, see the
 [control and learning guide](control_hints.md).
 
-The dynamics core is a single [public PyTorch module](../../src/coursekit/labs/line_following.py).
-The training environment and instructor evaluator import this same module. It needs
-no additional Python dependencies. Course geometry, observations, route coverage,
-parameter sampling and scoring live in the adjacent public modules; see the
-[lab statement and environment API](README.md). The current robot and numerical
-settings are a pilot profile awaiting broader controller calibration.
+The working simulator uses [analytic Numba mechanics](../../src/coursekit/labs/line_following_numba.py)
+and a [native integration loop](../../src/coursekit/labs/line_following_rollout.py).
+Training, the graphical viewer and instructor evaluation use this same engine.
+The [PyTorch autodiff example](../../src/coursekit/labs/line_following.py) derives the
+same mechanics from energy and provides an independent check of the analytic
+formulas. Its optional `torch.compile` acceleration is not needed to run the lab;
+see the [installation instructions](../../docs/environment.md#optional-acceleration-of-the-pytorch-mechanics-example).
+The current robot and numerical settings remain a pilot profile awaiting broader
+controller calibration. Course geometry, observations, route coverage, parameter
+sampling and scoring live in adjacent public modules; see the
+[lab statement and environment API](README.md).
 
 ## Coordinates and energy
 
-Use SI units and float64 tensors. The world has a horizontal floor at $z=0$.
+Use SI units and float64 arrays (tensors in the autodiff example). The world has a horizontal floor at $z=0$.
 The body frame has $x$ forward, $y$ left, and $z$ up. The configuration is
 
 $$
@@ -28,7 +33,7 @@ Positive wheel rotation drives forward; positive pitch leans forward. The sphere
 centre is fixed behind the axle. Its orientation is irrelevant because it is
 homogeneous and isotropic; its world angular momentum is a separate state.
 
-Each centre has position $c_i=x+Rr_i$. `torch.func.jvp` differentiates this
+Each centre has position $c_i=x+Rr_i$. In the reference, `torch.func.jvp` differentiates this
 pose map to obtain translational velocities and $\dot R$; angular velocity is
 read from $\dot R R^T$. Add wheel spin about the axle to obtain each wheel's
 angular velocity. Translational and rotational kinetic energies give
@@ -51,7 +56,7 @@ where $s$ is the sphere's angular momentum and $I_b$ its scalar rotational inert
 The integrator below evolves $(q,p)$ using the equivalent discrete Lagrangian
 formulation; the sphere's rotation and dissipative interactions are handled separately.
 
-The implementation avoids the velocity Hessian. Stack linear and angular
+The autodiff example avoids the velocity Hessian. Stack linear and angular
 velocities weighted by square roots of masses and inertias into $w(q,v)$, so that
 $T=\lVert w\rVert^2/2$. At fixed $q$, this map is linear in $v$: evaluating it
 on the eight basis vectors gives the columns of $J$, and $M=J^T J$ exactly.
@@ -144,73 +149,115 @@ raise `FloatingPointError` through `check` and must never be recorded as a fall
 or a score. Diagnostic impulses contain normal damping and tangential friction;
 elastic normal forces are already integrated by the conservative core.
 
+## Analytic implementation and native integration
+
+The Numba engine evaluates the same energy derivatives explicitly. Let $E$ map
+Euler-angle rates to body angular velocity, and $W=RE$ map them to world angular
+velocity. A centre offset $c=Rr$ has velocity
+$u=\dot x+\omega\times c$ and angle derivative
+$\partial_a c=W_{:,a}\times c$. For the energy,
+
+$$
+\partial_a T=\sum_i m_i u_i\cdot\partial_a u_i
++\sum_i(I_i\omega_i)\cdot\partial_a\omega_i.
+$$
+
+`lagrangian_derivatives` contracts these terms directly instead of constructing
+a third-order array of mass derivatives. Velocity derivatives give the generalized
+momenta; gravity and spring derivatives supply the potential contribution.
+`kinematics`, `inertia` and `contacts` provide the centre/angular maps, positive
+mass matrix and material contact velocities. `resistance`, `conservative_step`
+and `step` implement the physical substeps described above. These are ordinary,
+small Python functions compiled with Numba; no finite-difference derivatives or
+coordinate Hessians are used.
+
+The working environment calls a native block of 20 physical steps per controller
+action. Every 1 ms step still checks the numerical residual, updates certified
+sensor-row coverage and path length, and handles turnaround, fall and completion.
+Course queries use the same cubic controls, quadrature and curve-error bounds as
+the reference. Coverage follows only the connected interval beginning at the
+accepted frontier, stopping at the first uncovered gap. This ordering avoids
+searching and sorting unrelated branches at every step.
+
+The controller is called in Python between blocks, with the original PyTorch
+observation/action API. Optional block snapshots retain every physical frame for
+the viewer; playback does not rerun physics or controller inference. Noise is
+drawn from each episode's own random generator after the block, preserving
+independence from batching and unrelated resets.
+
+Rows are independent; each row's time steps remain sequential. Batches of eight
+or more robots use a native parallel loop with at most four CPU threads (or the
+smaller Numba thread limit). Smaller batches use a serial native loop. The engine
+restores the caller's thread setting after every block. Larger pools increased
+overhead for these small matrix problems in the development measurements.
+
+The first execution compiles Numba functions. Their array types, ranks and layouts
+are specialized, but array lengths and robot parameter values are runtime data.
+A different batch length therefore reuses the functions with those same types.
+The native cache lives under `coursekit/numba/` in the user cache directory;
+`NUMBA_CACHE_DIR` or `COURSEKIT_COMPILE_CACHE` can supply its root. Its directory
+identifies the complete engine sources and Python/Numba/LLVM/NumPy/SciPy versions, and Numba checks
+CPU compatibility and writes artifacts atomically. Source-wide invalidation is
+needed because Numba does not itself track changes in imported helpers. Cache
+files contain executable code: keep them local, outside submission archives.
+The selected cache directory must be writable. Set `COURSEKIT_COMPILE_CACHE` to
+a writable local directory when the normal user cache is unavailable. Engine
+functions do not fall back to an unversioned cache alongside the source files.
+
 ## Running and inspecting the core
 
-Run the following example in the project's locked environment. The
-[project directory](README.md#project-directory-and-supplied-files) contains
-`pyproject.toml` and `uv.lock`; open `uv run --locked python` there:
+The ordinary `Environment(...)` API uses Numba and requires no C++ toolchain.
+Use `Environment(..., compiled=False)` to inspect the slower autodiff reference
+with the same observations and episode rules. The following example explores
+that reference directly; run it in `uv run --locked python` from the project
+directory containing `pyproject.toml` and `uv.lock`:
 
 ```python
 import torch
-from coursekit.labs.line_following import check, compile_step, initial_state, robot, step
+from coursekit.labs.line_following import check, initial_state, robot, step
 
-torch.set_num_threads(1)
 model = robot()
 state = initial_state(model)
 action = state.q.new_tensor([0.2, 0.2])
-advance = compile_step()
-for _ in range(1000):
-    state, diagnostics = advance(state, action, model)
+for _ in range(10):
+    state, diagnostics = step(state, action, model)
     check(state, diagnostics)
 ```
 
-Use `advance = step` to inspect ordinary Python execution. `compile_step` compiles
-three kernels: resistance, the conservative solve, and terminal-state handling.
-Both half steps reuse the same resistance kernel. Compilation needs PyTorch 2.14
-or later and its supported compiler
-toolchain; the first call has a substantial cost. Construct `advance` once,
-outside the rollout loop.
+To study compiler acceleration, install the [optional system tools](../../docs/environment.md#optional-acceleration-of-the-pytorch-mechanics-example),
+then construct a compiled function once, outside the rollout loop:
 
-The compiler also generates the C++ call wrapper, reducing Python overhead for
-small matrices. Linear solves return a status tensor (`solve_ex`) rather than
-raising inside the compiled graph; failed solves become non-finite values checked
-by `check`. This keeps error-handling side effects out of the compiler's disk cache.
-The environment compiles the same autodiff kinematics for sensors. Footprint
-rotation and numerical validation share the terminal kernel; validation still
-precedes committing each physical step. The conservative solve evaluates both
-discrete momenta together, sharing their derivative work. The three geometric
-coverage clips are batched within each step. These optimizations preserve the
-1 ms step, solver settings and coverage rule.
+```python
+from coursekit.labs.line_following import compile_step
 
-For its fixed CPU float64 batches, the environment retains guarded callables from
-PyTorch 2.14's experimental
+torch.set_num_threads(1)
+advance = compile_step()
+state, diagnostics = advance(state, action, model)  # includes initial compilation
+check(state, diagnostics)
+```
+
+`compile_step` compiles resistance, the conservative solve and terminal handling
+as three kernels; both resistance half steps reuse one kernel. The C++ call
+wrapper reduces Python overhead for small matrices. Linear solves use
+`torch.linalg.solve_ex` and return non-finite values on failure; `check` raises
+outside the graph, preserving compiler caching. Both discrete momenta are
+evaluated together to share derivative work.
+
+For experiments requiring persistent PyTorch artifacts, the optional
+`line_following_cache.ahead` helper uses PyTorch's experimental
 [`aot_compile` interface](https://docs.pytorch.org/docs/2.14/user_guide/torch_compiler/torch.compiler_aot_compile.html).
-This avoids repeated Dynamo
-dispatch during a rollout; runtime guards remain enabled. Each batch size has its
-own cached callables. Initial state allocation preserves the layouts used by later
-steps, including singleton Boolean tensors.
+It retains runtime guards and keys artifacts by engine source, runtime, CPU,
+batch size and thread count. Writes are locked and atomic; incompatible or
+damaged artifacts are rebuilt. This helper belongs to the PyTorch example;
+the working Numba environment does not load or create these artifacts.
 
-Saved AOT functions also avoid tracing and code generation in a fresh process.
-They live in `coursekit/` under the user cache directory (`XDG_CACHE_HOME`,
-`LOCALAPPDATA`, or `~/.cache`); `COURSEKIT_COMPILE_CACHE` overrides that location.
-The key includes the engine source, Python/PyTorch build, CPU capability, batch
-size and thread count. Writes are locked and atomic; incompatible or damaged
-artifacts are rebuilt. This cache contains executable code and is for local use,
-not for submission archives or distribution to students. A first run after an
-engine or environment update still pays compilation cost.
-
-For stacked states and actions, use `compile_step(batched=True)`. Add
-`model_batched=True` when each robot has its own stacked parameter set. The eager
-equivalents are `torch.vmap(step, in_dims=(0, 0, None))` for shared parameters and
-`in_dims=(0, 0, 0)` for per-robot parameters.
-
-Compilation specializes on shapes, dtype, device, and Python settings such as
-`dt`. A new batch size creates new compiled variants; revisiting a cached size
-reuses them. Keep the environment count fixed during training rollouts. Changing
-tensor values, including actions and robot parameters, does not require new
-variants when shapes and layouts stay the same. Successive steps and both
-resistance half steps use compatible layouts. Dynamic batch sizes are not
-supported by this compilation helper.
+For stacked states/actions use `compile_step(batched=True)`, adding
+`model_batched=True` for independent parameter sets. The eager equivalents use
+`torch.vmap(step, in_dims=(0, 0, None))` or `in_dims=(0, 0, 0)`. This optional
+PyTorch helper specializes on shapes, dtype, device and Python settings such as
+`dt`: new batch sizes can compile again, while changed values with matching
+layouts reuse a specialization. First-call time must be measured separately
+from steady throughput.
 
 Do not put these calculations in `torch.inference_mode`, which disables the
 forward differentiation used for kinematics. A complete rollout is not a smooth
@@ -228,3 +275,9 @@ The [physics tests](../../tests/test_line_following.py) cover independent
 kinematic checks, positive inertia, free fall, conserved momenta, symplecticity,
 time reversal, passive losses, friction disks, solver and time-step convergence,
 terminal falls, batching, and compiler graph capture and reuse.
+The [native tests](../../tests/test_line_following_numba.py) independently check
+momentum conservation, passive losses, friction bounds and time-step convergence;
+they also compare analytic derivatives, contact maps and trajectories with the
+autodiff implementation. Environment tests execute saved native kernels in a fresh
+process with compilation forbidden, changed robot parameters and different batch
+lengths, including the parallel path.
