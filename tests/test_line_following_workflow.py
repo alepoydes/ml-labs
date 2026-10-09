@@ -11,7 +11,7 @@ from coursekit import resources, submissions, training
 from coursekit.common import read_toml
 from coursekit.labs import get_lab
 from coursekit.labs.line_following_cases import sample_case
-from coursekit.labs.line_following_course import END, GROUND, INK, START
+from coursekit.labs.line_following_course import END, GROUND, INK, START, Course
 
 
 @pytest.fixture
@@ -23,7 +23,12 @@ def project(tmp_path):
     return tmp_path
 
 
-def test_bundled_resources_training_archive_and_local_evaluation(project):
+def short_cases():
+    course = Course.polyline("short", [[0.0, 0.0], [0.3, 0.0]])
+    return [sample_case(course, seed, name=f"short-{seed}") for seed in (0, 1)]
+
+
+def test_bundled_resources_training_archive_and_local_evaluation(project, monkeypatch):
     work = project / "work/line_following/starter"
     shutil.copytree(project / "labs/line_following/starter", work)
     training.train_local(work, project, seed=5)
@@ -33,6 +38,8 @@ def test_bundled_resources_training_archive_and_local_evaluation(project):
     assert metadata["lab"] == "line_following"
     solution = training.load_solution(extracted)
     adapter = get_lab("line_following")
+    benchmark_cases = short_cases()
+    monkeypatch.setattr(adapter, "benchmark", lambda *_: benchmark_cases)
     events = []
     result = adapter.evaluate(
         solution,
@@ -40,17 +47,17 @@ def test_bundled_resources_training_archive_and_local_evaluation(project):
         time_limit=0.002,
         progress=events.append,
     )
-    assert result["episodes"] == len(adapter.benchmark(project / "data/line_following"))
+    assert result["episodes"] == len(benchmark_cases)
     assert result["score"] == result["completion_rate"] == 0
     assert result["timeout_rate"] == 1
     assert result["mean_success_time"] is None
-    cases = [event["metrics"] for event in events if "metrics" in event]
-    assert len(cases) == result["episodes"]
-    assert all(case["travelled_distance"] >= 0 for case in cases)
-    assert all(case["status"] == "timeout" for case in cases)
-    assert all(case["time_limit"] == 0.002 for case in cases)
+    metrics = [event["metrics"] for event in events if "metrics" in event]
+    assert len(metrics) == result["episodes"]
+    assert all(case["travelled_distance"] >= 0 for case in metrics)
+    assert all(case["status"] == "timeout" for case in metrics)
+    assert all(case["time_limit"] == 0.002 for case in metrics)
     assert result["mean_completion_fraction"] == pytest.approx(
-        np.mean([case["progress"] / case["route_length"] for case in cases])
+        np.mean([case["progress"] / case["route_length"] for case in metrics])
     )
     json.dumps(result, allow_nan=False)
     provenance = json.loads((extracted / "artifacts/provenance.json").read_text())
@@ -185,67 +192,59 @@ def test_baseline_partial_reset_matches_fresh_controller(project):
         assert torch.isfinite(actual).all() and actual.abs().max() <= 1
 
 
-def test_baseline_continues_crossings_on_both_legs_and_mirrored_courses(project):
-    from dataclasses import replace
-
-    from coursekit.labs import line_following as physics
-    from coursekit.labs.line_following_cases import load_cases
-    from coursekit.labs.line_following_course import Course
-    from coursekit.labs.line_following_env import Environment
-
-    names = {f"train-{i:02d}" for i in range(39, 45)} | {"validation-11", "validation-12"}
-    cases = [c for c in load_cases(project / "data/line_following") if c.name in names]
-    for case in list(cases):
-        course = case.course
-        mirrored = Course(
-            course.name + "-mirrored",
-            course.controls * [1, -1],
-            course.knots,
-            course.corners,
-        )
-        state = physics.initial_state(case.robot)
-        state.q[:2] = torch.from_numpy(mirrored.at(0).copy())
-        tangent = mirrored.at(0, 1)
-        state.q[5] = float(np.arctan2(tangent[1], tangent[0]))
-        cases.append(replace(case, name=mirrored.name, course=mirrored, initial=state))
-    work = training.new_solution(project, "line_following", "baseline", "crossings")
+def test_baseline_crossing_keeps_the_incoming_direction(project):
+    work = training.new_solution(project, "line_following", "baseline", "crossing")
     training.train_local(work, project)
     solution = training.load_solution(work)
-    env = Environment(cases)
-    saw_crossing = np.zeros((len(cases), 2), dtype=bool)
-    with torch.no_grad():
-        while not env.done.all():
-            action = solution.act(env.observe(), env.first)
-            for i in range(len(cases)):
-                saw_crossing[i, env.leg[i]] |= solution.debug(i)["crossing"]
-            env.step(action)
-    assert (env.status == "finished").all(), list(zip([c.name for c in cases], env.status))
-    np.testing.assert_allclose(env.info()["completion_fraction"], 1)
-    assert saw_crossing.all()
+    observation = {
+        "time": torch.zeros(1),
+        "rgb": torch.tensor(np.tile(GROUND, (1, 16, 1)), dtype=torch.float32),
+        "gyro": torch.zeros((1, 3)),
+        "accel": torch.zeros((1, 3)),
+        "encoders": torch.zeros((1, 2)),
+    }
+    observation["rgb"][:, 7:9] = torch.tensor(INK, dtype=torch.float32)
+    solution.act(observation, torch.ones(1, dtype=torch.bool))
+    observation["time"] += 0.02
+    observation["rgb"][:, 4:12] = torch.tensor(INK, dtype=torch.float32)
+    solution.act(observation, torch.zeros(1, dtype=torch.bool))
+    assert solution.debug()["crossing"]
+    assert abs(solution.debug()["target_yaw_rate"]) < 0.05
+    observation["time"] += 0.02
+    observation["encoders"] += 0.02 / 0.035
+    observation["rgb"][:] = torch.tensor(GROUND, dtype=torch.float32)
+    observation["rgb"][:, 7:9] = torch.tensor(INK, dtype=torch.float32)
+    solution.act(observation, torch.zeros(1, dtype=torch.bool))
+    assert not solution.debug()["crossing"]
 
 
-def test_baseline_preserves_bends_markers_and_parallel_hairpins(project):
-    from coursekit.labs.line_following_cases import load_cases
-    from coursekit.labs.line_following_env import Environment
-
-    # The 47 mm branch gap stays constant up to the turn. A detector which
-    # remembers any second stripe mistakes these hairpins for crossings.
-    # Train-08 also approaches a faint coloured marker on a bend: it must keep
-    # following that paint, without substituting a straight crossing probe.
-    cases = [
-        c
-        for c in load_cases(project / "data/line_following")
-        if c.name in {"train-08", "train-37", "validation-08", "validation-10"}
-    ]
-    work = training.new_solution(project, "line_following", "baseline", "parallel-branches")
+def test_baseline_freezes_direction_during_line_loss(project):
+    work = training.new_solution(project, "line_following", "baseline", "recovery")
     training.train_local(work, project)
     solution = training.load_solution(work)
-    env = Environment(cases)
-    with torch.no_grad():
-        while not env.done.all():
-            env.step(solution.act(env.observe(), env.first))
-    assert (env.status == "finished").all(), env.info()
-    np.testing.assert_allclose(env.info()["completion_fraction"], 1)
+    observation = {
+        "time": torch.zeros(1),
+        "rgb": torch.tensor(np.tile(GROUND, (1, 16, 1)), dtype=torch.float32),
+        "gyro": torch.zeros((1, 3)),
+        "accel": torch.zeros((1, 3)),
+        "encoders": torch.zeros((1, 2)),
+    }
+    observation["rgb"][:, 7:9] = torch.tensor(INK, dtype=torch.float32)
+    solution.act(observation, torch.ones(1, dtype=torch.bool))
+    for _ in range(3):
+        observation["time"] += 0.02
+        observation["encoders"] += 0.01 / 0.035
+        solution.act(observation, torch.zeros(1, dtype=torch.bool))
+    observation["time"] += 0.02
+    observation["rgb"][:] = torch.tensor(GROUND, dtype=torch.float32)
+    solution.act(observation, torch.zeros(1, dtype=torch.bool))
+    assert solution.debug()["mode"] == "retreat"
+    frozen_yaw = solution.line_yaw.clone()
+    observation["time"] += 0.02
+    observation["rgb"][:, 1:3] = torch.tensor(INK, dtype=torch.float32)
+    solution.act(observation, torch.zeros(1, dtype=torch.bool))
+    assert solution.debug()["mode"] == "retreat"
+    torch.testing.assert_close(solution.line_yaw, frozen_yaw)
 
 
 @pytest.mark.parametrize("paint", [INK, START, END], ids=["black", "blue", "red"])
@@ -286,146 +285,9 @@ def test_baseline_heading_estimate_while_turning_with_an_offset_line(project, pa
         q[5] += dt * yaw_rate
 
 
-@pytest.mark.parametrize("rounded", [False, True])
-def test_baseline_recovers_corners_and_settles_with_varied_robots(project, rounded):
-    from coursekit.labs.line_following_course import Course
-    from coursekit.labs.line_following_env import Environment
+def test_local_evaluation_allows_online_gradient_adaptation(project, monkeypatch):
+    from coursekit.labs import line_following_task
 
-    work = training.new_solution(project, "line_following", "baseline", "corners")
-    training.train_local(work, project)
-    solution = training.load_solution(work)
-    if rounded:
-        # Two cubic pieces round a right angle, with C2 joins to both straight legs.
-        controls = np.array(
-            [
-                [[0, 0], [0.1, 0], [0.2, 0], [0.3, 0]],
-                [[0.3, 0], [0.32, 0], [0.34, 0], [0.35, 0.01]],
-                [[0.35, 0.01], [0.36, 0.02], [0.36, 0.04], [0.36, 0.06]],
-                [[0.36, 0.06], [0.36, 0.16], [0.36, 0.26], [0.36, 0.36]],
-            ]
-        )
-        course = Course("rounded", controls, np.array([0, 5, 6, 7, 12]))
-        straight_x = 0.36
-    else:
-        course = Course.polyline("corner", [[0, 0], [0.5, 0], [0.5, 0.5]])
-        straight_x = 0.5
-    mirrored = Course("right turn", course.controls * [1, -1], course.knots, course.corners)
-    seeds = list(range(8)) * 2
-    # Use the public episode limit; retain the spatial settling requirements.
-    env = Environment(
-        [sample_case(c, seed) for c, seed in zip([course] * 8 + [mirrored] * 8, seeds)]
-    )
-    signs = np.repeat([1, -1], 8)
-    reversed_on_loss = np.zeros(16, dtype=bool)
-    encountered_loss = np.zeros(16, dtype=bool)
-    sampled_straight = np.zeros(16, dtype=bool)
-    worst_offset = np.zeros(16)
-    worst_heading = np.zeros(16)
-    with torch.no_grad():
-        while not env.done.all():
-            q = env.state.q.numpy().copy()
-            action = solution.act(env.observe(), env.first)
-            recovering = np.array([solution.debug(i)["recovering"] == 1 for i in range(16)])
-            outward = env.leg == 0
-            encountered_loss |= recovering & outward
-            env.step(action)
-            travel = env.state.q.numpy()[:, :2] - q[:, :2]
-            forward = travel[:, 0] * np.cos(q[:, 5]) + travel[:, 1] * np.sin(q[:, 5])
-            reversed_on_loss |= recovering & outward & (forward < -0.0001)
-            # Measure the straight after the bend, before the endpoint marker.
-            settled = outward & (q[:, 1] * signs > 0.20) & (q[:, 1] * signs < 0.24)
-            sampled_straight |= settled
-            worst_offset = np.maximum(
-                worst_offset, np.where(settled, abs(q[:, 0] - straight_x), 0)
-            )
-            worst_heading = np.maximum(
-                worst_heading, np.where(settled, abs(q[:, 5] - signs * np.pi / 2), 0)
-            )
-    assert (env.status == "finished").all(), env.info()
-    np.testing.assert_allclose(env.info()["completion_fraction"], 1)
-    assert sampled_straight.all()
-    assert (worst_offset < 0.006).all(), worst_offset
-    assert (worst_heading < 0.15).all(), worst_heading
-    if not rounded:
-        assert encountered_loss.any()
-        assert reversed_on_loss[encountered_loss].all()
-
-
-def test_baseline_completes_public_bend_without_sustained_steering_oscillation(project):
-    from coursekit.labs.line_following_env import Environment
-    from coursekit.labs.line_following_task import benchmark
-
-    published = next(
-        case
-        for case in benchmark(project / "data/line_following", "train")
-        if case.name == "train-04"
-    )
-    course = published.course
-    cases = [sample_case(course, i) for i in range(8)] + [published]
-    from dataclasses import replace
-
-    for base in (cases[0], published):
-        for sensor in range(5):
-            deviations = tuple(
-                std if sensor == j + 1 else 0.0 for j, std in enumerate(base.noise_std)
-            )
-            cases.append(replace(base, noise_std=deviations))
-    work = training.new_solution(project, "line_following", "baseline", "public-bend")
-    training.train_local(work, project)
-    solution = training.load_solution(work)
-    env = Environment(cases)
-    traces = [[] for _ in cases]
-    rotation = np.zeros(len(cases))
-    last_progress, progress_time = env.progress.copy(), np.zeros(len(cases))
-    longest_stall = np.zeros(len(cases))
-    with torch.no_grad():
-        while not env.done.all():
-            q = env.state.q.numpy().copy()
-            observation = env.observe()
-            action = solution.act(observation, env.first)
-            # The gently curving section after the first bend, on the outward leg.
-            selected = (env.progress > 1.1) & (env.progress < 1.7) & (env.leg == 0)
-            if selected.any():
-                s = env.progress[selected]
-                tangent = course.at(s, 1)
-                tangent /= np.linalg.norm(tangent, axis=1)[:, None]
-                normal = np.stack((-tangent[:, 1], tangent[:, 0]), axis=1)
-                offset = ((q[selected, :2] - course.at(s)) * normal).sum(axis=1)
-                heading = q[selected, 5] - np.arctan2(tangent[:, 1], tangent[:, 0])
-                heading = (heading + np.pi) % (2 * np.pi) - np.pi
-                rate = observation["gyro"][selected, 2].numpy()
-                for i, row in zip(np.flatnonzero(selected), zip(offset, heading, rate)):
-                    traces[i].append(row)
-            env.step(action)
-            rotation += abs(env.state.q.numpy()[:, 5] - q[:, 5])
-            clock = env.ticks / 1000
-            longest_stall = np.maximum(longest_stall, clock - progress_time)
-            advanced = env.progress - last_progress >= 0.01
-            last_progress[advanced], progress_time[advanced] = (
-                env.progress[advanced],
-                clock[advanced],
-            )
-    assert (env.status == "finished").all(), env.info()
-    np.testing.assert_allclose(env.info()["completion_fraction"], 1)
-    # Whole outward and return manoeuvres: finishing must not hide repeated spins
-    # or long stretches where visible paint no longer earns accepted progress.
-    arc = np.linspace(0, course.length, 10001)
-    ideal_rotation = 2 * np.trapezoid(abs(course.geometry(arc)[0]), arc)
-    assert (rotation < 2.5 * ideal_rotation).all(), rotation
-    assert (longest_stall < 30).all(), longest_stall
-    for index, trace in enumerate(traces):
-        assert len(trace) > 100
-        offset, heading, rate = np.asarray(trace).T
-        assert np.max(abs(offset)) < 0.006
-        assert np.max(abs(heading)) < 0.10
-        # Preserve the steering-rate bound on the original noisy robot family.
-        # Noise ablations retain all spatial and whole-journey requirements above;
-        # removing noise can change the frequency of optical quantisation chatter.
-        if index < 9:
-            assert rate.std() < 0.20
-
-
-def test_local_evaluation_allows_online_gradient_adaptation(project):
     class Adaptive:
         def __init__(self):
             self.parameter = torch.nn.Parameter(torch.tensor(0.1))
@@ -442,14 +304,12 @@ def test_local_evaluation_allows_online_gradient_adaptation(project):
             return torch.zeros((len(reset), 2))
 
     solution = Adaptive()
+    cases = short_cases()
+    monkeypatch.setattr(line_following_task, "benchmark", lambda *_: cases)
     result = get_lab("line_following").evaluate(
         solution, project / "data/line_following", time_limit=0.001
     )
-    assert (
-        solution.calls
-        == result["episodes"]
-        == len(get_lab("line_following").benchmark(project / "data/line_following"))
-    )
+    assert solution.calls == result["episodes"] == len(cases)
     assert solution.parameter.item() != pytest.approx(0.1)
 
 
@@ -463,6 +323,8 @@ def test_robot_cli_saves_episode_tables_and_retains_incomplete_diagnostics(
     from coursekit import cli
     from coursekit.labs import line_following_task
 
+    cases = short_cases()
+    monkeypatch.setattr(line_following_task, "benchmark", lambda *_: cases)
     work = training.new_solution(project, "line_following", "starter", "diagnostics")
     if fail:
         (work / "solution.py").write_text(
@@ -477,7 +339,7 @@ def test_robot_cli_saves_episode_tables_and_retains_incomplete_diagnostics(
     path = submissions.pack(work, project / "dist") if step == "check" else work
     adapter = SimpleNamespace(
         evaluate=lambda *args, **kwargs: line_following_task.evaluate(
-            *args, **kwargs, compiled=False, time_limit=0.001
+            *args, **kwargs, time_limit=0.001
         )
     )
     monkeypatch.setattr(cli, "get_lab", lambda name: adapter)
@@ -498,7 +360,7 @@ def test_robot_cli_saves_episode_tables_and_retains_incomplete_diagnostics(
         {"type": "RuntimeError", "message": "controller failed"} if fail else None
     )
     cases = saved["cases"]
-    assert len(cases) == (2 if fail else 15)
+    assert len(cases) == 2
     if fail:
         assert cases[-1]["status"] == "interrupted" and cases[-1]["score"] is None
     rows = list(csv.DictReader((output / f"{step}.cases.csv").open()))

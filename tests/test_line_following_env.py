@@ -20,6 +20,21 @@ def straight(length=1.0, name="straight"):
     return Course.polyline(name, np.array([[0.0, 0.0], [length, 0.0]]))
 
 
+def test_completed_score_caps_at_twice_the_mechanical_reference():
+    env = Environment([sample_case(straight(0.3), 0)], compiled=False, noise=False)
+    env.reference[0] = 1.0
+    for milliseconds, status, expected in (
+        (1000, "finished", 100.0),
+        (2000, "finished", 100.0),
+        (4000, "finished", 50.0),
+        (2000, "timeout", 0.0),
+        (2000, "fallen", 0.0),
+    ):
+        env.ticks[0] = milliseconds
+        env.status[0] = status
+        assert env.info()["score"][0] == pytest.approx(expected)
+
+
 @pytest.mark.parametrize("size", [1, 2, 8])
 def test_case_deadlines_reset_and_stop_each_native_row_at_its_own_boundary(size):
     from coursekit.labs.line_following_env import PHYSICS_DT, TIME_LIMIT_FACTOR
@@ -142,14 +157,18 @@ def test_accepted_distance_is_training_feedback_separate_from_observations():
     assert (env.info()["progress"] > initial).all()
 
 
-def test_native_batches_resets_and_terminal_masks_match_eager():
+def test_native_batches_resets_and_terminal_masks_match_eager(monkeypatch):
     import subprocess
     import sys
 
     import numba
 
+    from coursekit.labs import line_following_env
     from coursekit.labs.line_following_jit import CACHE_DIR
 
+    # One physical step per call is enough to check layouts, values and resets.
+    # Full 20-step blocks and terminal boundaries are covered separately.
+    monkeypatch.setattr(line_following_env, "CONTROL_STEPS", 1)
     original_numba_threads = numba.get_num_threads()
     for size, threads in ((1, 1), (2, 1), (8, 2), (1, 1)):
         torch.set_num_threads(threads)
@@ -196,6 +215,8 @@ from coursekit.labs import line_following_rollout as rollout
 from coursekit.labs.line_following_course import Course
 from coursekit.labs.line_following_env import Environment
 from coursekit.labs.line_following_cases import sample_case
+from coursekit.labs import line_following_env
+line_following_env.CONTROL_STEPS = 1
 torch.set_num_threads(1)
 import numba
 from llvmlite import binding as llvm

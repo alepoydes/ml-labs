@@ -13,8 +13,8 @@ can provide information useful on the return leg, but its time also counts.
 The supplied materials include the simulator, 50 training courses, 15 validation
 courses, a batched environment and a simple reference controller. Training and
 assessment use the same physics and episode rules. This release uses a pilot
-parameter profile; broader controller calibration and academic grade thresholds
-remain to be established before the assessed release.
+parameter profile; the instructor will announce assessed parameter settings and
+academic grade thresholds separately.
 
 Read this statement for the task, data and programming interface. The
 [mechanics guide](dynamics.md) derives the physical model and numerical method.
@@ -158,26 +158,27 @@ technique. In this release, a body tilt of 0.9 radians from vertical is a fall.
 For a completed journey taking simulated time $T$, the episode score is
 
 $$
-S = \min\left(100,\;100\frac{T_{100}}{T}\right).
+S = \min\left(100,\;200\frac{T_{\mathrm{ref}}}{T}\right).
 $$
 
-Here $T_{100}$ is a mechanical reference time for the course and sampled robot.
+Here $T_{\mathrm{ref}}$ is a mechanical reference time for the course and sampled robot.
 It uses full knowledge of the route and dynamics to estimate fast travel along
 the line's centre, accounting for speed and acceleration limits, curvature,
 both directions, and the turnaround. It includes no cost for discovering the
 route or identifying the robot. The public `reference_time` function implements
 this approximation. Its settings will be frozen for the assessed version.
 
-The episode time limit is $T_{\max}=30\,T_{100}$, rounded up to the next
+The episode time limit is $T_{\max}=30\,T_{\mathrm{ref}}$, rounded up to the next
 1 ms physical step. It therefore depends on both the course and its fixed robot.
 The same limit covers both legs and all recovery manoeuvres. The environment
 reports the effective limit as `info["time_limit"]`; tables and the graphical
 viewer show it alongside elapsed time. Finishing at the deadline earns about
-3.33 points.
+6.67 points.
 
-The reference is an approximate normalisation. Legal corner cutting within the
-coverage rule or useful sliding may beat it; the score is capped at 100. Taking
-$1.67\,T_{100}$ earns approximately 60 points; taking $2.5\,T_{100}$ earns 40.
+The reference is an approximate normalisation. Any completed run taking at most
+$2\,T_{\mathrm{ref}}$ earns 100 points. Legal corner cutting within the coverage rule
+or useful sliding may beat the reference; the score remains capped at 100. Taking
+$\tfrac{10}{3}\,T_{\mathrm{ref}}$ earns 60 points; taking $5\,T_{\mathrm{ref}}$ earns 40.
 
 A fall or failure to complete the journey within the episode time limit earns
 zero. Partial progress earns no points. The final score is the mean over all
@@ -564,7 +565,7 @@ conditions are copied from the case, and its noise stream starts from the record
 Courses must be at least 0.3 m long. The environment uses float64 CPU physics with
 a 1 ms physical step and a 20 ms control interval (50 observations/actions per
 simulated second).
-The default `time_limit=None` derives a separate deadline of `30 * T_100` for
+The default `time_limit=None` derives a separate deadline of `30 * T_ref` for
 each row. Replacing a case on reset recalculates that row's deadline. An explicit
 positive `time_limit` in seconds overrides all deadlines for local diagnostics;
 assessment uses the default rule.
@@ -725,7 +726,7 @@ friction in 0.45–0.75, motor stall torque in 0.065–0.095 N m, no-load speed 
 stiffness use the nominal mechanics profile. Independent zero-mean Gaussian
 sensor noise has standard deviations 0.008 for RGB, 0.004 rad/s for gyro,
 0.025 m/s² for acceleration, and 0.0005 rad for encoders. RGB is clipped to `[0, 1]`.
-The episode time limit is `30 * T_100`; a body-up tilt of 0.9 rad is a fall.
+The episode time limit is `30 * T_ref`; a body-up tilt of 0.9 rad is a fall.
 
 ## Development and submission workflow
 
@@ -797,15 +798,17 @@ anything. Follow the [submission format](../../docs/submissions.md) and
 
 The current crossing-aware baseline was evaluated on all 65 published experiments
 with their fixed robots and sensor noise on 2026-10-09. Each case used its own
-`30 * T_100` deadline. The previous controller was also rerun with these deadlines
-to distinguish controller changes from the additional time allowance.
+`30 * T_ref` deadline. The previous controller was also rerun with these deadlines
+to distinguish controller changes from the additional time allowance. The scores
+below were recalculated from the saved times and reference values using the current
+twofold scoring factor; trajectories and completion outcomes were not rerun.
 
-| Measurement | Previous controller, `30 * T_100` | Current controller, `30 * T_100` |
+| Measurement | Previous controller, `30 * T_ref` | Current controller, `30 * T_ref` |
 | --- | ---: | ---: |
 | Training completions | 40 / 50 | 49 / 50 |
 | Validation completions | 11 / 15 | 15 / 15 |
-| Training mean score, including failures | 5.58 | 6.67 |
-| Validation mean score, including failures | 5.05 | 6.60 |
+| Training mean score, including failures | 11.16 | 13.35 |
+| Validation mean score, including failures | 10.11 | 13.20 |
 | Training mean accepted coverage | 87.0% | 98.8% |
 | Validation mean accepted coverage | 87.5% | 100.0% |
 | Falls | 0 | 0 |
@@ -824,6 +827,8 @@ factor 30 leaves time for this conservative controller without making all cases
 solvable. The baseline is not a universal route solver; these finite public
 measurements do not establish performance on every admissible robot or geometry.
 The following measurements retain the history of earlier revisions and limits.
+Their scores used the former onefold normalisation and are not comparable with the
+current score values above; journey times and completion counts remain informative.
 
 The earlier fixed-case baseline, before crossing handling was added, was evaluated
 on all 65 published training and validation experiments with their stored robots
@@ -919,8 +924,8 @@ Tuning and regression checks used synthetic corners and public cases; settings
 were held fixed throughout each reported sweep. These are development results,
 not an unbiased estimate on unseen courses. The controller does not guarantee
 completion on the assessment benchmark. Results
-obtained under earlier coverage rules are not directly comparable. Learned-controller
-calibration and academic grade thresholds remain separate work.
+obtained under earlier coverage rules are not directly comparable. Assessment
+parameter validation and academic grade thresholds remain separate work.
 
 Record case identifiers/fingerprints, training seed, configuration and computational
 cost of your experiments. Compare learned changes against a reference on the same

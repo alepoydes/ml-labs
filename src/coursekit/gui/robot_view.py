@@ -45,10 +45,10 @@ def recorded_courses(record):
         )
     if any(
         record.get(key) != expected[key]
-        for key in ("geometry", "coverage_version", "case_version")
+        for key in ("geometry", "coverage_version", "case_version", "score_rule")
     ):
         raise ValueError(
-            "Recording geometry or coverage rules differ from this viewer. "
+            "Recording geometry, coverage or scoring rules differ from this viewer. "
             "Use the matching coursekit version or create a new recording."
         )
     courses = [Course(**c) for c in record["courses"]]

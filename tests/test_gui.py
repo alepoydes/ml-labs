@@ -24,6 +24,18 @@ def wait_for(app, predicate):
     assert predicate()
 
 
+def small_robot_cases():
+    from coursekit.labs.line_following_course import Course
+
+    return [
+        sample_case(
+            Course.polyline(f"course-{i}", [[0.0, 0.0], [0.3 + i * 0.1, 0.0]]),
+            i,
+        )
+        for i in range(5)
+    ]
+
+
 def test_student_window_restores_geometry_mode_and_native_actions(app, tmp_path):
     from PySide6.QtWidgets import QWidget
 
@@ -893,7 +905,7 @@ class Solution:
         tmp_path,
         [sample_case(c, seed) for c, seed in zip([course, course], [1, 2])],
         worker=worker,
-        compiled=False,
+        compiled=True,
         time_limit=0.05,
     )
     run.start()
@@ -950,7 +962,7 @@ class Solution:
             tmp_path,
             [sample_case(c, seed) for c, seed in zip([course], [31])],
             worker=worker,
-            compiled=False,
+            compiled=True,
         )
         run.start()
         wait_for(lambda: run.snapshot() is not None)
@@ -995,12 +1007,13 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
     shutil.copytree(root / "labs/line_following", tmp_path / "labs/line_following")
     work = tmp_path / "work/line_following/baseline"
     monkeypatch.setattr(line_following, "Scene", Scene)
+    monkeypatch.setattr(line_following, "iter_cases", lambda _: iter(small_robot_cases()))
 
     monkeypatch.setattr(
         line_following,
         "Run",
         lambda *args, **kwargs: line_run.Run(
-            *args, **kwargs, compiled=False, time_limit=0.003
+            *args, **kwargs, compiled=True, time_limit=0.003
         ),
     )
     page = line_following.LineFollowingPage(tmp_path)
@@ -1160,10 +1173,13 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
         saved["version"] = 4
         # Current containers must also reject missing or incompatible rule metadata.
         geometry, coverage = saved["geometry"], saved["coverage_version"]
+        score_rule = saved["score_rule"]
         for changed in (
             {"geometry": None},
             {"coverage_version": None},
             {"coverage_version": coverage + 1},
+            {"score_rule": None},
+            {"score_rule": score_rule | {"reference_factor": 1.0}},
             {"geometry": geometry | {"sensor_width": 0.128}},
             {"geometry": geometry | {"sensor_depth": 0.14}},
             {"geometry": geometry | {"line_width": 0.016}},
@@ -1173,7 +1189,7 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
             recording.save(target, incompatible)
             page.open_recording()
             assert page.replay is previous
-            assert "geometry or coverage rules differ" in page.message.text()
+            assert "geometry, coverage or scoring rules differ" in page.message.text()
         saved["frames"]["control"][0] = 999
         recording.save(target, saved)
         page.open_recording()
@@ -1334,11 +1350,12 @@ class Solution:
     def act(self, observation, reset): return torch.zeros((len(reset), 2))
 """)
     monkeypatch.setattr(line_following, "Scene", Scene)
+    monkeypatch.setattr(line_following, "iter_cases", lambda _: iter(small_robot_cases()))
     monkeypatch.setattr(
         line_following,
         "Run",
         lambda *args, **kwargs: DelayedPreparation(
-            *args, **kwargs, compiled=False, time_limit=0.002
+            *args, **kwargs, compiled=True, time_limit=0.002
         ),
     )
     page = line_following.LineFollowingPage(tmp_path)
@@ -1417,6 +1434,10 @@ class Solution:
     def act(self, observation, reset): time.sleep(3600)
 """)
     monkeypatch.setattr(line_following, "Scene", Scene)
+    if stage == "controller":
+        monkeypatch.setattr(
+            line_following, "iter_cases", lambda _: iter(small_robot_cases())
+        )
     monkeypatch.setattr(
         line_following,
         "Run",
@@ -1485,10 +1506,11 @@ def test_robot_builtin_identity_working_copy_and_restored_selection(
     old = training.new_solution(tmp_path, "line_following", "baseline")
     (old / "solution.py").write_text("# Existing student work\n")
     monkeypatch.setattr(line_following, "Scene", Scene)
+    monkeypatch.setattr(line_following, "iter_cases", lambda _: iter(small_robot_cases()))
     monkeypatch.setattr(
         line_following,
         "Run",
-        lambda *a, **kw: line_run.Run(*a, **kw, compiled=False, time_limit=0.025),
+        lambda *a, **kw: line_run.Run(*a, **kw, compiled=True, time_limit=0.025),
     )
     page = line_following.LineFollowingPage(tmp_path)
     window = Window(page, "line_following")
@@ -1546,6 +1568,7 @@ def test_robot_builtin_identity_working_copy_and_restored_selection(
         recorded = page.job.controller.copy()
         target = tmp_path / "controller-run.npz"
         monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a: (str(target), "NPZ"))
+        wait_for(app, lambda: page.save_button.isEnabled())
         page.save_button.click()
         assert recording.load(target)["controller"] == recorded
         (copy / "solution.py").write_text("# Deleted after the run\n")

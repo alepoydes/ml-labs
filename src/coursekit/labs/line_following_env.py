@@ -19,6 +19,7 @@ from coursekit.labs import line_following_geometry as geometry
 from coursekit.labs import line_following_rollout as rollout
 from coursekit.labs.line_following_cases import SENSOR_NAMES, Case
 from coursekit.labs.line_following_course import advance, optical, reference_time
+from coursekit.labs.line_following_results import SCORE_TIME_FACTOR
 
 PHYSICS_DT = 0.001
 CONTROL_STEPS = 20
@@ -388,7 +389,10 @@ class Environment:
         route_length = 2 * np.array([c.length for c in self.courses])
         score = np.where(
             self.status == "finished",
-            np.minimum(100.0, 100 * self.reference / np.maximum(elapsed, PHYSICS_DT)),
+            np.minimum(
+                100.0,
+                100 * SCORE_TIME_FACTOR * self.reference / np.maximum(elapsed, PHYSICS_DT),
+            ),
             0.0,
         )
         return {

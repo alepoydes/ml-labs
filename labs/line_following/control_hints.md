@@ -433,7 +433,7 @@ should be measured explicitly.
 Use the batched environment to collect experience from several episodes. The Numba
 engine reuses compilation across batch lengths; reset completed rows independently and
 clear only their controller memories. Preserve the final observation before
-resetting. In this lab, the `30 * T_100` timeout is a scored failure: although the API
+resetting. In this lab, the `30 * T_ref` timeout is a scored failure: although the API
 labels it `truncated`, it is not merely an arbitrary training rollout cutoff.
 Decide value targets accordingly. A rollout buffer boundary while an episode is
 still running is a different event.

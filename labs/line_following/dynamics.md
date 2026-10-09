@@ -13,9 +13,9 @@ The [PyTorch autodiff example](../../src/coursekit/labs/line_following.py) deriv
 same mechanics from energy and provides an independent check of the analytic
 formulas. Its optional `torch.compile` acceleration is not needed to run the lab;
 see the [installation instructions](../../docs/environment.md#optional-acceleration-of-the-pytorch-mechanics-example).
-The current robot and numerical settings remain a pilot profile awaiting broader
-controller calibration. Course geometry, observations, route coverage, parameter
-sampling and scoring live in adjacent public modules; see the
+The current robot and numerical settings remain a pilot profile; assessment
+parameter ranges still require validation. Course geometry, observations, route
+coverage, parameter sampling and scoring live in adjacent public modules; see the
 [lab statement and environment API](README.md).
 
 ## Coordinates and energy

@@ -20,15 +20,20 @@ ROBOT_FRAME_FIELDS = (
 
 
 def robot_metadata():
-    """Identify the geometry and coverage rules used by both robot recorders."""
+    """Identify the geometry, coverage and scoring rules of both robot recorders."""
     from coursekit.labs import line_following_course as course
     from coursekit.labs.line_following_cases import CASE_VERSION
+    from coursekit.labs.line_following_results import SCORE_RULE_VERSION, SCORE_TIME_FACTOR
 
     return {
         "lab": "line_following",
         "version": 4,
         "case_version": CASE_VERSION,
         "coverage_version": course.COVERAGE_VERSION,
+        "score_rule": {
+            "version": SCORE_RULE_VERSION,
+            "reference_factor": SCORE_TIME_FACTOR,
+        },
         "geometry": {
             "sensor_width": course.SENSOR_WIDTH,
             "sensor_depth": course.SENSOR_DEPTH,

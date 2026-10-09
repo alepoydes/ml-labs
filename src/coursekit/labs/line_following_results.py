@@ -2,6 +2,9 @@
 
 import math
 
+SCORE_TIME_FACTOR = 2.0
+SCORE_RULE_VERSION = 2
+
 EPISODE_COLUMNS = {
     "case": "Episode",
     "score": "Points",
