@@ -24,6 +24,164 @@ def wait_for(app, predicate):
     assert predicate()
 
 
+def test_student_window_restores_geometry_mode_and_native_actions(app, tmp_path):
+    from PySide6.QtWidgets import QWidget
+
+    from coursekit.gui.__main__ import Window
+
+    class Page(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.project = tmp_path
+            self.job = None
+
+        def shutdown(self):
+            pass
+
+    first = Window(Page(), "line_following")
+    assert any(
+        action.text().replace("&", "") == "Window" for action in first.menuBar().actions()
+    )
+    first.resize(740, 520)
+    first.show()
+    app.processEvents()
+    size = first.size()
+    first.close()
+    second = Window(Page(), "line_following")
+    second.show()
+    app.processEvents()
+    assert second.size() == size
+    second.window_actions["maximize"].trigger()
+    app.processEvents()
+    assert second.isMaximized()
+    second.close()
+    third = Window(Page(), "line_following")
+    third.show()
+    app.processEvents()
+    assert third.isMaximized()
+    third.window_actions["fullscreen"].trigger()
+    app.processEvents()
+    assert third.isFullScreen()
+    third.close()
+    fourth = Window(Page(), "line_following")
+    fourth.show()
+    app.processEvents()
+    assert fourth.isFullScreen()
+    fourth.window_actions["fullscreen"].trigger()
+    app.processEvents()
+    assert fourth.isMaximized()
+    fourth.close()
+
+
+def test_robot_view_switches_between_large_scene_and_wide_diagnostics(app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QWidget
+
+    from coursekit.gui.robot_view import RobotView
+
+    scene = QWidget()
+    view = RobotView(scene, view_mode="compact")
+    controls = QWidget()
+    controls.setFixedSize(320, 160)
+    view.attach_controls(controls)
+    view.resize(1200, 760)
+    view.show()
+    view.diagnostics.show_snapshot(
+        {"error": 0.2}, {"error": (np.array([0.0, 1.0]), np.array([0.3, 0.2]))}
+    )
+    view.diagnostics.items["error", None].setCheckState(0, Qt.Checked)
+    app.processEvents()
+    assert not view.large and view.diagnostics.isVisible()
+    assert view.diagnostics.drawer.geometry().x() < 0
+    assert view.diagnostics.drawer_tab.isVisible()
+    assert not view.diagnostics.fields_toggle.isVisible()
+    assert not view.diagnostics.active.isVisible()
+    assert view.diagnostics.table.columnWidth(0) > 200
+    assert scene.width() == 270 and controls.isVisible()
+    assert scene.height() == view.header_left.height()
+    assert view.status_inline
+    view.resize(700, 760)
+    app.processEvents()
+    assert not view.status_inline
+    view.resize(1200, 760)
+    app.processEvents()
+    assert view.sensor_panel.parent() is scene
+    assert view.sensor_panel.geometry().right() < scene.width()
+    assert not view.sensor_panel.isVisible()
+    assert (
+        view.diagnostics.plots[0].height()
+        >= 0.8 * view.diagnostics.scroll.viewport().height()
+    )
+    QTest.mouseDClick(scene, Qt.MouseButton.LeftButton)
+    app.processEvents()
+    assert view.large and not view.diagnostics.isVisible()
+    assert scene.width() > 0.8 * view.width()
+    assert view.sensor_panel.geometry().right() < scene.width()
+    assert view.sensor_panel.isVisible()
+    assert "Double-click" in scene.toolTip()
+    QTest.mouseDClick(scene, Qt.MouseButton.LeftButton)
+    app.processEvents()
+    assert view.diagnostics.isVisible() and scene.width() == 270
+    assert view.diagnostics.snapshot["error"] == 0.2
+    view.close()
+    initial = RobotView(QWidget())
+    initial.show()
+    assert initial.large and not initial.diagnostics.isVisible()
+    initial.close()
+
+
+def test_diagnostic_drawer_menu_and_plot_local_controls(app):
+    import json
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from coursekit.gui.diagnostics import Diagnostics
+
+    panel = Diagnostics()
+    panel.resize(1100, 680)
+    panel.show()
+    app.processEvents()
+    assert panel.follow.geometry().top() >= panel.scroll.geometry().bottom()
+    panel.show_snapshot({"error": 0.3}, {"error": ([0.0, 1.0], [0.5, 0.3])})
+    first = panel.plots[0]
+    second = panel.add_plot()
+    assert [action.text() for action in panel.panels_menu.actions()] == [
+        "Diagnostic fields",
+        "Plot 1",
+        "Plot 2",
+    ]
+    panel.choose_plot(first)
+    QTest.mouseClick(second.title, Qt.MouseButton.LeftButton)
+    assert panel.active.currentIndex() == 1
+    panel.items["error", None].setCheckState(0, Qt.CheckState.Checked)
+    assert second.fields == [("error", None)] and not first.fields
+    second.visible_action.setChecked(False)
+    assert second.isHidden() and panel.active.currentIndex() == 0
+    restored = Diagnostics(json.loads(json.dumps(panel.settings())))
+    restored.resize(1100, 680)
+    restored.show()
+    assert restored.plots[1].isHidden()
+    restored.close()
+    first.visible_action.setChecked(False)
+    assert first.visible_action.isChecked()  # Keep one plot available.
+    second.visible_action.setChecked(True)
+    panel.fields_action.setChecked(True)
+    wait_for(app, lambda: panel.drawer.geometry().x() == 0)
+    assert panel.drawer.geometry().top() >= panel.scroll.geometry().top()
+    panel.drawer_tab.click()
+    wait_for(app, lambda: panel.drawer.geometry().x() < 0)
+    first.visible_action.setChecked(False)
+    second.remove_button.click()
+    assert panel.plots == [first] and first.isVisible()
+    assert [action.text() for action in panel.panels_menu.actions()] == [
+        "Diagnostic fields",
+        "Plot 1",
+    ]
+    panel.close()
+
+
 def test_blindjack_visible_cards_drafts_sessions_and_small_window(
     app, student_project, monkeypatch
 ):
@@ -102,6 +260,8 @@ def test_diagnostic_comparison_heatmap_xy_cursor_and_restored_settings(app):
     snapshot = {"v": np.array([4.0, 2.0]), "target": 3.0, "mode": "follow"}
     panel.show_snapshot(snapshot, history, time=0.08)
     panel.items["v", None].setCheckState(0, Qt.Checked)
+    assert panel.current_value.text() == "v: 2 values"
+    assert "[0] 4" in panel.value.toPlainText()
     panel.items["target", None].setCheckState(0, Qt.Checked)
     plot = panel.plots[0]
     assert [text.get_text() for text in plot.axes.get_legend().texts] == [
@@ -140,20 +300,40 @@ def test_diagnostic_comparison_heatmap_xy_cursor_and_restored_settings(app):
     plot.axes.set_xlim(0.01, 0.07)
     assert not panel.follow.isChecked()
     np.testing.assert_allclose(heatmap.axes.get_xlim(), [0.01, 0.07])
+    # The field drawer keeps its width and selection across reopening.
+    panel.resize(800, 650)
+    app.processEvents()
     state = json.loads(json.dumps(panel.settings()))
     restored = Diagnostics(state)
+    restored.resize(800, 650)
+    restored.show()
+    app.processEvents()
     restored.show_snapshot(dict(reversed(list(snapshot.items()))), history, time=0.08)
     assert restored.settings() == panel.settings()
+    assert restored.drawer_width == panel.drawer_width
     assert restored.plots[0].artists["v", 0].get_color() == colours[0]
     # History remains selected across reset/no-call frames, without stale values.
     restored.show_snapshot({})
     restored.show_snapshot(snapshot, history, time=0.08)
     assert restored.plots[0].fields == plot.fields
+    restored.fields_action.setChecked(True)
+    wait_for(app, lambda: restored.drawer.geometry().x() == 0)
+    collapsed = Diagnostics(json.loads(json.dumps(restored.settings())))
+    collapsed.resize(800, 300)
+    collapsed.show()
+    assert collapsed.drawer.geometry().x() == 0
+    collapsed.drawer_tab.click()
+    wait_for(app, lambda: collapsed.drawer.geometry().x() < 0)
+    assert not collapsed.fields_action.isChecked()
+    assert collapsed.plots[0].isVisible()
+    collapsed.fields_action.setChecked(True)
+    wait_for(app, lambda: collapsed.drawer.geometry().x() == 0)
+    collapsed.close()
     restored.whole.click()
     assert restored.follow.isChecked() and restored.window.value() == 0
     assert restored.plots[2].axes.get_xlabel() == "v[1]"
     name = r"$\notacommand$"
-    restored.active.setCurrentIndex(0)
+    restored.choose_plot(restored.plots[0])
     restored.show_snapshot({name: 1.0}, {name: ([0, 1], [0, 1])}, time=1.0)
     restored.items[name, None].setCheckState(0, Qt.Checked)
     restored.plots[0].canvas.draw()  # Arbitrary debug names remain literal text.
@@ -172,6 +352,13 @@ def test_playback_clock_controls_and_diagnostic_field_identity(app, monkeypatch,
     clock = [0.0]
     monkeypatch.setattr(playback, "time", SimpleNamespace(monotonic=lambda: clock[0]))
     player = playback.Playback()
+    player.resize(1000, 50)
+    player.show()
+    app.processEvents()
+    assert (
+        abs(player.slider.geometry().center().y() - player.speed.geometry().center().y())
+        <= 2
+    )
     player.set_frames(22, 0.02, np.array([-1] + [0] * 20 + [1]))
     player.control.click()
     assert player.slider.value() == 1
@@ -200,6 +387,7 @@ def test_playback_clock_controls_and_diagnostic_field_identity(app, monkeypatch,
     diagnostics.show()
     diagnostics.show_snapshot({"state": "ready", "error": 2.0})
     diagnostics.table.setCurrentItem(diagnostics.items["error", None])
+    diagnostics.items["error", None].setCheckState(0, Qt.Unchecked)
     diagnostics.items["error", None].setCheckState(0, Qt.Checked)
     diagnostics.show_snapshot(
         {"error": 1.0, "state": "tracking"}, {"error": ([0, 1], [2, 1])}, time=1
@@ -232,10 +420,27 @@ def test_playback_clock_controls_and_diagnostic_field_identity(app, monkeypatch,
     diagnostics.table.setCurrentItem(diagnostics.items["state", None])
     assert "tracking" in diagnostics.value.toPlainText()
     assert plot.canvas.isVisible()  # Inspecting text does not discard checked curves.
+    diagnostics.items["error", None].setCheckState(0, Qt.Unchecked)
+    diagnostics.items["error", None].setCheckState(0, Qt.Checked)
+    assert diagnostics.table.currentItem() is diagnostics.items["error", None]
+    assert "0.5" in diagnostics.value.toPlainText()
+    diagnostics.show_snapshot({"state": "tracking"})
+    assert "no value at this frame" in diagnostics.value.toPlainText()
+    diagnostics.show_snapshot({"error": 0.25, "state": "tracking"})
+    assert diagnostics.table.currentItem() is diagnostics.items["error", None]
+    assert "0.25" in diagnostics.value.toPlainText()
+    diagnostics.fields_action.setChecked(True)
+    wait_for(app, lambda: diagnostics.drawer.geometry().x() == 0)
+    diagnostics.drawer_tab.click()
+    wait_for(app, lambda: diagnostics.drawer.geometry().x() < 0)
+    assert diagnostics.plots[0].isVisible()
+    assert not diagnostics.settings()["fields_open"]
     diagnostics.show_snapshot({})
+    diagnostics.fields_action.setChecked(True)
+    wait_for(app, lambda: diagnostics.drawer.geometry().x() == 0)
     assert diagnostics.empty.isVisible() and not diagnostics.table.isVisible()
     diagnostics.show_snapshot({"not yet initialized": np.empty((0, 0))})
-    assert "[]" in diagnostics.value.toPlainText()
+    assert "no value at this frame" in diagnostics.value.toPlainText()
     diagnostics.close()
     diagnostics.deleteLater()
     player.close()
@@ -354,7 +559,7 @@ import numpy as np
 from PySide6.QtCore import QTimer,Qt,QPoint
 from PySide6.QtGui import QSurfaceFormat
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication,QFileDialog,QMessageBox
+from PySide6.QtWidgets import QApplication,QFileDialog,QMessageBox,QWidget
 from coursekit import recording
 from coursekit.gui.__main__ import Window
 from coursekit.gui.blindjack import BlindjackPage
@@ -420,8 +625,11 @@ def prepare_baseline():
     assert robot.start_button.isEnabled() and robot.solution_button.isEnabled()
     assert robot.job is None and (robot.warmup is not None or robot.warmed_batch == 1)
     assert robot.course.isVisible() and robot.next_course.isVisible()
+    assert robot.view.large and not robot.diagnostics.isVisible()
     assert window.width()<=1024 and window.height()<=700
     window.grab().save(str(output/'robot-first-launch.png'))
+    QTest.mouseClick(robot.setup_button,Qt.LeftButton)
+    assert robot.solution_button.isVisible() and robot.noise.isVisible()
     QTest.mouseClick(robot.solution_button,Qt.LeftButton)
     settled(lambda: robot.preparation is None,open_recording)
 def open_recording():
@@ -429,6 +637,8 @@ def open_recording():
     assert robot.start_button.isEnabled()
     assert (robot.selected_path()/'artifacts/controller.json').is_file()
     assert not (project/'work/line_following/baseline').exists()
+    QTest.mouseClick(robot.setup_button,Qt.LeftButton)
+    assert not robot.advanced.isVisible()
     course=Course.polyline('recorded straight',np.array([[0.,0.],[1.,0.]]))
     model=physics.robot(); q=physics.initial_state(model).q.numpy(); end=q.copy(); end[0]+=.02
     record=dict(**recording.robot_metadata(), **recording.case_metadata([sample_case(course,0)]),physics_dt=.02,
@@ -441,6 +651,9 @@ def open_recording():
     QTest.mouseClick(robot.open_button,Qt.LeftButton)
     QTest.mouseClick(robot.playback.control,Qt.LeftButton)
     assert robot.timeline.value()==1 and robot.diagnostics.snapshot['motors'][0]==.2 and 'left motor' not in robot.diagnostics.snapshot
+    QTest.mouseDClick(robot.scene,Qt.LeftButton)
+    app.processEvents()
+    assert not robot.view.large and robot.diagnostics.isVisible() and robot.scene.width()==270
     assert robot.view.sensing.isChecked() and robot.scene.sensing
     QTest.mouseClick(robot.view.sensing,Qt.LeftButton)
     assert not robot.scene.sensing
@@ -453,13 +666,24 @@ def open_recording():
     QTest.mouseClick(robot.view.fit,Qt.LeftButton); assert np.linalg.norm(robot.scene.pan)==0
     settled(lambda: window.width()<=1024 and window.height()<=700,capture_robot)
 def capture_robot():
-    global run_started
     assert robot.scene.isValid() and not robot.scene.grabFramebuffer().isNull()
     assert robot.scene.renderer.ctx.error=='GL_NO_ERROR'
     assert 'Travelled: —' in robot.view.status.text()
+    assert robot.diagnostics.drawer.geometry().top()>=robot.diagnostics.scroll.geometry().top()
+    assert [action.text() for action in robot.diagnostics.panels_menu.actions()]==['Diagnostic fields','Plot 1']
+    assert 'Panels' in [action.text().replace('&','') for action in window.menuBar().actions()]
     window.grab().save(str(output/'robot.png'))
     assert not window.windowFlags() & Qt.FramelessWindowHint
     if app.platformName()=='wayland': assert window.windowHandle().frameMargins().top()>0
+    QTest.mouseDClick(robot.scene,Qt.LeftButton)
+    settled(lambda: not robot.diagnostics.isVisible() and robot.scene.width()>.8*robot.view.width(),capture_large_view)
+def capture_large_view():
+    assert robot.scene.isValid() and robot.scene.renderer.ctx.error=='GL_NO_ERROR'
+    window.grab().save(str(output/'robot-large-view.png'))
+    QTest.mouseDClick(robot.scene,Qt.LeftButton)
+    settled(lambda: robot.diagnostics.isVisible() and robot.scene.width()==270,start_robot)
+def start_robot():
+    global run_started
     run_started=time.monotonic()
     QTest.mouseClick(robot.start_button,Qt.LeftButton)
     assert not robot.play_button.isEnabled()
@@ -483,6 +707,10 @@ def measure_motion():
     heat=robot.diagnostics.add_plot()
     robot.diagnostics.items['line_weights',None].setCheckState(0,Qt.Checked)
     heat.mode.setCurrentText('Heatmap')
+    robot.diagnostics.fields_action.setChecked(True)
+    QTest.mouseClick(robot.diagnostics.drawer_tab,Qt.LeftButton)
+    assert not robot.diagnostics.fields_action.isChecked()
+    assert robot.diagnostics.current_value.text().startswith('line_weights:')
     motion_started=time.monotonic()
     sim_started=float(robot.job.snapshot()[0]['time'][0])
     settled(lambda: robot.job.snapshot()[0]['time'][0]>=sim_started+5.,capture_motion,timeout=15)
@@ -568,16 +796,30 @@ def course_restarted():
     QTest.mouseClick(robot.start_button,Qt.LeftButton)
     settled(lambda: robot.job is not previous and robot.job.snapshot() is not None and robot.job.snapshot()[0]['time'][0]>=.02,new_run_ready,timeout=4)
 def new_run_ready():
-    global close_started
+    global close_started,expected_size
     measurements['new_run_seconds']=time.monotonic()-restart_started
     assert robot.job.process is process
     np.testing.assert_array_equal(robot.job.frames[0]['time'],[0.])
     assert not robot.job.paused
     (output/'robot-performance.json').write_text(json.dumps(measurements,indent=2))
+    expected_size=window.size()
     close_started=time.monotonic(); window.close()
     settled(lambda: not process.is_alive(),finish,timeout=2)
 def finish():
     assert time.monotonic()-close_started<2
+    settings=json.loads((project/'runs/line_following/viewer.json').read_text())
+    assert not settings['setup_open'] and not settings['diagnostics']['fields_open']
+    assert settings['diagnostics']['layout_version']==3
+    class EmptyPage(QWidget):
+        def __init__(self):
+            super().__init__(); self.project=project; self.job=None
+        def shutdown(self): pass
+    global reopened
+    reopened=Window(EmptyPage(),'line_following'); windows.append(reopened); reopened.show()
+    settled(lambda: reopened.isVisible() and reopened.size()==expected_size,finish_reopen)
+def finish_reopen():
+    reopened.grab().save(str(output/'robot-restored-window.png'))
+    reopened.close()
     QTimer.singleShot(100,app.quit)
 settled(lambda: cards.isVisible(),run_model)
 app.exec()
@@ -728,6 +970,7 @@ class Solution:
 
 
 def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkeypatch):
+    import json
     import shutil
     from pathlib import Path
 
@@ -961,6 +1204,15 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
         )
         window.close()
         app.processEvents()
+    selection = json.loads((tmp_path / "runs/line_following/viewer.json").read_text())
+    assert selection["course"] == page.cases[2].name
+    restored = line_following.LineFollowingPage(tmp_path)
+    try:
+        wait_for(lambda: restored.preparation is None and restored.warmup is None)
+        assert restored.course.currentText() == page.cases[2].name
+        assert restored.view.large and not restored.diagnostics.isVisible()
+    finally:
+        restored.shutdown()
 
 
 @pytest.mark.parametrize("stage", ["load", "act", "physics"])

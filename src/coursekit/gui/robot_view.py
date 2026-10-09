@@ -1,14 +1,14 @@
 """Shared scene, sensor and diagnostics for local and instructor recordings."""
 
 import numpy as np
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
-    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -165,15 +165,20 @@ def recorded_courses(record):
 
 
 class RobotView(QWidget):
-    def __init__(self, scene, *, diagnostic_state=None):
+    def __init__(self, scene, *, diagnostic_state=None, view_mode="large"):
         super().__init__()
         self.scene = scene
         self.diagnostics = Diagnostics(diagnostic_state)
         self.history = DebugHistory()
-        self.sensor = QLabel("Sensor readings appear after the first controller call.")
+        self.sensor = QLabel("No optical reading yet")
         self.sensor.setWordWrap(True)
-        self.sensor.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.sensor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.sensor.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sensor.setFixedHeight(28)
+        self.sensor.setScaledContents(True)
+        self.sensor.setStyleSheet(
+            "background: white; color: #1f2937; border: 1px solid #cbd5e1;"
+        )
         self.status = QLabel("Choose a course to preview the track.")
         self.status.setWordWrap(True)
         self.status.setObjectName("selection")
@@ -189,30 +194,112 @@ class RobotView(QWidget):
         self.sensing.toggled.connect(lambda value: self.camera("sensing", value))
         self.fit = QPushButton("Fit track")
         self.fit.clicked.connect(self.fit_track)
-        camera = QHBoxLayout()
+        camera_widget = QWidget()
+        camera = QHBoxLayout(camera_widget)
+        camera.setContentsMargins(0, 0, 0, 0)
         for widget in [self.follow, self.overhead, self.sensing, self.fit]:
             camera.addWidget(widget)
-        camera.addStretch()
-        scene.setToolTip("Wheel: zoom · drag: pan")
-        left = QWidget()
-        layout = QVBoxLayout(left)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addLayout(camera)
-        layout.addWidget(scene, 1)
-        sensor_label = QLabel(
-            f"Optical sensor · {SENSOR_WIDTH * 1000:g}×{SENSOR_DEPTH * 1000:g} mm · body right (0) → left (15)"
+        camera_widget.setSizePolicy(
+            QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred
         )
-        sensor_label.setWordWrap(True)
-        layout.addWidget(sensor_label)
-        layout.addWidget(self.sensor)
-        split = QSplitter()
-        split.addWidget(left)
-        split.addWidget(self.diagnostics)
-        split.setSizes([400, 620])
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(self.status)
-        outer.addWidget(split, 1)
+        scene.setMinimumSize(200, 120)
+        scene.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        scene.installEventFilter(self)
+        self.sensor_panel = QWidget(scene)
+        self.sensor_panel.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.sensor_panel.setStyleSheet("background: rgba(255, 255, 255, 215);")
+        self.sensor_panel.setToolTip(
+            f"Optical sensor: {SENSOR_WIDTH * 1000:g}×{SENSOR_DEPTH * 1000:g} mm; "
+            "sector 0 is on the robot's right, sector 15 on its left."
+        )
+        sensor_layout = QVBoxLayout(self.sensor_panel)
+        sensor_layout.setContentsMargins(4, 2, 4, 4)
+        sensor_layout.setSpacing(2)
+        sensor_label = QLabel("Optical sensor · right 0 → left 15")
+        sensor_layout.addWidget(sensor_label)
+        sensor_layout.addWidget(self.sensor)
+        self.header_left = QWidget()
+        self.header_layout = QVBoxLayout(self.header_left)
+        self.header_layout.setContentsMargins(0, 0, 0, 0)
+        self.header_layout.setSpacing(6)
+        self.camera_grid = QGridLayout()
+        self.camera_grid.setContentsMargins(0, 0, 0, 0)
+        self.camera_grid.setSpacing(6)
+        self.camera_grid.addWidget(camera_widget, 0, 0)
+        self.camera_grid.addWidget(self.status, 1, 0, 1, 2)
+        self.header_layout.addLayout(self.camera_grid)
+        self.status_inline = False
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(6)
+        self.grid.addWidget(self.header_left, 0, 0)
+        self.grid.addWidget(scene, 0, 1)
+        self.grid.addWidget(self.diagnostics, 1, 0, 1, 2)
+        self.grid.setColumnStretch(0, 1)
+        self.grid.setRowStretch(1, 1)
+        self.large = None
+        self.set_large(view_mode == "large")
+        self.place_sensor()
+
+    def attach_controls(self, controls):
+        self.header_layout.insertWidget(0, controls)
+
+    def set_large(self, large):
+        if self.large == large:
+            return
+        self.large = large
+        for widget in (self.header_left, self.scene, self.diagnostics):
+            self.grid.removeWidget(widget)
+        if large:
+            self.grid.addWidget(self.header_left, 0, 0, 1, 2)
+            self.grid.addWidget(self.scene, 1, 0, 1, 2)
+            self.scene.setMinimumSize(200, 120)
+            self.scene.setMaximumSize(self.maximumSize())
+            self.diagnostics.hide()
+            tip = "Double-click to show diagnostics and a compact 3D preview."
+        else:
+            self.grid.addWidget(self.header_left, 0, 0)
+            self.grid.addWidget(self.scene, 0, 1)
+            self.grid.addWidget(self.diagnostics, 1, 0, 1, 2)
+            self.scene.setFixedWidth(270)
+            self.diagnostics.show()
+            tip = "Double-click to enlarge the 3D view."
+        self.sensor_panel.setVisible(large)
+        self.place_status()
+        self.scene.setToolTip(tip + " Wheel: zoom · drag: pan.")
+        self.scene.update()
+
+    def place_status(self):
+        available = self.width() - (276 if self.large is False else 0)
+        inline = available >= 700
+        if inline == self.status_inline:
+            return
+        self.camera_grid.removeWidget(self.status)
+        self.camera_grid.addWidget(
+            self.status, 0 if inline else 1, 1 if inline else 0, 1, 1 if inline else 2
+        )
+        self.camera_grid.setColumnStretch(1, int(inline))
+        self.status_inline = inline
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.place_status()
+
+    def place_sensor(self):
+        self.sensor_panel.setGeometry(8, 8, max(1, min(360, self.scene.width() - 16)), 58)
+        self.sensor_panel.raise_()
+
+    def eventFilter(self, watched, event):
+        if watched is self.scene and event.type() == QEvent.Type.Resize:
+            self.place_sensor()
+        if (
+            watched is self.scene
+            and event.type() == QEvent.Type.MouseButtonDblClick
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self.set_large(not self.large)
+            return True
+        return super().eventFilter(watched, event)
 
     def camera(self, name, value):
         setattr(self.scene, name, value)
@@ -257,9 +344,7 @@ class RobotView(QWidget):
         control = controls[index]
         observation = control["observation"]
         self.sensor.setPixmap(
-            pixmap(np.rint(observation["rgb"][row][None] * 255).astype(np.uint8)).scaled(
-                max(16, self.sensor.width()), 32
-            )
+            pixmap(np.rint(observation["rgb"][row][None] * 255).astype(np.uint8))
         )
         debug = control.get("debug", [{}] * len(control["action"]))[row]
         self.history.bind(controls, row)

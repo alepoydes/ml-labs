@@ -2,8 +2,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QSurfaceFormat
+from PySide6.QtCore import QSettings, Qt, QTimer
+from PySide6.QtGui import QGuiApplication, QSurfaceFormat
 from PySide6.QtWidgets import QApplication, QMainWindow
 
 
@@ -19,8 +19,30 @@ class Window(QMainWindow):
         self.closing = False
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setCentralWidget(page)
+        if hasattr(page, "diagnostics"):
+            self.menuBar().addMenu(page.diagnostics.panels_menu)
         self.setWindowTitle(f"Coursekit · {lab.replace('_', ' ').title()}")
         self.resize(1280, 820)
+        settings_file = Path(page.project).resolve() / "runs" / lab / "window.ini"
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        self.settings = QSettings(str(settings_file), QSettings.Format.IniFormat)
+        if self.settings.contains("geometry"):
+            self.restoreGeometry(self.settings.value("geometry"))
+            screen = QGuiApplication.primaryScreen()
+            if screen is not None and not self.isMaximized() and not self.isFullScreen():
+                available = screen.availableGeometry()
+                self.resize(
+                    min(self.width(), available.width()),
+                    min(self.height(), available.height()),
+                )
+        mode = self.settings.value("mode", "normal")
+        if mode == "maximized":
+            self.setWindowState(Qt.WindowState.WindowMaximized)
+        elif mode == "fullscreen":
+            self.controls.was_maximized = self.settings.value(
+                "maximized_before_fullscreen", False, type=bool
+            )
+            self.setWindowState(Qt.WindowState.WindowFullScreen)
 
     def closeEvent(self, event):
         if not self.closing:
@@ -45,6 +67,19 @@ class Window(QMainWindow):
             event.ignore()
             QTimer.singleShot(50, self.close)
         else:
+            self.settings.setValue("geometry", self.saveGeometry())
+            self.settings.setValue(
+                "mode",
+                "fullscreen"
+                if self.isFullScreen()
+                else "maximized"
+                if self.isMaximized()
+                else "normal",
+            )
+            self.settings.setValue(
+                "maximized_before_fullscreen", self.controls.was_maximized
+            )
+            self.settings.sync()
             if hasattr(self.page, "shutdown"):
                 self.page.shutdown()
             event.accept()

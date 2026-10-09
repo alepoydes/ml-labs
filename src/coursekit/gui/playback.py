@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSlider,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -36,6 +35,12 @@ class Playback(QWidget):
         self.play.clicked.connect(self.toggle)
         self.previous = QPushButton("Previous frame")
         self.next = QPushButton("Next frame")
+        self.previous.setText("‹")
+        self.previous.setToolTip("Previous recorded frame")
+        self.previous.setAccessibleName("Previous frame")
+        self.next.setText("›")
+        self.next.setToolTip("Next recorded frame")
+        self.next.setAccessibleName("Next frame")
         self.control = QPushButton("Next control")
         self.previous.clicked.connect(lambda: self.step(-1))
         self.next.clicked.connect(lambda: self.step(1))
@@ -47,7 +52,8 @@ class Playback(QWidget):
         self.speed.currentIndexChanged.connect(self.speed_changed)
         self.label = QLabel("No recorded frames")
         self.label.setObjectName("muted")
-        bar = QHBoxLayout()
+        bar = QHBoxLayout(self)
+        bar.setContentsMargins(0, 0, 0, 0)
         for widget in [
             self.play,
             self.previous,
@@ -57,14 +63,8 @@ class Playback(QWidget):
             self.speed,
         ]:
             bar.addWidget(widget)
-        bar.addStretch()
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addLayout(bar)
-        timeline = QHBoxLayout()
-        timeline.addWidget(self.slider, 1)
-        timeline.addWidget(self.label)
-        layout.addLayout(timeline)
+        bar.addWidget(self.slider, 1)
+        bar.addWidget(self.label)
         action = self.play_action = QAction("Play / pause recording", self)
         action.setShortcut("Space")
         action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)

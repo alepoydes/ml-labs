@@ -29,6 +29,9 @@ class WindowControls(QObject):
         close.setShortcut("Ctrl+W")
         close.triggered.connect(window.close)
         window.addActions([minimize, maximize, self.fullscreen, leave, close])
+        menu = window.menuBar().addMenu("&Window")
+        for action in (minimize, maximize, self.fullscreen, leave, close):
+            menu.addAction(action)
         self.actions = dict(
             fullscreen=self.fullscreen, maximize=maximize, minimize=minimize, close=close
         )
@@ -44,6 +47,8 @@ class WindowControls(QObject):
     def toggle_maximized(self):
         if self.window.isFullScreen():
             self.fullscreen.setChecked(False)
+            if self.window.isMaximized():
+                return
         self.window.showNormal() if self.window.isMaximized() else self.window.showMaximized()
 
     def eventFilter(self, watched, event):

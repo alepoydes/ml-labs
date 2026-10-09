@@ -5,8 +5,17 @@ import json
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
-from PySide6.QtCore import QSignalBlocker, Qt, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QPropertyAnimation,
+    QRect,
+    QSignalBlocker,
+    Qt,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -15,11 +24,14 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -68,21 +80,35 @@ class Plot(QWidget):
         self.drawing, self.manual, self.xy_samples = False, False, None
         self.figure = Figure(figsize=(6, 2.2), layout="constrained")
         self.canvas = FigureCanvasQTAgg(self.figure)
-        self.canvas.setMinimumHeight(155)
+        self.canvas.setMinimumHeight(200)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.title = QLabel("Plot")
+        self.title.setObjectName("plot-title")
+        self.title.setToolTip("Click this panel to choose where checked fields appear.")
+        self.visible_action = QAction("Plot", self)
+        self.visible_action.setCheckable(True)
+        self.visible_action.setChecked(
+            bool(state.get("visible", True)) if isinstance(state, dict) else True
+        )
         self.mode = QComboBox()
         self.mode.addItems(["Time series", "Heatmap", "X–Y", "Value"])
         self.swap = QPushButton("Swap X/Y")
         self.save_plot = QPushButton("Save plot…")
+        self.remove_button = QPushButton("×")
+        self.remove_button.setToolTip("Remove this plot and its field selections.")
+        self.remove_button.clicked.connect(lambda: self.owner.remove_plot(self))
         self.toolbar = PlotToolbar(self.canvas, self, coordinates=False)
         self.message = QLabel()
         self.message.setWordWrap(True)
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.title)
         row.addWidget(self.mode)
         row.addWidget(self.swap)
         row.addWidget(self.toolbar)
         row.addStretch()
         row.addWidget(self.save_plot)
+        row.addWidget(self.remove_button)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(row)
@@ -92,6 +118,9 @@ class Plot(QWidget):
         self.swap.clicked.connect(self.swap_axes)
         self.save_plot.clicked.connect(self.export_plot)
         self.canvas.mpl_connect("button_press_event", self.pick)
+        self.installEventFilter(self)
+        for child in self.findChildren(QWidget):
+            child.installEventFilter(self)
         if isinstance(state, dict):
             for key in state.get("fields", [])[:4096]:
                 if (
@@ -105,19 +134,33 @@ class Plot(QWidget):
             self.mode.setCurrentIndex(max(0, min(3, int(state.get("mode", 0)))))
 
     def settings(self):
-        return {"fields": self.fields, "mode": self.mode.currentIndex()}
+        return {
+            "fields": self.fields,
+            "mode": self.mode.currentIndex(),
+            "visible": self.visible_action.isChecked(),
+        }
+
+    def eventFilter(self, watched, event):
+        if (
+            event.type() == QEvent.Type.MouseButtonPress
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self.owner.choose_plot(self)
+        return super().eventFilter(watched, event)
 
     def changed(self):
         self.signature, self.manual = None, False
         self.owner.redraw()
         self.owner.changed.emit()
-        QTimer.singleShot(0, self.owner.reveal_plot)
+        self.owner.reveal_timer.start(0)
 
     def swap_axes(self):
         self.fields.reverse()
         self.changed()
 
     def pick(self, event):
+        if self in self.owner.plots:
+            self.owner.choose_plot(self)
         if (
             event.inaxes is not getattr(self, "axes", None)
             or self.toolbar.mode
@@ -325,55 +368,93 @@ class Diagnostics(QWidget):
 
     def __init__(self, state=None, *, compact=False):
         super().__init__()
+        state = state if isinstance(state, dict) else {}
+        self.compact = compact
         self.snapshot, self.history, self.time = {}, None, 0.0
         self.plots, self.items, self.colours = [], {}, {}
         self.time_range, self.schema, self.updating = None, None, False
+        self.inspected = None
+        self.open_sizes = [380 if not compact else 180, 820]
+        legacy_sizes = state.get("split_sizes")
+        saved_width = state.get(
+            "drawer_width",
+            legacy_sizes[0]
+            if isinstance(legacy_sizes, list)
+            and legacy_sizes
+            and type(legacy_sizes[0]) is int
+            else 380,
+        )
+        self.drawer_width = (
+            min(500, max(300, saved_width)) if type(saved_width) is int else 380
+        )
+        self.reveal_timer = QTimer(self)
+        self.reveal_timer.setSingleShot(True)
+        self.reveal_timer.timeout.connect(self.reveal_plot)
         self.table = QTreeWidget()
         self.table.setHeaderLabels(["Field", "●", "Value"])
         self.table.headerItem().setToolTip(1, "Curve colour / selected vector components")
         self.table.setObjectName("diagnostic-fields")
         self.table.setAlternatingRowColors(True)
-        self.table.setMinimumWidth(240)
-        self.table.setColumnWidth(0, 130)
-        self.table.setColumnWidth(1, 42)
-        self.table.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.table.setMinimumWidth(300 if not compact else 240)
+        self.table.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.table.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        self.table.header().setStretchLastSection(False)
+        self.table.setColumnWidth(1, 34)
+        self.table.setColumnWidth(2, 115 if compact else 105)
         self.table.setIndentation(14)
         self.table.itemChanged.connect(self.check_field)
         self.table.currentItemChanged.connect(self.inspect)
         self.value = QPlainTextEdit()
         self.value.setReadOnly(True)
-        self.value.setMaximumHeight(55)
+        self.value.setPlaceholderText("Select a field to inspect its current value.")
+        self.value.setFixedHeight(44)
         self.empty = QLabel("No fields exported by debug() at this frame.")
         self.empty.setWordWrap(True)
-        self.active = QComboBox()
+        self.active = QComboBox(self)
         self.active.currentIndexChanged.connect(self.select_plot)
-        self.add = QPushButton("+")
-        self.add.setToolTip("Add a plot; field checkboxes edit the selected plot.")
-        self.remove = QPushButton("−")
+        self.add = QPushButton("Add plot")
+        self.add.setToolTip("Add a plot below the existing plots.")
+        self.remove = QPushButton("−", self)
         self.remove.setToolTip("Remove the selected plot.")
+        self.fields_toggle = QPushButton("Hide fields", self)
+        self.fields_toggle.setCheckable(True)
+        self.fields_toggle.setChecked(True)
+        self.fields_toggle.setToolTip("Show or hide the controller's current debug fields.")
+        self.fields_action = QAction("Diagnostic fields", self)
+        self.fields_action.setCheckable(True)
+        self.fields_action.setChecked(
+            bool(state.get("fields_open", compact))
+            if compact or state.get("layout_version") == 3
+            else False
+        )
+        self.fields_action.toggled.connect(self.show_fields)
+        self.panels_menu = QMenu("&Panels", self)
+        self.panels_menu.addAction(self.fields_action)
         self.add.clicked.connect(lambda: self.add_plot())
         self.remove.clicked.connect(self.remove_plot)
-        selection = QHBoxLayout()
-        selection.addWidget(QLabel("Plot"))
-        selection.addWidget(self.active, 1)
-        selection.addWidget(self.add)
-        selection.addWidget(self.remove)
-        fields = QWidget()
-        left = QVBoxLayout(fields)
+        if compact:
+            selection = QHBoxLayout()
+            selection.addWidget(self.fields_toggle)
+            selection.addWidget(QLabel("Plot"))
+            selection.addWidget(self.active, 1)
+            selection.addWidget(self.add)
+            selection.addWidget(self.remove)
+        self.fields_panel = QWidget()
+        left = QVBoxLayout(self.fields_panel)
         left.setContentsMargins(0, 0, 0, 0)
-        left.addLayout(selection)
         left.addWidget(self.empty)
-        left.addWidget(self.table, 1)
         left.addWidget(self.value)
+        left.addWidget(self.table, 1)
         self.follow = QCheckBox("Follow time")
         self.follow.setChecked(True)
         self.window = QDoubleSpinBox()
         self.window.setRange(0, 3600)
         self.window.setSuffix(" s")
-        self.window.setSpecialValueText("Whole run")
+        self.window.setSpecialValueText("All")
         self.window.setValue(10)
         self.window.setToolTip("Visible time window; zero shows the whole run.")
-        self.whole = QPushButton("Whole run")
+        self.whole = QPushButton("Fit all")
         self.whole.clicked.connect(self.show_all)
         self.follow.toggled.connect(self.time_settings)
         self.window.valueChanged.connect(self.time_settings)
@@ -385,34 +466,79 @@ class Diagnostics(QWidget):
         self.plot_box = QWidget()
         self.plot_layout = QVBoxLayout(self.plot_box)
         self.plot_layout.setContentsMargins(0, 0, 0, 0)
-        self.plot_layout.addStretch()
         self.scroll = scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.plot_box)
+        scroll.installEventFilter(self)
         scroll.verticalScrollBar().rangeChanged.connect(
-            lambda *_: QTimer.singleShot(0, self.reveal_plot)
+            lambda *_: self.reveal_timer.start(0)
         )
         scroll.setMinimumWidth(270 if compact else 310)
         right = QWidget()
+        self.plot_area = right
         layout = QVBoxLayout(right)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addLayout(navigation)
+        layout.setContentsMargins(0 if compact else 28, 0, 0, 0)
+        if compact:
+            layout.addLayout(navigation)
         layout.addWidget(scroll, 1)
-        split = QSplitter(Qt.Orientation.Vertical if compact else Qt.Orientation.Horizontal)
-        split.addWidget(fields)
-        split.addWidget(right)
-        split.setSizes([270, 650])
+        if not compact:
+            navigation.addWidget(self.add)
+            layout.addLayout(navigation)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        title = QLabel("Diagnostics · check fields to plot; click a curve to inspect time")
-        title.setWordWrap(True)
-        outer.addWidget(title)
-        outer.addWidget(split, 1)
+        self.current_value = QLabel()
+        self.current_value.setObjectName("muted")
+        self.current_value.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
         if compact:
+            top = QHBoxLayout()
+            top.addWidget(QLabel("Diagnostics"))
+            top.addWidget(self.current_value, 1)
+            self.split = QSplitter(Qt.Orientation.Vertical)
+            self.split.addWidget(self.fields_panel)
+            self.split.addWidget(right)
+            self.split.setSizes(self.open_sizes)
+            self.split.splitterMoved.connect(lambda *_: self.changed.emit())
+            outer.addLayout(top)
+            outer.addLayout(selection)
+            outer.addWidget(self.split, 1)
+            self.fields_toggle.toggled.connect(self.fields_action.setChecked)
             self.follow.hide()
             self.window.hide()
             self.whole.hide()
-        state = state if isinstance(state, dict) else {}
+        else:
+            self.split = None
+            self.active.hide()
+            self.remove.hide()
+            self.fields_toggle.hide()
+            self.current_value.setParent(self.fields_panel)
+            self.current_value.hide()
+            left.insertWidget(0, QLabel("Diagnostic fields"))
+            outer.addWidget(right, 1)
+            self.drawer = QWidget(self)
+            drawer_layout = QHBoxLayout(self.drawer)
+            drawer_layout.setContentsMargins(0, 0, 0, 0)
+            drawer_layout.setSpacing(0)
+            self.fields_panel.setObjectName("fields-drawer")
+            self.fields_panel.setStyleSheet(
+                "QWidget#fields-drawer { background: #f8fafe; "
+                "border-right: 1px solid #ccd6e5; }"
+            )
+            drawer_layout.addWidget(self.fields_panel)
+            self.drawer_tab = QToolButton(self.drawer)
+            self.drawer_tab.setFixedSize(28, 64)
+            self.drawer_tab.clicked.connect(
+                lambda: self.fields_action.setChecked(not self.fields_action.isChecked())
+            )
+            drawer_layout.addWidget(self.drawer_tab, 0, Qt.AlignmentFlag.AlignTop)
+            self.drawer_animation = QPropertyAnimation(self.drawer, b"geometry", self)
+            self.drawer_animation.setDuration(170)
+            self.drawer_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+            self.place_drawer()
+            self.drawer.raise_()
+            self.drawer_tab.setText("‹" if self.fields_action.isChecked() else "›")
+            self.drawer_tab.setToolTip("Show or hide diagnostic fields")
         try:
             for key, colour in state.get("colours", {}).items():
                 if (
@@ -433,55 +559,194 @@ class Diagnostics(QWidget):
                 self.time_range = tuple(limits)
             for plot in state.get("plots", [{"mode": 3 if compact else 0}]):
                 self.add_plot(plot)
+            sizes = state.get("split_sizes")
+            if (
+                compact
+                and isinstance(sizes, list)
+                and len(sizes) == 2
+                and all(type(n) is int and n > 0 for n in sizes)
+            ):
+                self.open_sizes = sizes
+                self.split.setSizes(sizes)
+            self.show_fields(self.fields_action.isChecked(), animate=False)
         except (ValueError, TypeError, AttributeError):
             pass
         if not self.plots:
             self.add_plot()
-        self.active.setCurrentIndex(0)
+        if not any(plot.visible_action.isChecked() for plot in self.plots):
+            self.plots[0].visible_action.setChecked(True)
+        active = state.get("active_plot", 0)
+        if type(active) is not int or not 0 <= active < len(self.plots):
+            active = 0
+        if not self.plots[active].visible_action.isChecked():
+            active = next(
+                index
+                for index, plot in enumerate(self.plots)
+                if plot.visible_action.isChecked()
+            )
+        self.active.setCurrentIndex(active)
         self.show_snapshot({})
 
     def settings(self):
-        return dict(
+        settings = dict(
             plots=[p.settings() for p in self.plots],
+            layout_version=2 if self.compact else 3,
+            active_plot=self.active.currentIndex(),
             colours=self.colours,
             window=self.window.value(),
             follow=self.follow.isChecked(),
             range=self.time_range,
+            fields_open=self.fields_action.isChecked(),
         )
+        if self.compact:
+            settings["split_sizes"] = (
+                self.split.sizes() if self.fields_action.isChecked() else self.open_sizes
+            )
+        else:
+            settings["drawer_width"] = self.drawer_width
+        return settings
+
+    def show_fields(self, visible, *, animate=True):
+        if self.compact:
+            if not visible and not self.fields_panel.isHidden():
+                self.open_sizes = self.split.sizes()
+            self.fields_panel.setVisible(visible)
+            if visible:
+                self.split.setSizes(self.open_sizes)
+            with QSignalBlocker(self.fields_toggle):
+                self.fields_toggle.setChecked(visible)
+            self.fields_toggle.setText("Hide fields" if visible else "Show fields")
+        else:
+            self.drawer_animation.stop()
+            self.drawer_tab.setText("‹" if visible else "›")
+            target = self.drawer_geometry(visible)
+            if animate and self.isVisible():
+                self.drawer_animation.setStartValue(self.drawer.geometry())
+                self.drawer_animation.setEndValue(target)
+                self.drawer_animation.start()
+            else:
+                self.drawer.setGeometry(target)
+            self.drawer.raise_()
+        self.changed.emit()
+
+    def drawer_geometry(self, visible):
+        width = min(self.drawer_width, max(240, self.width() - 60))
+        self.fields_panel.setFixedWidth(width)
+        top = self.plot_area.y() + self.scroll.y()
+        return QRect(
+            0 if visible else -width,
+            top,
+            width + 28,
+            self.scroll.height(),
+        )
+
+    def place_drawer(self):
+        if not self.compact:
+            self.drawer_animation.stop()
+            self.drawer.setGeometry(self.drawer_geometry(self.fields_action.isChecked()))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "drawer"):
+            self.place_drawer()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self, "drawer"):
+            self.place_drawer()
+
+    def eventFilter(self, watched, event):
+        if (
+            watched is self.scroll
+            and event.type()
+            in (
+                QEvent.Type.Resize,
+                QEvent.Type.Move,
+            )
+            and hasattr(self, "drawer")
+        ):
+            self.place_drawer()
+        return super().eventFilter(watched, event)
 
     def add_plot(self, state=None):
         plot = Plot(self, state)
         self.plots.append(plot)
-        self.plot_layout.insertWidget(len(self.plots) - 1, plot)
+        plot.title.setText(f"Plot {len(self.plots)}")
+        plot.visible_action.setText(f"Plot {len(self.plots)}")
+        plot.visible_action.toggled.connect(
+            lambda visible, item=plot: self.set_plot_visible(item, visible)
+        )
+        self.panels_menu.addAction(plot.visible_action)
+        self.plot_layout.addWidget(plot, 1)
+        plot.setVisible(plot.visible_action.isChecked())
         self.active.addItem(f"{len(self.plots)}")
         self.active.setCurrentIndex(len(self.plots) - 1)
         self.remove.setEnabled(len(self.plots) > 1)
+        self.update_plot_buttons()
+        self.select_plot()
         self.redraw()
         self.changed.emit()
         return plot
 
-    def remove_plot(self):
+    def remove_plot(self, plot=None):
         if len(self.plots) <= 1:
             return
-        index = self.active.currentIndex()
+        index = self.plots.index(plot) if plot in self.plots else self.active.currentIndex()
+        current = self.active.currentIndex()
         plot = self.plots.pop(index)
+        self.panels_menu.removeAction(plot.visible_action)
         self.plot_layout.removeWidget(plot)
         plot.deleteLater()
         with QSignalBlocker(self.active):
             self.active.clear()
             self.active.addItems([str(i + 1) for i in range(len(self.plots))])
-            self.active.setCurrentIndex(min(index, len(self.plots) - 1))
+            self.active.setCurrentIndex(
+                min(current - (index < current), len(self.plots) - 1)
+            )
+        if not any(item.visible_action.isChecked() for item in self.plots):
+            self.plots[0].visible_action.setChecked(True)
         self.remove.setEnabled(len(self.plots) > 1)
+        for number, remaining in enumerate(self.plots, 1):
+            remaining.title.setText(f"Plot {number}")
+            remaining.visible_action.setText(f"Plot {number}")
+        self.update_plot_buttons()
         self.update_checks()
+        self.select_plot()
         self.changed.emit()
 
+    def choose_plot(self, plot):
+        if plot in self.plots:
+            self.active.setCurrentIndex(self.plots.index(plot))
+
+    def set_plot_visible(self, plot, visible):
+        if plot not in self.plots:
+            return
+        if not visible and sum(p.visible_action.isChecked() for p in self.plots) == 0:
+            with QSignalBlocker(plot.visible_action):
+                plot.visible_action.setChecked(True)
+            return
+        plot.setVisible(visible)
+        if not self.plots[self.active.currentIndex()].visible_action.isChecked():
+            self.choose_plot(next(p for p in self.plots if p.visible_action.isChecked()))
+        self.changed.emit()
+
+    def update_plot_buttons(self):
+        for plot in self.plots:
+            plot.remove_button.setEnabled(len(self.plots) > 1)
+
     def select_plot(self, *args):
+        for index, plot in enumerate(self.plots):
+            selected = index == self.active.currentIndex()
+            plot.title.setProperty("selected", selected)
+            plot.title.style().unpolish(plot.title)
+            plot.title.style().polish(plot.title)
         self.update_checks()
-        QTimer.singleShot(0, self.reveal_plot)
+        self.reveal_timer.start(0)
 
     def reveal_plot(self):
         if self.plots and self.active.currentIndex() >= 0:
-            self.scroll.ensureWidgetVisible(self.plots[self.active.currentIndex()])
+            plot = self.plots[self.active.currentIndex()]
+            self.scroll.verticalScrollBar().setValue(plot.y())
 
     def colour(self, key):
         identity = json.dumps(key)
@@ -524,7 +789,7 @@ class Diagnostics(QWidget):
         )
         if schema != self.schema:
             selected = self.table.currentItem()
-            selected = tuple(selected.data(0, ROLE)) if selected else None
+            selected = tuple(selected.data(0, ROLE)) if selected else self.inspected
             expanded = {
                 tuple(item.data(0, ROLE))
                 for item in self.items.values()
@@ -553,8 +818,10 @@ class Diagnostics(QWidget):
                     root.setExpanded(key in expanded)
                 if selected in self.items:
                     self.table.setCurrentItem(self.items[selected])
-                elif self.table.topLevelItemCount():
+                elif selected is None and self.table.topLevelItemCount():
                     self.table.setCurrentItem(self.table.topLevelItem(0))
+                else:
+                    self.table.setCurrentItem(None)
             self.schema = schema
         with QSignalBlocker(self.table):
             for key, item in self.items.items():
@@ -576,15 +843,41 @@ class Diagnostics(QWidget):
 
     def inspect(self, *args):
         item = self.table.currentItem()
-        self.value.setVisible(item is not None)
         if item is not None:
             key = tuple(item.data(0, ROLE))
+            self.inspected = key
             value = self.current(key)
-            self.value.setPlainText(f"{label(key)}: {value}")
+            self.value.setFixedHeight(
+                100 if isinstance(value, np.ndarray) and value.size else 44
+            )
+            if isinstance(value, np.ndarray) and value.ndim == 1 and value.size:
+                details = "\n".join(
+                    f"[{index}] {number:.8g}" for index, number in enumerate(value)
+                )
+                summary = f"{label(key)}: {value.size} values"
+            elif isinstance(value, np.ndarray) and value.ndim == 2:
+                details = np.array2string(value)
+                summary = f"{label(key)}: {value.shape[0]}×{value.shape[1]} values"
+            else:
+                details = str(value)
+                short = details.replace("\n", " ")
+                summary = f"{label(key)} = {short[:72]}{'…' if len(short) > 72 else ''}"
+            self.value.setPlainText(f"{label(key)} = {details}")
+        elif self.inspected is not None:
+            self.value.setFixedHeight(44)
+            self.value.setPlainText(f"{label(self.inspected)}: no value at this frame")
+            summary = self.value.toPlainText()
+        else:
+            summary = "Select a field to inspect its current value"
+        self.value.setVisible(item is not None or self.inspected is not None)
+        self.value.setToolTip(self.value.toPlainText())
+        self.current_value.setText(summary)
+        self.current_value.setToolTip(self.value.toPlainText())
 
     def check_field(self, item, column):
         if column != 0 or not self.plots:
             return
+        self.table.setCurrentItem(item)
         plot = self.plots[self.active.currentIndex()]
         key = tuple(item.data(0, ROLE))
         keys = [tuple(item.child(i).data(0, ROLE)) for i in range(item.childCount())] or [

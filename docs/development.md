@@ -141,9 +141,10 @@ implicitly. Blindjack calls the model in a computation thread. Line Following ru
 the model and shared physics in a cancellable local process; this is ordinary local
 execution, not an instructor sandbox. Original tracebacks remain available. Qt owns
 the main thread.
-Use the window buttons to minimize, maximize or close. F11 enters fullscreen and
-Escape restores the preceding state. Window decorations and their system menu follow
-the desktop's settings; Ctrl+W also closes the window.
+Use the native window buttons or the **Window** menu to minimize, maximize or close.
+F11 enters fullscreen and Escape restores the preceding state. The desktop decides
+which title-bar buttons to show. Student windows remember their size and window mode
+for each lab; Ctrl+W also closes the window.
 
 ### Blindjack
 
@@ -172,18 +173,18 @@ original browser until a resource update.
 ### Line Following
 
 To browse courses, run `./view_lab line_following` and select **Course** in
-the top row or use **Previous course / Next course**. The preview needs no trained solution and
-prepares the bundled courses automatically. Use **Top view** and **Fit track** for a
-plan view. Blue marks the start/return finish; red marks the far turnaround.
+the top row or use its previous/next arrows. The preview needs no trained solution
+and prepares the bundled courses automatically. Use **Top view** and **Fit track**
+for a plan view. Blue marks the start/return finish; red marks the far turnaround.
 On a fresh checkout, **Next run** selects **Built-in baseline**. **Start** prepares
 the installed reference in managed storage under `runs/line_following/builtin/`;
 opening the viewer alone performs no training. Select **Working solution** to use
-your own directory; this choice and path persist between openings. **Prepare
-solution** runs that copy's `train.py`, using the same function as the numbered
-scripts. **New copy from baseline** creates and prepares a fresh numbered working
-copy, preserving existing code. Working copies need preparation metadata to start;
-subsequent source/configuration edits are identified as stale preparation and remain
-runnable for local debugging. Parameter integrity is checked when loading.
+your own directory; this choice and path persist between openings. Under **Setup…**,
+**Prepare solution** runs that copy's `train.py`, using the same function as the
+numbered scripts. **New copy from baseline** creates and prepares a fresh numbered
+working copy, preserving existing code. Working copies need preparation metadata to
+start; subsequent source/configuration edits are identified as stale preparation
+and remain runnable for local debugging. Parameter integrity is checked when loading.
 See the [data description](../labs/line_following/README.md#data-and-course-collection)
 for files and fixed experiment cases, and the
 [episode rules](../labs/line_following/README.md#rules-of-the-episode) for marker
@@ -214,21 +215,30 @@ run. **Continue** returns to its latest state without repeating old controller c
 
 Batch runs use consecutive fixed cases; **View robot** selects the row.
 The graphical and command-line runners use the same stored robot, initial state
-and noise for a case. Disable **Sensor noise** only for diagnostic comparisons.
+and noise for a case. Open **Setup…** to disable **Sensor noise** only for diagnostic
+comparisons.
 **Running controller** identifies the actual loaded solution, independently of
-**Next run**. **Controller details** shows the path, code/configuration/parameter
+**Next run**. **Details…** shows the path, code/configuration/parameter
 fingerprints and preparation status captured by the worker. Recordings retain this
 identity; historical missing identities remain unknown. **Restart** creates a fresh
 controller instance and episode, while **Prepare solution** prepares saved parameters
 again and **New copy from baseline** starts a separate working variant.
 Top view, follow camera, wheel zoom and dragging to pan help inspect the line, chassis
-and rear sphere; **Fit track** restores the full-course view. The RGB strip shows the
-latest actual optical reading. Use **Save recording** explicitly before replacing
-or closing a run you want to keep; these operations do not show save prompts.
+and rear sphere; **Fit track** restores the full-course view. In the large view,
+the RGB strip in the scene's upper-left corner shows the latest actual optical
+reading. Use **Save…**
+explicitly before replacing or closing a run you want to keep; these operations do
+not show save prompts.
 Saving while running stores the frames captured so far; subsequent frames need another save. Malformed recordings leave the currently open recording intact.
 
-In the robot viewer, **Sensor area** overlays the 16 measured ground sectors
-through the chassis. Use **Top view**, **Follow** and the mouse wheel to
+The viewer opens with a large 3D scene. Double-click the scene to show diagnostics:
+the same live scene fills the top band to the right of the solution and course
+controls, without the RGB strip; plots fill the area below. On a wide window, the
+episode status appears beside **Fit track**. On a narrow window it moves below the
+camera controls.
+Double-click the preview to return to the large scene; its tooltip explains the
+gesture. **Sensor area** overlays the 16 measured ground sectors through the chassis.
+Use **Top view**, **Follow** and the mouse wheel to
 inspect the 94×8 mm strip between the wheels. This strip also defines route
 coverage: the centreline must pass through it in route order.
 
@@ -236,10 +246,17 @@ coverage: the centreline must pass through it in route order.
 
 An optional `debug(index=0)` method may return a dictionary of text, finite scalars,
 or small numeric vectors/matrices. The viewer copies it after inference. The
-**Diagnostics** table contains exactly those fields. Click a row to inspect its
-value; check its box to add it to the selected plot. Expand a vector to choose
-individual components. Colours identify curves and remain stable across updates.
-The **Plot** selector and **+ / −** buttons manage multiple panels.
+**Diagnostics** table contains exactly those fields. In the robot viewer, open its
+drawer from the left edge of the plots or through **Panels → Diagnostic fields**.
+The drawer slides over the plots and can be returned behind the edge. Click a row
+to inspect its current value; checking its box also
+selects that row and adds it to the chosen plot. Expand a vector to see and choose
+individual components. The inspector above
+the table shows complete vector values; a missing value is identified explicitly.
+Colours identify curves and remain stable across updates. Click a plot panel to
+choose which plot the field checkboxes edit. **Add plot** is below the plots; each
+plot has its own remove button. The **Panels** menu can hide or reveal a plot
+without deleting its field selections.
 
 **Time series** plots scalar and component histories with a legend. **Heatmap**
 shows selected components of one vector against time, with a value colour scale.
@@ -251,11 +268,14 @@ a time history. Text remains in the value inspector.
 Click a time plot or an X–Y trajectory to pause and inspect the nearest recorded
 controller call. Robot pose, sensor readings and all diagnostic panels follow
 the same playback position. **Follow time** scrolls the chosen time window;
-**Whole run** fits the available history. Pan/zoom freezes the time interval
+**Fit all** fits the available history. Pan/zoom freezes the time interval
 across time plots. Missing fields or changed array dimensions leave gaps.
-Robot viewers retain plot settings across restarts. **Save plot** exports the
-current figure and legend as PNG or SVG. Empty snapshots have an explicit empty
-state. Debug methods must not change controller behavior.
+The student robot viewer retains plot settings, panel visibility and the selected
+course across restarts. It opens in the large 3D view. The playback timeline sits
+beside **Speed**. **Save plot** exports the
+figure and legend as PNG or SVG. Empty snapshots have an explicit empty state.
+Debug methods must not change
+controller behavior.
 The judge never calls it. Keep each array at most two-dimensional and 4096 elements,
 with at most 64 fields. Debug failures are visible inspection errors.
 

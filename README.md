@@ -78,8 +78,8 @@ previews every public course, then runs a prepared controller with live sensor p
 pause and rewind. Blue marks the start/return finish; red marks the far turnaround.
 Its [course atlas](labs/line_following/resources/index.html) shows 50 training courses
 progressing from two straight episodes to compact mixed routes; 15 separate
-validation courses cover the same stages. On a fresh checkout, **Create baseline**
-copies and prepares the robot reference controller; **Start** then begins driving.
+validation courses cover the same stages. On a fresh checkout, **Built-in baseline**
+is selected; **Start** prepares it in managed storage and begins driving.
 The engine prepares in the background as the viewer opens. Course selection stays
 visible during a run; **Restart** and course changes do not ask to save recordings.
 Both viewers save and open recordings with diagnostics. The launcher installs the

@@ -952,32 +952,36 @@ optional Qt and ModernGL dependencies. A desktop display and OpenGL 3.3 or newer
 are required; training and command-line evaluation do not require graphics.
 
 The application prepares the bundled courses automatically. Previewing a course
-requires neither a solution nor training. Select **Course**, or use **Previous
-course / Next course**; enable **Top view** and click **Fit track**. The status line
+requires neither a solution nor training. Select **Course**, or use its
+previous/next arrows; enable **Top view** and click **Fit track**. The status line
 shows the course name and one-way length. Blue marks the start/return finish;
 red marks the far endpoint. Scroll to zoom and drag to pan. **Follow** keeps
 the camera centred on the robot. **Sensor area** overlays the 16 measured ground
 sectors through the chassis, including the exact 94×8 mm route-coverage region.
-The RGB strip displays readings in body order, from right (0) to left (15).
+In the large view, the RGB strip in the scene's upper-left corner displays readings
+in body order, from right (0) to left (15). It is hidden in the compact preview.
 
 To reproduce a fixed episode, select its case identifier under **Course** and set
 **Batch** to 1. Larger batches use consecutive fixed cases; **View robot** chooses
-the displayed row. Turning **Sensor noise** off creates a diagnostic run, labelled
-as such and recorded with that setting. Normal evaluation keeps noise enabled.
+the displayed row. Open **Setup…** to turn **Sensor noise** off. Such a run is labelled
+as diagnostic and recorded with that setting. Normal evaluation keeps noise enabled.
 
 The **Next run** selector distinguishes **Built-in baseline** from **Working
 solution**. The first launch selects the built-in baseline. **Start** prepares a
 managed copy of the installed template under `runs/line_following/builtin/`, then
 starts the episode. It does not select an older copy merely because its directory
-is named `baseline`. Previewing courses performs no training. The controller choice
-and working path are retained in `runs/line_following/viewer.json` between openings.
+is named `baseline`. Previewing courses performs no training. The controller choice,
+working path and course are retained in `runs/line_following/viewer.json` between
+openings.
 
-**New copy from baseline** creates, prepares and selects a new numbered working copy
-under `work/line_following/baseline-current[-N]`. Use it to start again from the
-installed example while preserving earlier code and parameters. For a working copy,
-**Prepare solution** runs that copy's `train.py`, just like `step_2_train`; it does
-not replace the algorithm with the baseline. The preparation status checks source
-and configuration fingerprints. Edited code remains runnable for local debugging
+Open **Setup…** for **Prepare solution**, **New copy from baseline**, the sensor noise
+setting and course preparation. **New copy from baseline** creates, prepares and
+selects a numbered working copy under `work/line_following/baseline-current[-N]`.
+Use it to start again from the installed example while preserving earlier code and
+parameters. For a working copy, **Prepare solution** runs that copy's `train.py`,
+just like `step_2_train`; it does not replace the algorithm with the baseline.
+The preparation status checks source and configuration fingerprints. Edited code
+remains runnable for local debugging
 with a notice that preparation is no longer current. Saved parameter hashes are
 checked at loading; changed or historically unverified parameters are identified
 in the loaded controller's status and details. Prepare again to record a matching
@@ -988,7 +992,7 @@ set. To select your own prepared solution at launch:
 ```
 
 **Running controller** identifies what the process actually loaded, independently
-of **Next run**. **Controller details** shows its path and fingerprints of code,
+of **Next run**. **Details…** shows its path and fingerprints of code,
 configuration and saved parameters, together with preparation status. These values
 are captured at loading and retained in recordings; choosing another solution or
 editing files does not change the identity of the existing run. When the run ends,
@@ -1003,16 +1007,29 @@ solution with the selected cases and batch size, including a fresh controller st
 Restart clears the controller's memory; it does not train or reset a working copy's
 saved parameters. Use **Prepare solution** to prepare that copy again, or **New copy
 from baseline** for a fresh reference controller.
-The setup controls remain visible during simulation.
+The next solution, course and batch remain visible during simulation. The optional
+setup controls can be expanded when needed.
 
 ### Time controls, diagnostics and recordings
+
+The **Window** menu offers minimize, maximize and fullscreen. F11 toggles fullscreen;
+the viewer restores its size and window mode on the next launch.
+The viewer opens with a large 3D scene below the controls. Double-click the scene
+to open diagnostics. It becomes a live preview filling the upper band to the right
+of the solution, course and run controls; plots fill the area below. A single plot
+grows to use the available height. The status of the selected robot appears beside
+**Fit track** when the window is wide enough, and below the camera controls when
+it is narrow.
+Double-click the preview to return to the large scene. A tooltip on the scene
+explains this gesture.
 
 **Pause / Continue** and Space control the active run. While paused, **Step 1 ms**
 advances one physical step and **Step control** advances one controller interval.
 The timeline allows inspection of recorded history. Continuing returns to the latest
 live state; seeking does not rerun the controller or branch simulation from an old
 state. Playback offers a speed selector, previous/next frame and **Next control**
-navigation between recorded calls. Space controls playback when no run is active.
+navigation between recorded calls. Its timeline sits to the right of **Speed**.
+Space controls playback when no run is active.
 
 An optional `debug(index=0)` method returns small diagnostic values for a batch row.
 The application copies them after each action. The diagnostic table displays
@@ -1039,23 +1056,27 @@ The baseline additionally demonstrates visibility flags, recovery modes,
 estimated speed, measured/target yaw rate and the steering error actually used.
 These are controller estimates, not true line geometry or simulator pose.
 
-Check fields in **Diagnostics** to compare them on a plot. Expand vectors to
-choose components; each curve has a stable colour and legend entry. Use **+**
-to add another plot and the **Plot** selector to choose which panel the checkboxes
-edit. **Heatmap** displays a vector's history; **X–Y** compares two selected scalar
-channels, including components of the same vector. **Value** displays a current
-matrix. A useful baseline layout combines speed/target speed, yaw/target yaw and
-a heatmap of `line_weights`.
+Check fields in **Diagnostics** to compare them on a plot; checking a field also
+selects it for the current-value inspector. Expand vectors to see and choose
+components. The field drawer slides out from the left edge of the plots and returns
+behind that edge; use its tab or **Panels → Diagnostic fields**. Each curve has a
+stable colour and legend entry. Click a plot panel to choose which plot the
+checkboxes edit. **Add plot** below the plots creates another; each plot has its own
+remove button. The **Panels** menu can hide or reveal a plot without deleting it.
+**Heatmap** displays a vector's history; **X–Y** compares two
+scalar channels, including components of the same vector. **Value** displays a
+current matrix. A useful baseline layout combines speed/target speed, yaw/target
+yaw and a heatmap of `line_weights`.
 
 Click a plot to pause and seek the nearest recorded controller call. All panels
 and the robot view follow that position. **Follow time** scrolls a selected time
-window, **Whole run** fits the history, and pan/zoom preserves a manually chosen
-interval. Plot selections, colours and modes persist between launches. The
-method must not change controller behaviour. See the
+window, **Fit all** fits the history, and pan/zoom preserves a manually chosen
+interval. Plot selections, the active plot, colours, modes and panel visibility persist
+between launches. The `debug()` method must not change controller behaviour. See the
 [diagnostic value contract](../../docs/development.md#diagnostics-and-recordings)
 for supported values and limits. The judge never calls this method.
 
-Use **Save recording** explicitly before replacing or closing a run you want to
+Use **Save…** explicitly before replacing or closing a run you want to
 keep. Routine switching and closing do not ask for confirmation. Saving during a
 run stores received frames so far; later frames require another save. A recording
 contains courses, sampled physical parameters, poses, observations, actions and

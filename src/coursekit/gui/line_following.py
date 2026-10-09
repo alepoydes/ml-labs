@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from coursekit import recording, resources, submissions, training
 from coursekit.common import digest, write_json
-from coursekit.gui.common import Job, Notice, SolutionPath, heading
+from coursekit.gui.common import Job, Notice, SolutionPath
 from coursekit.gui.line_run import Run, Worker
 from coursekit.gui.playback import Playback
 from coursekit.gui.robot_view import RobotView, recorded_courses
@@ -49,6 +50,9 @@ class LineFollowingPage(QWidget):
         self.worker = Worker()
         self.pending_start = False
         self.selected_course = -1
+        self.saved_course = (
+            selection.get("course") if isinstance(selection.get("course"), str) else ""
+        )
         self.cases, self.courses = [], []
         self.live, self.shown = True, None
         self.chooser = SolutionPath(self.project, "line_following")
@@ -73,13 +77,20 @@ class LineFollowingPage(QWidget):
         self.solution_hint.setWordWrap(True)
         self.running_hint = QLabel("No controller loaded")
         self.running_hint.setTextFormat(Qt.TextFormat.PlainText)
-        self.running_hint.setWordWrap(True)
-        self.controller_details = QPushButton("Controller details…")
+        self.running_hint.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+        self.controller_details = QPushButton("Details…")
+        self.controller_details.setToolTip("Show details of the loaded controller.")
         self.controller_details.clicked.connect(self.show_controller_details)
         self.course = QComboBox()
         self.course.setMinimumContentsLength(14)
         self.previous_course = QPushButton("Previous course")
         self.next_course = QPushButton("Next course")
+        self.previous_course.setText("‹")
+        self.previous_course.setToolTip("Previous course")
+        self.next_course.setText("›")
+        self.next_course.setToolTip("Next course")
         self.batch, self.episode = QSpinBox(), QSpinBox()
         self.noise = QCheckBox("Sensor noise")
         self.noise.setChecked(True)
@@ -99,14 +110,19 @@ class LineFollowingPage(QWidget):
         )
         self.prepare_button = QPushButton("Prepare courses")
         self.save_button, self.open_button = (
-            QPushButton("Save recording…"),
-            QPushButton("Open recording…"),
+            QPushButton("Save…"),
+            QPushButton("Open…"),
         )
+        self.save_button.setToolTip("Save the current run as a recording.")
+        self.open_button.setToolTip("Open a saved recording.")
         self.engine_status = QLabel("Preparing simulation…")
         self.engine_status.setObjectName("muted")
-        self.engine_status.setWordWrap(True)
+        self.engine_status.setWordWrap(False)
         self.engine_status.setMaximumWidth(180)
-        self.view = RobotView(Scene(), diagnostic_state=selection.get("diagnostics"))
+        self.view = RobotView(
+            Scene(),
+            diagnostic_state=selection.get("diagnostics"),
+        )
         self.scene, self.diagnostics, self.sensors, self.status = (
             self.view.scene,
             self.view.diagnostics,
@@ -119,50 +135,57 @@ class LineFollowingPage(QWidget):
         self.timeline, self.speed = self.playback.slider, self.playback.speed
         self.playback.changed.connect(self.seek)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 12)
+        layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(6)
         header = QHBoxLayout()
-        header.addWidget(
-            heading(
-                "Line Following",
-                "Run a controller, inspect its sensors, or replay a saved run.",
-            ),
-            1,
-        )
+        title = QLabel("Line Following")
+        title.setObjectName("section-title")
+        header.addWidget(title)
+        header.addWidget(self.running_hint, 1)
+        header.addWidget(self.controller_details)
         header.addWidget(self.open_button)
         header.addWidget(self.save_button)
-        layout.addLayout(header)
         self.setup = QWidget()
         form = QVBoxLayout(self.setup)
         form.setContentsMargins(0, 0, 0, 0)
         form.setSpacing(4)
-        solution_row = QHBoxLayout()
-        solution_row.addWidget(QLabel("Next run"))
-        solution_row.addWidget(self.controller_mode)
-        solution_row.addWidget(self.chooser, 1)
-        solution_row.addWidget(self.solution_button)
-        solution_row.addWidget(self.copy_button)
-        form.addLayout(solution_row)
-        form.addWidget(self.solution_hint)
-        running_row = QHBoxLayout()
-        running_row.addWidget(self.running_hint, 1)
-        running_row.addWidget(self.controller_details)
-        form.addLayout(running_row)
-        setup = QHBoxLayout()
+        selection_row = QHBoxLayout()
         for widget in [
-            self.previous_course,
+            QLabel("Next run"),
+            self.controller_mode,
             QLabel("Course"),
+            self.previous_course,
             self.course,
             self.next_course,
-            self.noise,
             QLabel("Batch"),
             self.batch,
+        ]:
+            selection_row.addWidget(widget)
+        selection_row.setStretchFactor(self.course, 1)
+        form.addLayout(selection_row)
+        form.addWidget(self.chooser)
+        self.setup_button = QPushButton("Setup…")
+        self.setup_button.setCheckable(True)
+        self.setup_button.setChecked(bool(selection.get("setup_open", False)))
+        self.advanced = QWidget()
+        advanced = QVBoxLayout(self.advanced)
+        advanced.setContentsMargins(0, 0, 0, 0)
+        advanced_row = QHBoxLayout()
+        for widget in [
+            self.solution_button,
+            self.copy_button,
+            self.noise,
             self.prepare_button,
         ]:
-            setup.addWidget(widget)
-        setup.setStretchFactor(self.course, 1)
-        form.addLayout(setup)
-        layout.addWidget(self.setup)
+            advanced_row.addWidget(widget)
+        advanced_row.addStretch()
+        advanced.addLayout(advanced_row)
+        advanced.addWidget(self.solution_hint)
+        form.addWidget(self.advanced)
+        self.advanced.setVisible(self.setup_button.isChecked())
+        self.setup_button.toggled.connect(self.advanced.setVisible)
+        self.setup_button.toggled.connect(self.buttons)
+        self.setup_button.toggled.connect(self.save_selection)
         self.control_bar = QWidget()
         live = QHBoxLayout(self.control_bar)
         live.setContentsMargins(0, 0, 0, 0)
@@ -172,6 +195,7 @@ class LineFollowingPage(QWidget):
             self.physics_button,
             self.control_button,
             self.stop_button,
+            self.setup_button,
         ]:
             live.addWidget(widget)
         live.addStretch()
@@ -179,7 +203,14 @@ class LineFollowingPage(QWidget):
         self.robot_label = QLabel("View robot")
         live.addWidget(self.robot_label)
         live.addWidget(self.episode)
-        layout.addWidget(self.control_bar)
+        controls = QWidget()
+        control_layout = QVBoxLayout(controls)
+        control_layout.setContentsMargins(0, 0, 0, 0)
+        control_layout.setSpacing(6)
+        control_layout.addLayout(header)
+        control_layout.addWidget(self.setup)
+        control_layout.addWidget(self.control_bar)
+        self.view.attach_controls(controls)
         layout.addWidget(self.view, 1)
         layout.addWidget(self.playback)
         layout.addWidget(self.message)
@@ -299,6 +330,9 @@ class LineFollowingPage(QWidget):
             self.course.blockSignals(True)
             self.course.clear()
             self.course.addItems([c.name for c in self.cases])
+            saved = self.course.findText(self.saved_course)
+            if saved >= 0:
+                self.course.setCurrentIndex(saved)
             self.course.blockSignals(False)
             self.selected_course = self.course.currentIndex()
             self.preview()
@@ -339,8 +373,10 @@ class LineFollowingPage(QWidget):
             self.course.blockSignals(False)
             return
         self.selected_course = index
+        self.saved_course = self.course.currentText()
         if self.job is not None:
             return
+        self.save_selection()
         if self.replay is not None:
             self.replay = None
             self.playback.pause()
@@ -373,7 +409,11 @@ class LineFollowingPage(QWidget):
                     if self.controller_mode.currentIndex() == 0
                     else "working",
                     "path": self.chooser.path.text(),
+                    "course": self.course.currentText()
+                    if self.cases
+                    else self.saved_course,
                     "diagnostics": self.diagnostics.settings(),
+                    "setup_open": self.setup_button.isChecked(),
                 },
             )
         except OSError as exc:
@@ -527,6 +567,14 @@ class LineFollowingPage(QWidget):
         else:
             hint = problem
         self.solution_hint.setText(hint)
+        self.setup_button.setText(
+            "Hide setup"
+            if self.setup_button.isChecked()
+            else "Setup needed…"
+            if problem or not builtin and not created
+            else "Setup…"
+        )
+        self.setup_button.setToolTip(hint)
         identity = self.loaded_controller()
         if identity:
             state = (

@@ -9,6 +9,8 @@ QLabel#page-title { color: #172f53; font-size: 21pt; font-weight: 600; }
 QLabel#section-title { color: #263c59; font-size: 12pt; font-weight: 600; }
 QLabel#muted { color: #607089; }
 QLabel#selection { color: #294b77; padding: 5px 0; }
+QLabel#plot-title { color: #405574; padding: 5px 9px; border-radius: 5px; }
+QLabel#plot-title[selected="true"] { background: #2463a9; color: white; }
 QListWidget#navigation { background: transparent; border: none; outline: none; }
 QListWidget#navigation::item { padding: 10px 12px; margin: 2px 0; border-radius: 7px; }
 QListWidget#navigation::item:selected { background: #d8e6fa; color: #15477e; font-weight: 600; }
