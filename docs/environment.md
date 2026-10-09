@@ -44,7 +44,8 @@ training or analysis.
 
 The robot's total controller budget includes initialization and request wall time.
 Host simulation and compilation do not use that budget. This is separate from the
-120 **simulated seconds** allowed for an out-and-back journey in the pilot task.
+case-specific **simulated time** limit of `30 * T_100` for the complete
+out-and-back journey. `T_100` is the mechanical reference time for that course and robot.
 Only the documented observation tensors and reset mask reach its controller.
 
 Line Following uses the public Numba CPU engine for training and evaluation.

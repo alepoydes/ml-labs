@@ -10,6 +10,7 @@ from coursekit.common import CourseError
 ROBOT_FRAME_FIELDS = (
     "q",
     "time",
+    "time_limit",
     "progress",
     "travelled_distance",
     "leg",

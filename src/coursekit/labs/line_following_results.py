@@ -11,6 +11,7 @@ EPISODE_COLUMNS = {
     "completion_fraction": "Completed (%)",
     "route_length": "Required (m)",
     "time": "Time (s)",
+    "time_limit": "Limit (s)",
     "leg": "Leg",
 }
 OUTCOMES = {
@@ -34,6 +35,7 @@ def episode_metrics(info, row=0):
             "completion_fraction",
             "travelled_distance",
             "reference_time",
+            "time_limit",
             "outward_time",
         )
     }

@@ -22,7 +22,7 @@ from coursekit.labs.line_following_course import advance, optical, reference_tim
 
 PHYSICS_DT = 0.001
 CONTROL_STEPS = 20
-TIME_LIMIT = 120.0
+TIME_LIMIT_FACTOR = 30.0
 OBSERVATION_SHAPES = {
     "time": (),
     "rgb": (16, 3),
@@ -85,12 +85,12 @@ class Environment:
         cases: Sequence[Case],
         *,
         compiled=True,
-        time_limit=TIME_LIMIT,
+        time_limit=None,
         noise=True,
     ):
         if not cases or any(not isinstance(case, Case) for case in cases):
             raise CourseError("Provide at least one fixed Case.")
-        if not np.isfinite(time_limit) or time_limit <= 0:
+        if time_limit is not None and (not np.isfinite(time_limit) or time_limit <= 0):
             raise CourseError("The episode time limit must be positive and finite.")
         self.cases = list(cases)
         self.courses = [c.course for c in cases]
@@ -98,7 +98,8 @@ class Environment:
         self.size = len(cases)
         self.rng = [None] * self.size
         self.noise = noise
-        self.limit_steps = int(np.ceil(time_limit / PHYSICS_DT))
+        self.time_limit_override = time_limit
+        self.limit_steps = np.zeros(self.size, dtype=np.int64)
         self.compiled = compiled
         self._advance = _step
         self._kinematics = vmap(_kinematics)
@@ -163,6 +164,12 @@ class Environment:
             self.outward_time[i] = np.nan
             self.travelled_distance[i] = 0.0
             self.reference[i] = reference_time(self.courses[i], model)
+            limit = (
+                TIME_LIMIT_FACTOR * self.reference[i]
+                if self.time_limit_override is None
+                else self.time_limit_override
+            )
+            self.limit_steps[i] = int(np.ceil(limit / PHYSICS_DT))
             q = state.q.numpy()
             r = physics.rotation(state.q).numpy()
             self.frontier[i] = advance(self.courses[i], 0.0, q, q, r, r)
@@ -369,7 +376,7 @@ class Environment:
                         )
                     else:
                         self.status[i] = "finished"
-                if self.status[i] == "running" and self.ticks[i] >= self.limit_steps:
+                if self.status[i] == "running" and self.ticks[i] >= self.limit_steps[i]:
                     self.status[i] = "timeout"
             r0 = r1
             if on_step is not None:
@@ -394,6 +401,7 @@ class Environment:
             "status": self.status.copy(),
             "score": score,
             "reference_time": self.reference.copy(),
+            "time_limit": self.limit_steps * PHYSICS_DT,
             "outward_time": self.outward_time.copy(),
             "q": self.state.q.numpy().copy(),
         }

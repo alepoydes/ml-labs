@@ -95,6 +95,16 @@ def recorded_courses(record):
             or (distance[1:] < distance[:-1]).any()
         ):
             raise ValueError("Invalid recorded travelled distance.")
+    if "time_limit" in frames:
+        limit = frames["time_limit"]
+        if (
+            limit.shape != (count, n)
+            or limit.dtype.kind not in "fiu"
+            or not np.isfinite(limit).all()
+            or (limit <= 0).any()
+            or (limit != limit[0]).any()
+        ):
+            raise ValueError("Invalid recorded time limit.")
     if (
         np.asarray(frames["status"]).shape != (count, n)
         or "leg" in frames
@@ -230,8 +240,9 @@ class RobotView(QWidget):
             if "travelled_distance" in frame
             else "—"
         )
+        limit = f"{frame['time_limit'][row]:.3f}" if "time_limit" in frame else "—"
         self.status.setText(
-            f"{case_id or course.name}{' · noise OFF (diagnostic)' if not sensor_noise else ''} · {frame['time'][row]:.3f} s · {outcome} · {leg} · {frame['score'][row]:.2f} points\n"
+            f"{case_id or course.name}{' · noise OFF (diagnostic)' if not sensor_noise else ''} · {frame['time'][row]:.3f} / {limit} s · {outcome} · {leg} · {frame['score'][row]:.2f} points\n"
             f"Accepted: {frame['progress'][row]:.3f} / {2 * course.length:.3f} m "
             f"({100 * frame['progress'][row] / (2 * course.length):.1f}%) · Travelled: {distance}"
         )

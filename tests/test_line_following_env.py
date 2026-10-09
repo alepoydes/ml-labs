@@ -20,6 +20,48 @@ def straight(length=1.0, name="straight"):
     return Course.polyline(name, np.array([[0.0, 0.0], [length, 0.0]]))
 
 
+@pytest.mark.parametrize("size", [1, 2, 8])
+def test_case_deadlines_reset_and_stop_each_native_row_at_its_own_boundary(size):
+    from coursekit.labs.line_following_env import PHYSICS_DT, TIME_LIMIT_FACTOR
+
+    cases = [sample_case(straight(1 + i / 4), i) for i in range(size)]
+    native = Environment(cases, noise=False)
+    eager = Environment(cases, compiled=False, noise=False)
+    expected = np.ceil(TIME_LIMIT_FACTOR * native.reference / PHYSICS_DT).astype(int)
+    np.testing.assert_array_equal(native.limit_steps, expected)
+    np.testing.assert_allclose(native.info()["time_limit"], expected * PHYSICS_DT)
+    # Begin just before different deadlines. The physical block must stop each
+    # row at its own step, including a deadline inside the next control interval.
+    remaining = 1 + 7 * np.arange(size)
+    histories = []
+    for env in (native, eager):
+        env.ticks[:] = expected - remaining
+        frames = []
+        env.step(torch.zeros((size, 2)), on_step=lambda e: frames.append(e.info()))
+        histories.append(frames)
+        np.testing.assert_array_equal(env.ticks, expected - np.maximum(remaining - 20, 0))
+        np.testing.assert_array_equal(env.done, remaining <= 20)
+        assert not env.info()["score"].any()
+    for observed, reference in zip(native.state, eager.state):
+        torch.testing.assert_close(observed, reference, atol=1e-11, rtol=1e-9)
+    for a, b in zip(*histories):
+        np.testing.assert_allclose(a["time"], b["time"])
+        np.testing.assert_allclose(a["q"], b["q"], atol=1e-11, rtol=1e-9)
+    np.testing.assert_array_equal(histories[0][-1]["q"][0], histories[0][0]["q"][0])
+    # Replacing a case recomputes only its own deadline; repeating it is exact.
+    before = native.limit_steps.copy()
+    mask = np.arange(size) == 0
+    native.reset(mask, cases=[sample_case(straight(3), 91)])
+    assert native.limit_steps[0] != before[0]
+    np.testing.assert_array_equal(native.limit_steps[1:], before[1:])
+    repeated = native.limit_steps.copy()
+    native.reset(mask)
+    np.testing.assert_array_equal(native.limit_steps, repeated)
+    measured = native.info()["time_limit"]
+    measured[:] = 0
+    assert (native.info()["time_limit"] > 0).all()
+
+
 def test_batching_and_unrelated_resets_preserve_episode_conditions():
     single = Environment(
         [sample_case(c, seed) for c, seed in zip([straight()], [19])],

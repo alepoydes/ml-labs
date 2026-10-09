@@ -48,6 +48,7 @@ def test_bundled_resources_training_archive_and_local_evaluation(project):
     assert len(cases) == result["episodes"]
     assert all(case["travelled_distance"] >= 0 for case in cases)
     assert all(case["status"] == "timeout" for case in cases)
+    assert all(case["time_limit"] == 0.002 for case in cases)
     assert result["mean_completion_fraction"] == pytest.approx(
         np.mean([case["progress"] / case["route_length"] for case in cases])
     )
@@ -168,6 +169,8 @@ def test_baseline_partial_reset_matches_fresh_controller(project):
         }
         if step % 11 < 8:
             observation["rgb"][:, 6:8] = torch.tensor(INK, dtype=torch.float32)
+        if step in (4, 5, 22, 23):
+            observation["rgb"][:, 3:13] = torch.tensor(INK, dtype=torch.float32)
         for i in range(2):
             if reset[i]:
                 single[i] = training.load_solution(work)
@@ -180,6 +183,69 @@ def test_baseline_partial_reset_matches_fresh_controller(project):
         )
         torch.testing.assert_close(actual, expected)
         assert torch.isfinite(actual).all() and actual.abs().max() <= 1
+
+
+def test_baseline_continues_crossings_on_both_legs_and_mirrored_courses(project):
+    from dataclasses import replace
+
+    from coursekit.labs import line_following as physics
+    from coursekit.labs.line_following_cases import load_cases
+    from coursekit.labs.line_following_course import Course
+    from coursekit.labs.line_following_env import Environment
+
+    names = {f"train-{i:02d}" for i in range(39, 45)} | {"validation-11", "validation-12"}
+    cases = [c for c in load_cases(project / "data/line_following") if c.name in names]
+    for case in list(cases):
+        course = case.course
+        mirrored = Course(
+            course.name + "-mirrored",
+            course.controls * [1, -1],
+            course.knots,
+            course.corners,
+        )
+        state = physics.initial_state(case.robot)
+        state.q[:2] = torch.from_numpy(mirrored.at(0).copy())
+        tangent = mirrored.at(0, 1)
+        state.q[5] = float(np.arctan2(tangent[1], tangent[0]))
+        cases.append(replace(case, name=mirrored.name, course=mirrored, initial=state))
+    work = training.new_solution(project, "line_following", "baseline", "crossings")
+    training.train_local(work, project)
+    solution = training.load_solution(work)
+    env = Environment(cases)
+    saw_crossing = np.zeros((len(cases), 2), dtype=bool)
+    with torch.no_grad():
+        while not env.done.all():
+            action = solution.act(env.observe(), env.first)
+            for i in range(len(cases)):
+                saw_crossing[i, env.leg[i]] |= solution.debug(i)["crossing"]
+            env.step(action)
+    assert (env.status == "finished").all(), list(zip([c.name for c in cases], env.status))
+    np.testing.assert_allclose(env.info()["completion_fraction"], 1)
+    assert saw_crossing.all()
+
+
+def test_baseline_preserves_bends_markers_and_parallel_hairpins(project):
+    from coursekit.labs.line_following_cases import load_cases
+    from coursekit.labs.line_following_env import Environment
+
+    # The 47 mm branch gap stays constant up to the turn. A detector which
+    # remembers any second stripe mistakes these hairpins for crossings.
+    # Train-08 also approaches a faint coloured marker on a bend: it must keep
+    # following that paint, without substituting a straight crossing probe.
+    cases = [
+        c
+        for c in load_cases(project / "data/line_following")
+        if c.name in {"train-08", "train-37", "validation-08", "validation-10"}
+    ]
+    work = training.new_solution(project, "line_following", "baseline", "parallel-branches")
+    training.train_local(work, project)
+    solution = training.load_solution(work)
+    env = Environment(cases)
+    with torch.no_grad():
+        while not env.done.all():
+            env.step(solution.act(env.observe(), env.first))
+    assert (env.status == "finished").all(), env.info()
+    np.testing.assert_allclose(env.info()["completion_fraction"], 1)
 
 
 @pytest.mark.parametrize("paint", [INK, START, END], ids=["black", "blue", "red"])

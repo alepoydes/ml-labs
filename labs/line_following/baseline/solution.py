@@ -45,6 +45,12 @@ class Solution:
             self.probe_distance = torch.zeros_like(time)
             self.loss_distance = torch.zeros_like(time)
             self.probe_started = torch.zeros_like(reset)
+            self.crossing = torch.zeros_like(reset)
+            self.crossing_distance = torch.zeros_like(time)
+            self.crossing_clear = torch.zeros_like(time)
+            self.crossing_point = self.position.clone()
+            self.crossing_yaw = torch.zeros_like(time)
+            self.wide = torch.zeros_like(reset)
         for state in (
             self.position,
             self.anchor,
@@ -66,10 +72,16 @@ class Solution:
             self.settled,
             self.probe_distance,
             self.loss_distance,
+            self.crossing_distance,
+            self.crossing_clear,
+            self.crossing_point,
+            self.crossing_yaw,
         ):
             state[reset] = 0
         self.direction[reset] = 1
         self.probe_started[reset] = False
+        self.crossing[reset] = False
+        self.wide[reset] = False
         self.previous_time[reset] = time[reset]
         self.previous_encoders[reset] = encoders[reset]
         dt = (time - self.previous_time).clamp(min=0, max=0.1)
@@ -99,9 +111,15 @@ class Solution:
         coordinates = SENSOR_WIDTH * (
             (torch.arange(16, device=rgb.device) + 0.5) / 16 - 0.5
         )
-        distance = (
-            (coordinates - self.error[:, None]).abs().masked_fill(~dark, float("inf"))
-        )
+        # While crossing merged paint, predict the sensor intersection with the
+        # last reliable tangent. The centroid of two branches is not a line point.
+        tangent = torch.stack((self.line_yaw.cos(), self.line_yaw.sin()), dim=1)
+        normal = torch.stack((-tangent[:, 1], tangent[:, 0]), dim=1)
+        heading = wrap(self.line_yaw - self.yaw)
+        predicted = -((self.position - self.anchor) * normal).sum(dim=1)
+        predicted /= heading.cos().clamp(min=0.35)
+        expected = torch.where(self.crossing, predicted, self.error)
+        distance = (coordinates - expected[:, None]).abs().masked_fill(~dark, float("inf"))
         selected = groups.gather(1, distance.argmin(dim=1, keepdim=True))
         weight *= (groups == selected) & dark
         visible = weight.sum(dim=1) > 0.2
@@ -132,6 +150,46 @@ class Solution:
         self.anchor[turning_back] = point[turning_back]
         self.end_mode[(self.end_mode == 2) & visible] = 0
 
+        # One stripe covers about two sectors, growing as 1/cos(heading).
+        # Save the incoming line BEFORE a wide stripe can corrupt the tangent.
+        # Confirm a crossing only when paint extends to both sides of THAT line.
+        # A corner or a parallel hairpin extends to one side; track it normally.
+        broad = weight.sum(dim=1) > 2.8 / heading.cos().clamp(min=0.35)
+        widening = broad & ~self.wide & ~self.crossing
+        self.crossing_point[widening] = self.anchor[widening]
+        self.crossing_yaw[widening] = self.line_yaw[widening]
+        self.wide = broad
+        normal = torch.stack((-self.crossing_yaw.sin(), self.crossing_yaw.cos()), dim=1)
+        lateral = ((self.position - self.crossing_point) * normal).sum(dim=1)
+        cosine = wrap(self.crossing_yaw - self.yaw).cos()
+        beyond = lateral[:, None] + coordinates * cosine[:, None]
+        crossing_cue = ((weight * (beyond > 0.009)).sum(dim=1) > 0.15) & (
+            (weight * (beyond < -0.009)).sum(dim=1) > 0.15
+        )
+        # Even faint endpoint paint retains ordinary tracking and reversal;
+        # do not replace its geometry with a straight crossing probe.
+        coloured = ((colour.abs() > 0.05) & (weight > 0.025)).any(dim=1)
+        enter_crossing = (
+            broad & crossing_cue & (self.mode == 0) & ~endpoint & ~coloured & ~self.crossing
+        )
+        self.crossing |= enter_crossing
+        self.line_yaw[enter_crossing] = self.crossing_yaw[enter_crossing]
+        self.anchor[enter_crossing] = self.crossing_point[enter_crossing]
+        predicted = torch.where(self.crossing, -lateral / cosine.clamp(min=0.35), predicted)
+        self.crossing_distance = torch.where(
+            self.crossing & ~enter_crossing, self.crossing_distance + ds.abs(), 0.0
+        )
+        clear = visible & ~broad & ((offset - predicted).abs() < 0.012)
+        self.crossing_clear = torch.where(
+            self.crossing & clear, self.crossing_clear + ds.abs(), 0.0
+        )
+        leave_crossing = self.crossing & (self.crossing_clear > 0.012)
+        failed_crossing = (
+            self.crossing & (~visible | (self.crossing_distance > 0.14)) & ~leave_crossing
+        )
+        self.crossing &= ~(leave_crossing | failed_crossing)
+        self.anchor[leave_crossing] = point[leave_crossing]
+
         # Fit over net spatial displacement, not instantaneous encoder speed.
         # Slow pivots can have almost zero v - omega*offset without erasing useful
         # earlier observations. Reject a segment pointing back along the old line.
@@ -139,7 +197,7 @@ class Solution:
         span = torch.linalg.vector_norm(vector, dim=1)
         tangent = torch.stack((self.line_yaw.cos(), self.line_yaw.sin()), dim=1)
         advancing = (vector * tangent).sum(dim=1) > -0.0007
-        reliable = visible & (self.error.abs() < 0.033)
+        reliable = visible & (self.error.abs() < 0.033) & ~self.crossing & ~failed_crossing
         # Longer separation suppresses optical quantisation near the centre;
         # shorten it when the line approaches an edge to respond to tight bends.
         spacing = torch.where(self.error.abs() < 0.006, 0.016, 0.004)
@@ -188,7 +246,12 @@ class Solution:
         self.retreat_yaw[bookmark] = self.bookmark_yaw[bookmark]
         self.bookmark[bookmark] = point[bookmark]
         self.bookmark_yaw[bookmark] = self.line_yaw[bookmark]
-        lost = (~visible | (self.error.abs() > 0.038)) & ~endpoint & (self.mode == 0)
+        lost = (
+            (~visible | (self.error.abs() > 0.038) | failed_crossing)
+            & ~endpoint
+            & (self.mode == 0)
+            & ~self.crossing
+        )
         self.loss_distance[lost] = torch.linalg.vector_norm(point - self.retreat, dim=1)[
             lost
         ]
@@ -225,6 +288,9 @@ class Solution:
             virtual,
             (virtual_error / virtual_heading.cos().clamp(min=0.5)).clamp(-0.04, 0.04),
             self.error,
+        )
+        steering_error = torch.where(
+            self.crossing, predicted.clamp(-0.04, 0.04), steering_error
         )
         drive = torch.where(self.mode == 1, -self.direction, self.direction)
         self.caution = torch.where(self.mode != 0, 1.5, (self.caution - dt).clamp(min=0))
@@ -268,6 +334,9 @@ class Solution:
         target_speed = torch.where(
             virtual & ((self.mode == 2) | (heading_error.abs() > 0.15)), 0.0, target_speed
         )
+        target_speed = torch.where(
+            self.crossing, drive * 0.04 * self.heading.cos().clamp(min=0), target_speed
+        )
         # Coloured paint is still line geometry. Keep following its bends;
         # only the short passage beyond the physical endpoint is blind travel.
         target_speed = torch.where(endpoint, target_speed.clamp(-0.06, 0.06), target_speed)
@@ -293,6 +362,7 @@ class Solution:
         return {
             "line_offset_m": float(self.error[index]),
             "line_visible": bool(self.visible[index]),
+            "crossing": bool(self.crossing[index]),
             "drive_direction": float(self.direction[index]),
             "heading_error_rad": float(self.heading[index]),
             "recovering": int(

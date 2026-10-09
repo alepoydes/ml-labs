@@ -412,6 +412,8 @@ def capture_motion():
     assert robot.timeline.value()>0
     assert robot.job.frames[0]['travelled_distance'][0] == 0
     assert robot.job.snapshot()[0]['travelled_distance'][0] > 1e-4
+    limit = robot.job.snapshot()[0]['time_limit'][0]
+    assert limit > 0 and f'/ {limit:.3f} s' in robot.view.status.text()
     robot.render()
     assert 'Travelled:' in robot.view.status.text() and 'Accepted:' in robot.view.status.text()
     measurements={'first_ready_seconds':first_ready,'live_wall_seconds':time.monotonic()-motion_started,'live_simulated_seconds':float(robot.job.snapshot()[0]['time'][0])-sim_started}
@@ -592,6 +594,7 @@ class Solution:
         wait_for(lambda: not run.isRunning())
         assert run.error is None
         assert run.snapshot()[0]["status"].tolist() == ["timeout", "timeout"]
+        assert run.snapshot()[0]["time_limit"].tolist() == [0.05, 0.05]
         assert len(run.controls) == 3
         assert run.controls[0]["reset"].all() and not run.controls[1]["reset"].any()
         path = tmp_path / "recording.npz"
@@ -803,6 +806,15 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
         assert page.replay["frames"]["q"].shape == (1, 1, 8)
         previous = page.replay
         distance = saved["frames"]["travelled_distance"].copy()
+        limit = saved["frames"]["time_limit"].copy()
+        assert (limit > 0).all()
+        for invalid in (limit[:, :0], -limit, np.full_like(limit, np.nan)):
+            saved["frames"]["time_limit"] = invalid
+            recording.save(target, saved)
+            page.open_recording()
+            assert page.replay is previous
+            assert "Invalid recorded time limit" in page.message.text()
+        saved["frames"]["time_limit"] = limit
         for invalid in (np.array([[-1.0]]), np.array([[np.nan]]), np.zeros((1, 2))):
             saved["frames"]["travelled_distance"] = invalid
             recording.save(target, saved)
@@ -846,6 +858,13 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
             page.replay is previous
             and "Invalid recorded frame field" in page.message.text()
         )
+        # An older compatible recording did not measure its deadline. Display
+        # that absence explicitly instead of applying today's rule retroactively.
+        del saved["frames"]["extra"], saved["frames"]["time_limit"]
+        recording.save(target, saved)
+        page.open_recording()
+        assert page.replay is not previous
+        assert "/ — s" in page.view.status.text()
     finally:
         page.stop()
         for task in (page.job, page.warmup):

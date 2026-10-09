@@ -153,8 +153,7 @@ turning time counts too.
 
 Falling fails the episode and ends simulation immediately. Ordinary contact with
 the support sphere is allowed. Falling forward or sideways is not a recovery
-technique. In this release, a body tilt of 0.9 radians from vertical is a fall, and the
-episode time limit is 120 simulated seconds.
+technique. In this release, a body tilt of 0.9 radians from vertical is a fall.
 
 For a completed journey taking simulated time $T$, the episode score is
 
@@ -168,6 +167,13 @@ the line's centre, accounting for speed and acceleration limits, curvature,
 both directions, and the turnaround. It includes no cost for discovering the
 route or identifying the robot. The public `reference_time` function implements
 this approximation. Its settings will be frozen for the assessed version.
+
+The episode time limit is $T_{\max}=30\,T_{100}$, rounded up to the next
+1 ms physical step. It therefore depends on both the course and its fixed robot.
+The same limit covers both legs and all recovery manoeuvres. The environment
+reports the effective limit as `info["time_limit"]`; tables and the graphical
+viewer show it alongside elapsed time. Finishing at the deadline earns about
+3.33 points.
 
 The reference is an approximate normalisation. Legal corner cutting within the
 coverage rule or useful sliding may beat it; the score is capped at 100. Taking
@@ -220,6 +226,12 @@ after losing the line. It settles behind a previously observed line point, then
 gathers fresh forward observations while retrying slowly. At either endpoint it
 can reverse travel without turning its body. Its preparation procedure saves
 hand-tuned settings; it does not learn.
+When a stripe becomes unexpectedly wide, it saves the incoming line estimate.
+Paint extending to both sides of that saved line confirms a crossing; it then
+follows the saved tangent through merged paint at low speed, without fitting
+that paint's centroid. One-sided corners and parallel hairpins retain normal tracking.
+It resumes optical tracking after finding a narrow stripe near the prediction;
+an unsuccessful probe returns to the normal retreat procedure.
 The [control guide](control_hints.md#the-reference-controller) explains the design
 and its limitations. Replace or extend the preparation procedure with learning or
 fitting.
@@ -546,12 +558,16 @@ Encoder increments can differ from ground displacement because wheels may slip.
 
 ### Batched environment
 
-`Environment(cases, *, compiled=True, time_limit=120.0, noise=True)`
+`Environment(cases, *, compiled=True, time_limit=None, noise=True)`
 constructs one independent episode per fixed `Case`. Parameters and initial
 conditions are copied from the case, and its noise stream starts from the recorded state.
 Courses must be at least 0.3 m long. The environment uses float64 CPU physics with
 a 1 ms physical step and a 20 ms control interval (50 observations/actions per
 simulated second).
+The default `time_limit=None` derives a separate deadline of `30 * T_100` for
+each row. Replacing a case on reset recalculates that row's deadline. An explicit
+positive `time_limit` in seconds overrides all deadlines for local diagnostics;
+assessment uses the default rule.
 
 This example advances two robots for one control interval. It uses the prepared
 working solution created in the [workflow](#development-and-submission-workflow):
@@ -617,6 +633,7 @@ another reward from `info`:
 | `status` | `(B,)` | `running`, `finished`, `fallen` or `timeout`. |
 | `score` | `(B,)` | Episode points; zero until successful completion. |
 | `reference_time` | `(B,)` | Mechanical reference time, in seconds. |
+| `time_limit` | `(B,)` | Effective episode deadline, in seconds, rounded up to a physical step. |
 | `outward_time` | `(B,)` | Outward completion time, or NaN until that leg is complete. |
 
 The accepted distance `info["progress"]` is available to the **training algorithm**
@@ -708,7 +725,7 @@ friction in 0.45–0.75, motor stall torque in 0.065–0.095 N m, no-load speed 
 stiffness use the nominal mechanics profile. Independent zero-mean Gaussian
 sensor noise has standard deviations 0.008 for RGB, 0.004 rad/s for gyro,
 0.025 m/s² for acceleration, and 0.0005 rad for encoders. RGB is clipped to `[0, 1]`.
-The pilot time limit is 120 simulated seconds; a body-up tilt of 0.9 rad is a fall.
+The episode time limit is `30 * T_100`; a body-up tilt of 0.9 rad is a fall.
 
 ## Development and submission workflow
 
@@ -778,9 +795,39 @@ anything. Follow the [submission format](../../docs/submissions.md) and
 
 ### Reference measurements and experimental comparison
 
-The fixed-case baseline was evaluated on all 65 published training and validation
-experiments, with their stored robots and sensor noise, on 2026-10-09. The limit
-remained 120 simulated seconds.
+The current crossing-aware baseline was evaluated on all 65 published experiments
+with their fixed robots and sensor noise on 2026-10-09. Each case used its own
+`30 * T_100` deadline. The previous controller was also rerun with these deadlines
+to distinguish controller changes from the additional time allowance.
+
+| Measurement | Previous controller, `30 * T_100` | Current controller, `30 * T_100` |
+| --- | ---: | ---: |
+| Training completions | 40 / 50 | 49 / 50 |
+| Validation completions | 11 / 15 | 15 / 15 |
+| Training mean score, including failures | 5.58 | 6.67 |
+| Validation mean score, including failures | 5.05 | 6.60 |
+| Training mean accepted coverage | 87.0% | 98.8% |
+| Validation mean accepted coverage | 87.5% | 100.0% |
+| Falls | 0 | 0 |
+
+No previously successful case became a failure under the same deadline. All eight
+crossing-group cases (`train-39`–`train-44`, `validation-11`–`validation-12`) now
+complete both legs; the previous controller timed out on all eight even with the
+larger allowance. `train-03` and `train-04` retain their 53.262 s and 95.370 s
+journeys. `train-08`, which approaches faint endpoint paint on a bend, completes
+in 83.973 s. The remaining failure is `train-36`: a 379.713 s timeout with 39.9%
+accepted coverage, also present in the previous controller.
+
+Public deadlines range from 47.419 to 424.369 simulated seconds. Successful
+journeys take approximately 12.00–25.68 times their mechanical reference, so the
+factor 30 leaves time for this conservative controller without making all cases
+solvable. The baseline is not a universal route solver; these finite public
+measurements do not establish performance on every admissible robot or geometry.
+The following measurements retain the history of earlier revisions and limits.
+
+The earlier fixed-case baseline, before crossing handling was added, was evaluated
+on all 65 published training and validation experiments with their stored robots
+and sensor noise on 2026-10-09. That pilot used a fixed 120-second limit.
 
 | Measurement | Training | Validation |
 | --- | ---: | ---: |
@@ -795,11 +842,10 @@ Both completed the outward and return legs with accepted progress restored after
 recovery. Singleton runs through the graphical simulator's worker and batched
 runs produce identical observations, actions and final states for these two cases.
 
-The baseline is deliberately conservative and is not a universal route solver.
-Its 33 completions are fewer than the previous conservative pilot's 38 under the
-same time limit; the remaining 32 episodes time out. Difficult branches, crossings
-and recovery remain limitations. Small steering fluctuations from the discretised
-optical measurements also remain: disabling random sensor noise does not make the
+That revision completed 33 journeys, compared with the preceding conservative
+pilot's 38 under the same time limit; its remaining 32 episodes timed out.
+Difficult branches, crossings and recovery limited that revision. Small steering
+fluctuations from the discretised optical measurements also remain: disabling random sensor noise does not make the
 16-sector observation continuous. These measurements do not establish stability
 for every admissible robot or route.
 
@@ -858,6 +904,9 @@ Current regression tests cover sharp and C2-rounded 90-degree turns, both left
 and right, with eight explicitly generated robots: all 32 journeys complete both
 legs within the public episode limit. They also check physical reverse recovery and retain bounds
 of 6 mm lateral error and 0.15 rad heading error on the straight after the turn.
+The eight crossing-group cases and their mirrored versions complete all 16
+out-and-back journeys. Separate checks retain completion on close parallel
+branches and on the `train-08` bend approaching faint endpoint paint.
 An additional `train-04` check covers nine robots with normal sensor noise,
 and ten ablations using the published and diagnostic robots with noise disabled
 or enabled for only one sensor type. It checks both legs, recovered progress,

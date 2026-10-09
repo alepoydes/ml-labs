@@ -344,8 +344,26 @@ encoders and gyro; it cannot certify that this recovered position lies before
 the judge's frontier. Odometry drift and a wrong branch can still defeat this
 short recovery procedure.
 
+At an intersection, the centroid of merged branches is not a point on the branch
+being followed. At the first unexpectedly wide observation, the baseline saves
+the incoming line point and tangent. It continues ordinary tracking until paint
+extends to both sides of this saved line. Confirmation then restores that earlier
+estimate for crossing control. Both detection and control must use the estimate
+from before the wide paint: an updated centroid could otherwise turn an ordinary
+corner into an apparent crossing. Using odometry and gyro feedback,
+it follows this virtual line at 0.04 m/s and selects the emerging stripe nearest
+the predicted sensor intersection. A narrow compatible stripe must persist over
+12 mm of travel before normal fitting resumes. The probe is limited to 140 mm;
+loss of paint or exhausting that distance invokes ordinary retreat. One-sided
+widening alone does not trigger this mode, because a sharp corner or the
+connection between nearby parallel branches can produce it.
+Coloured paint, including a faint marker at the edge of the row, retains normal
+tracking and endpoint handling rather than triggering a straight crossing probe.
+These thresholds are heuristics for the published geometry, not a proof of
+correct branch selection under all slip, curvature and noise conditions.
+
 `debug()` exposes offset, estimated heading and speed, recovery state, travel
-direction, measured/requested yaw rate and motor inputs. Compare these estimates with the simulator
+direction, crossing-probe state, measured/requested yaw rate and motor inputs. Compare these estimates with the simulator
 in training and inspect unsuccessful runs. The baseline does not balance upright,
 learn dynamics, build a route map or optimise the return journey. Its measured
 reference results and remaining failures are given in the
@@ -415,7 +433,7 @@ should be measured explicitly.
 Use the batched environment to collect experience from several episodes. The Numba
 engine reuses compilation across batch lengths; reset completed rows independently and
 clear only their controller memories. Preserve the final observation before
-resetting. In this lab, the 120 s timeout is a scored failure: although the API
+resetting. In this lab, the `30 * T_100` timeout is a scored failure: although the API
 labels it `truncated`, it is not merely an arbitrary training rollout cutoff.
 Decide value targets accordingly. A rollout buffer boundary while an episode is
 still running is a different event.
