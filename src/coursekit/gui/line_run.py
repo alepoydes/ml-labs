@@ -25,7 +25,7 @@ def _simulate(connection, path, cases, options):
 
     from coursekit.inspection import debug_snapshot
     from coursekit.labs.line_following_env import Environment, validate_action
-    from coursekit.training import load_solution
+    from coursekit.training import controller_identity, load_solution
 
     current_phase = None
     pending = []
@@ -47,7 +47,13 @@ def _simulate(connection, path, cases, options):
     try:
         if path is not None:
             phase("Loading solution")
+            identity = controller_identity(path)
             solution = load_solution(path)
+            if controller_identity(path) != identity:
+                raise RuntimeError(
+                    "Controller files changed while loading; restart the run."
+                )
+            connection.send(("controller", identity))
         phase("Preparing physics")
         env = Environment(cases, **options)
         if options.get("compiled", True):
@@ -202,9 +208,10 @@ class Worker:
 class Run(QThread):
     """Run a solution, or prepare the engine when path is None."""
 
-    def __init__(self, path, cases, parent=None, *, worker=None, **options):
+    def __init__(self, path, cases, parent=None, *, worker=None, label=None, **options):
         super().__init__(parent)
         self.path, self.cases = path, cases
+        self.label, self.controller = label, None
         self.courses = [c.course for c in cases]
         self.options = options
         self.worker = worker if worker is not None else Worker()
@@ -261,6 +268,10 @@ class Run(QThread):
                         elif kind == "phase":
                             if not self.stopping and self.phase != value:
                                 self.phase, self.phase_started = value, time.monotonic()
+                        elif kind == "controller":
+                            self.controller = value | (
+                                {"name": self.label} if self.label else {}
+                            )
                         else:
                             setattr(self, kind, value)
                 elif not process.is_alive():
@@ -295,6 +306,7 @@ class Run(QThread):
             return {
                 **robot_metadata(),
                 "solution": str(self.path),
+                "controller": self.controller,
                 **case_metadata(self.cases, noise=self.options.get("noise", True)),
                 "physics_dt": PHYSICS_DT,
                 "control_steps": CONTROL_STEPS,

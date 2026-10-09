@@ -74,6 +74,8 @@ def main(argv=None):
         page = LineFollowingPage(args.project)
     if args.solution is not None:
         page.chooser.path.setText(str(args.solution))
+        if args.lab == "line_following":
+            page.controller_mode.setCurrentIndex(1)
     window = Window(page, args.lab)
     window.show()
     return app.exec()

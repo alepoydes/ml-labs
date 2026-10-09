@@ -175,10 +175,15 @@ To browse courses, run `./view_lab line_following` and select **Course** in
 the top row or use **Previous course / Next course**. The preview needs no trained solution and
 prepares the bundled courses automatically. Use **Top view** and **Fit track** for a
 plan view. Blue marks the start/return finish; red marks the far turnaround.
-On a fresh checkout, click **Create baseline** to copy and prepare the reference
-controller. For an existing copy, **Prepare solution** runs its `train.py`. These
-are explicit training actions, using the same functions as the numbered scripts;
-existing source is preserved. **Start** remains disabled until artifacts exist.
+On a fresh checkout, **Next run** selects **Built-in baseline**. **Start** prepares
+the installed reference in managed storage under `runs/line_following/builtin/`;
+opening the viewer alone performs no training. Select **Working solution** to use
+your own directory; this choice and path persist between openings. **Prepare
+solution** runs that copy's `train.py`, using the same function as the numbered
+scripts. **New copy from baseline** creates and prepares a fresh numbered working
+copy, preserving existing code. Working copies need preparation metadata to start;
+subsequent source/configuration edits are identified as stale preparation and remain
+runnable for local debugging. Parameter integrity is checked when loading.
 See the [data description](../labs/line_following/README.md#data-and-course-collection)
 for files and fixed experiment cases, and the
 [episode rules](../labs/line_following/README.md#rules-of-the-episode) for marker
@@ -210,8 +215,12 @@ run. **Continue** returns to its latest state without repeating old controller c
 Batch runs use consecutive fixed cases; **View robot** selects the row.
 The graphical and command-line runners use the same stored robot, initial state
 and noise for a case. Disable **Sensor noise** only for diagnostic comparisons.
-**Copy current baseline** creates a separate working copy of the latest template;
-the visible path and fingerprint identify the selected solution.
+**Running controller** identifies the actual loaded solution, independently of
+**Next run**. **Controller details** shows the path, code/configuration/parameter
+fingerprints and preparation status captured by the worker. Recordings retain this
+identity; historical missing identities remain unknown. **Restart** creates a fresh
+controller instance and episode, while **Prepare solution** prepares saved parameters
+again and **New copy from baseline** starts a separate working variant.
 Top view, follow camera, wheel zoom and dragging to pan help inspect the line, chassis
 and rear sphere; **Fit track** restores the full-course view. The RGB strip shows the
 latest actual optical reading. Use **Save recording** explicitly before replacing

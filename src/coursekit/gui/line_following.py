@@ -1,3 +1,4 @@
+import json
 import time
 from pathlib import Path
 
@@ -7,9 +8,11 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -17,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from coursekit import recording, resources, submissions, training
-from coursekit.common import digest
+from coursekit.common import digest, write_json
 from coursekit.gui.common import Job, Notice, SolutionPath, heading
 from coursekit.gui.line_run import Run, Worker
 from coursekit.gui.playback import Playback
@@ -33,7 +36,14 @@ class LineFollowingPage(QWidget):
     def __init__(self, project):
         super().__init__()
         apply_style(self)
-        self.project = Path(project)
+        self.project = Path(project).resolve()
+        self.selection_file = self.project / "runs/line_following/viewer.json"
+        try:
+            selection = json.loads(self.selection_file.read_text())
+            if not isinstance(selection, dict):
+                selection = {}
+        except (OSError, ValueError):
+            selection = {}
         self.job = self.preparation = self.replay = None
         self.warmup, self.warmed_batch = None, None
         self.worker = Worker()
@@ -42,11 +52,17 @@ class LineFollowingPage(QWidget):
         self.cases, self.courses = [], []
         self.live, self.shown = True, None
         self.chooser = SolutionPath(self.project, "line_following")
+        self.chooser.layout().setContentsMargins(0, 0, 0, 0)
+        if isinstance(selection.get("path"), str):
+            self.chooser.path.setText(selection["path"])
+        self.controller_mode = QComboBox()
+        self.controller_mode.addItems(["Built-in baseline", "Working solution"])
+        self.controller_mode.setCurrentIndex(int(selection.get("mode") == "working"))
         self.solution_button = QPushButton("Create baseline")
         self.solution_button.setToolTip(
             "Create the baseline if missing, then run train.py to prepare its artifacts. Existing code is never replaced."
         )
-        self.copy_button = QPushButton("Copy current baseline")
+        self.copy_button = QPushButton("New copy from baseline")
         self.copy_button.setToolTip(
             "Create and prepare a new working copy of the current template; keep existing solutions."
         )
@@ -55,6 +71,11 @@ class LineFollowingPage(QWidget):
         self.solution_hint.setObjectName("muted")
         self.solution_hint.setTextFormat(Qt.TextFormat.PlainText)
         self.solution_hint.setWordWrap(True)
+        self.running_hint = QLabel("No controller loaded")
+        self.running_hint.setTextFormat(Qt.TextFormat.PlainText)
+        self.running_hint.setWordWrap(True)
+        self.controller_details = QPushButton("Controller details…")
+        self.controller_details.clicked.connect(self.show_controller_details)
         self.course = QComboBox()
         self.course.setMinimumContentsLength(14)
         self.previous_course = QPushButton("Previous course")
@@ -99,7 +120,7 @@ class LineFollowingPage(QWidget):
         self.playback.changed.connect(self.seek)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 12)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
         header = QHBoxLayout()
         header.addWidget(
             heading(
@@ -114,12 +135,19 @@ class LineFollowingPage(QWidget):
         self.setup = QWidget()
         form = QVBoxLayout(self.setup)
         form.setContentsMargins(0, 0, 0, 0)
+        form.setSpacing(4)
         solution_row = QHBoxLayout()
+        solution_row.addWidget(QLabel("Next run"))
+        solution_row.addWidget(self.controller_mode)
         solution_row.addWidget(self.chooser, 1)
         solution_row.addWidget(self.solution_button)
         solution_row.addWidget(self.copy_button)
         form.addLayout(solution_row)
         form.addWidget(self.solution_hint)
+        running_row = QHBoxLayout()
+        running_row.addWidget(self.running_hint, 1)
+        running_row.addWidget(self.controller_details)
+        form.addLayout(running_row)
         setup = QHBoxLayout()
         for widget in [
             self.previous_course,
@@ -174,7 +202,10 @@ class LineFollowingPage(QWidget):
         self.open_button.clicked.connect(self.open_recording)
         self.prepare_button.clicked.connect(self.prepare)
         self.solution_button.clicked.connect(self.prepare_solution)
-        self.chooser.path.textChanged.connect(self.buttons)
+        self.chooser.path.textChanged.connect(self.select_working)
+        self.chooser.path.editingFinished.connect(self.save_selection)
+        self.controller_mode.currentIndexChanged.connect(self.change_solution_mode)
+        self.chooser.setVisible(self.controller_mode.currentIndex() == 1)
         # Space controls the current run; the lower controls play recorded history.
         self.playback.play_action.setEnabled(False)
         action = QAction("Start / pause / continue", self)
@@ -219,6 +250,8 @@ class LineFollowingPage(QWidget):
             self.message.setText(task.error)
         task.deleteLater()
         if not self.isEnabled():
+            return
+        if self.pending_start and self.preparation is not None:
             return
         if self.pending_start and not task.error and not task.stopping:
             self.pending_start = False
@@ -315,8 +348,62 @@ class LineFollowingPage(QWidget):
         self.preview()
         self.buttons()
 
+    def selected_path(self):
+        if self.controller_mode.currentIndex() == 0:
+            return training.baseline_path(self.project, "line_following")
+        return (self.project / self.chooser.path.text()).resolve()
+
+    def select_working(self):
+        self.controller_mode.setCurrentIndex(1)
+        self.buttons()
+
+    def change_solution_mode(self):
+        self.chooser.setVisible(self.controller_mode.currentIndex() == 1)
+        self.save_selection()
+        self.buttons()
+
+    def save_selection(self):
+        try:
+            write_json(
+                self.selection_file,
+                {
+                    "mode": "builtin"
+                    if self.controller_mode.currentIndex() == 0
+                    else "working",
+                    "path": self.chooser.path.text(),
+                },
+            )
+        except OSError as exc:
+            self.message.setText(f"Cannot save controller selection: {exc}")
+
+    def loaded_controller(self):
+        if self.replay is not None:
+            return self.replay.get("controller")
+        return self.job.controller if self.job is not None else None
+
+    def show_controller_details(self):
+        identity = self.loaded_controller()
+        if not identity:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Loaded controller")
+        layout = QVBoxLayout(dialog)
+        details = QPlainTextEdit()
+        details.setReadOnly(True)
+        details.setPlainText(json.dumps(identity, indent=2))
+        layout.addWidget(details)
+        close = QPushButton("Close")
+        close.clicked.connect(dialog.accept)
+        layout.addWidget(close)
+        dialog.resize(720, 360)
+        dialog.exec()
+
     def solution_problem(self):
-        path = Path(self.chooser.path.text())
+        path = (
+            self.project / "labs/line_following/baseline"
+            if self.controller_mode.currentIndex() == 0
+            else self.selected_path()
+        )
         missing = [
             name
             for name in ("solution.py", "train.py", "config.toml", "submission.toml")
@@ -348,21 +435,25 @@ class LineFollowingPage(QWidget):
         except Exception as exc:
             self.message.setText(str(exc))
 
-    def prepare_solution(self):
+    def prepare_solution(self, run_after=False):
         if self.preparation is not None or self.job is not None and self.job.isRunning():
             return
-        path = Path(self.chooser.path.text())
+        builtin = self.controller_mode.currentIndex() == 0
+        path = self.selected_path()
         default = self.project / "work/line_following/baseline"
         if self.solution_problem() and not (path == default and not path.exists()):
             self.message.setText(self.solution_problem())
             return
 
         def prepare():
+            if builtin:
+                return training.prepare_baseline(self.project, "line_following")
             if path == default and not path.exists():
                 training.new_solution(self.project, "line_following", "baseline")
             training.train_local(path, self.project)
 
         self.message.setText("Preparing solution: running train.py and saving artifacts…")
+        self.pending_start = run_after
         self.preparation = Job(prepare, self)
         self.preparation.finished.connect(
             self.prepared_solution, Qt.ConnectionType.QueuedConnection
@@ -377,6 +468,10 @@ class LineFollowingPage(QWidget):
             job.error or "Solution prepared. Click Start to run it on the selected course."
         )
         job.deleteLater()
+        if job.error:
+            self.pending_start = False
+        elif self.pending_start and self.isEnabled():
+            self.restart()
         self.buttons()
 
     def buttons(self):
@@ -384,14 +479,19 @@ class LineFollowingPage(QWidget):
         ready = self.job is not None and self.job.snapshot() is not None
         warming = self.warmup is not None
         preparing = self.preparation is not None
-        path = Path(self.chooser.path.text())
+        builtin = self.controller_mode.currentIndex() == 0
+        path = self.selected_path()
         problem = self.solution_problem()
         created = (path / "artifacts/provenance.json").is_file()
         can_create = (
             path == self.project / "work/line_following/baseline" and not path.exists()
         )
         self.solution_button.setText(
-            "Create baseline" if can_create else "Prepare solution"
+            "Prepare baseline"
+            if builtin
+            else "Create baseline"
+            if can_create
+            else "Prepare solution"
         )
         self.solution_button.setEnabled(
             bool(self.courses)
@@ -400,36 +500,58 @@ class LineFollowingPage(QWidget):
             and not self.pending_start
             and (can_create or not problem)
         )
-        self.solution_hint.setText(
-            problem
-            or (
-                "Artifacts ready. Prepare solution runs train.py again."
-                if created
-                else "Prepare solution to create its artifacts before running."
-            )
-        )
-        source = path / "solution.py"
-        if source.is_file():
-            current = digest(source)
+        if builtin:
+            hint = "Installed baseline. Start prepares it automatically; working copies stay separate."
+        elif not problem:
             template = self.project / "labs/line_following/baseline"
-            matches = (
-                not problem
-                and training.source_hash(path) == training.source_hash(template)
-                and digest(path / "config.toml") == digest(template / "config.toml")
-            )
-            self.solution_hint.setText(
-                f"{path.resolve()} · source {current[:10]} · "
-                + (
-                    "current baseline"
-                    if matches
-                    else "working solution differs from current baseline"
+            matches = training.source_hash(path) == training.source_hash(
+                template
+            ) and digest(path / "config.toml") == digest(template / "config.toml")
+            try:
+                training.check_provenance(path)
+                state = "Prepared for this code/configuration"
+                self.solution_hint.setToolTip(
+                    "Saved parameter integrity is checked when loading."
                 )
+            except Exception as exc:
+                state = "Preparation not current; prepare again to refresh parameters"
+                self.solution_hint.setToolTip(str(exc))
+            hint = (
+                "Matches current baseline"
+                if matches
+                else "Working solution differs from current baseline"
+            ) + f" · {state}"
+        else:
+            hint = problem
+        self.solution_hint.setText(hint)
+        identity = self.loaded_controller()
+        if identity:
+            state = (
+                "Recorded"
+                if self.replay is not None
+                else "Running"
+                if running
+                else "Last run"
+            )
+            self.running_hint.setText(
+                f"{state} controller: {identity['name']} · version {identity['version'][:12]}"
                 + (
-                    " · artifacts ready"
-                    if created
-                    else " · prepare artifacts before running"
+                    ""
+                    if identity["preparation"].startswith("Matches ")
+                    else " · preparation differs"
                 )
             )
+            self.running_hint.setToolTip(identity["path"] + "\n" + identity["preparation"])
+        else:
+            self.running_hint.setToolTip("")
+            self.running_hint.setText(
+                "Recorded controller: identity not stored"
+                if self.replay is not None
+                else "Loading selected controller…"
+                if running
+                else "No controller loaded"
+            )
+        self.controller_details.setEnabled(bool(identity))
         self.solution_hint.setVisible(True)
         self.copy_button.setEnabled(
             not running and not preparing and not self.pending_start
@@ -445,11 +567,12 @@ class LineFollowingPage(QWidget):
             bool(self.courses)
             and not preparing
             and not problem
-            and created
+            and (builtin or created)
             and not self.pending_start
         )
         for widget in [
             self.chooser,
+            self.controller_mode,
             self.noise,
             self.batch,
             self.prepare_button,
@@ -498,19 +621,31 @@ class LineFollowingPage(QWidget):
     def start(self):
         if not self.courses or self.preparation is not None:
             return False
-        if (
-            self.solution_problem()
-            or not (Path(self.chooser.path.text()) / "artifacts/provenance.json").is_file()
+        builtin = self.controller_mode.currentIndex() == 0
+        if self.solution_problem() or (
+            not builtin
+            and not (self.selected_path() / "artifacts/provenance.json").is_file()
         ):
             self.message.setText(
                 self.solution_problem() or "Prepare solution before starting a run."
             )
             self.buttons()
             return False
+        self.save_selection()
+        if builtin:
+            if self.job is not None and self.job.isRunning():
+                self.pending_start = True
+                self.job.command(stop=True)
+                self.buttons()
+            else:
+                self.prepare_solution(run_after=True)
+            return True
         self.restart()
         return True
 
     def restart(self):
+        if self.preparation is not None:
+            return
         if self.warmup is not None:
             self.pending_start = True
             self.message.setText(
@@ -532,10 +667,11 @@ class LineFollowingPage(QWidget):
             for i in range(self.batch.value())
         ]
         self.job = Run(
-            Path(self.chooser.path.text()),
+            self.selected_path(),
             cases,
             self,
             worker=self.worker,
+            label="Built-in baseline" if self.controller_mode.currentIndex() == 0 else None,
             noise=self.noise.isChecked(),
         )
         self.job.finished.connect(self.finished_run, Qt.ConnectionType.QueuedConnection)
@@ -564,7 +700,7 @@ class LineFollowingPage(QWidget):
             self.warmed_batch = len(self.job.courses)
         if self.pending_start and self.isEnabled():
             self.pending_start = False
-            self.restart()
+            self.start()
             return
         self.pending_start = False
         self.message.setText(
@@ -608,6 +744,7 @@ class LineFollowingPage(QWidget):
             self.message.setText("Stopping the simulation process…")
 
     def shutdown(self):
+        self.save_selection()
         self.worker.close()
         self.timer.stop()
         self.playback.pause()

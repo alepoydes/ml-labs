@@ -5,6 +5,7 @@ import json
 import platform
 import shutil
 import sys
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -30,19 +31,61 @@ def new_solution(project: Path, lab: str, template="starter", variant=None) -> P
         raise CourseError("Choose the starter or baseline template.")
     source = project / "labs" / lab / template
     variant = template if variant is None else variant
+    destination = project / "work" / lab / variant
+    return _copy_solution(source, destination, variant)
+
+
+def _copy_solution(source: Path, destination: Path, variant: str) -> Path:
     raw = (
         (source / "submission.toml")
         .read_text()
         .replace('variant = "template"', f"variant = {json.dumps(variant)}")
     )
     metadata(raw.encode())
-    destination = project / "work" / lab / variant
     if destination.exists():
         raise CourseError(f"Solution already exists: {destination}")
     shutil.copytree(
         source, destination, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
     )
     (destination / "submission.toml").write_text(raw)
+    return destination
+
+
+def baseline_path(project: Path, lab: str) -> Path:
+    """Managed runnable copy, keyed by the installed baseline's code and settings."""
+    source = project / "labs" / lab / "baseline"
+    key = fingerprint([source_hash(source), digest(source / "config.toml")])
+    return project / "runs" / lab / "builtin" / key / "solution"
+
+
+def prepare_baseline(project: Path, lab: str) -> Path:
+    """Prepare the installed baseline without replacing any working solution."""
+    destination = baseline_path(project, lab)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(str(destination.parent / ".lock"), timeout=0):
+        try:
+            provenance = check_provenance(destination, artifacts=True)
+            source = project / "labs" / lab / "baseline"
+            resource_hash = resources.ready(
+                project / "data" / lab,
+                resources.manifest(project / "labs" / lab / "resources.toml"),
+            )
+            if (
+                provenance["resource_hash"] == resource_hash
+                and source_hash(destination) == source_hash(source)
+                and digest(destination / "config.toml") == digest(source / "config.toml")
+            ):
+                return destination
+        except (CourseError, OSError, ValueError):
+            pass
+        if destination.exists():
+            destination.rename(destination.with_name(f"previous-{uuid.uuid4().hex}"))
+        _copy_solution(
+            project / "labs" / lab / "baseline",
+            destination,
+            f"builtin-{destination.parent.name[:12]}",
+        )
+        train_local(destination, project)
     return destination
 
 
@@ -101,20 +144,58 @@ def source_hash(solution: Path) -> str:
     return fingerprint({p.relative_to(solution).as_posix(): digest(p) for p in paths})
 
 
-def check_provenance(solution: Path) -> dict:
+def check_provenance(solution: Path, *, artifacts=False) -> dict:
     path = solution / "artifacts/provenance.json"
     if not path.is_file():
         raise CourseError("Missing training provenance; run step_2_train.")
     value = json.loads(path.read_text())
     if (
-        value.get("status") != "complete"
+        not isinstance(value, dict)
+        or value.get("status") != "complete"
         or value.get("source_hash") != source_hash(solution)
         or value.get("config_hash") != digest(solution / "config.toml")
     ):
         raise CourseError(
             "Training is missing or source/configuration changed; rerun step_2_train."
         )
+    if artifacts:
+        actual = file_hashes(solution / "artifacts")
+        actual.pop("provenance.json", None)
+        if "artifacts" not in value:
+            raise CourseError("Saved parameters have no integrity record; prepare again.")
+        if actual != value["artifacts"]:
+            raise CourseError("Saved parameters changed since preparation; prepare again.")
     return value
+
+
+def controller_identity(solution: Path) -> dict:
+    """Read controller bytes at load time; also supports minimal local prototypes."""
+    source = [solution / "solution.py", solution / "train.py"]
+    source += sorted((solution / "lib").rglob("*.py"))
+    artifacts = file_hashes(solution / "artifacts")
+    artifacts.pop("provenance.json", None)
+    values = {
+        "source_hash": fingerprint(
+            {p.relative_to(solution).as_posix(): digest(p) for p in source if p.is_file()}
+        ),
+        "config_hash": digest(solution / "config.toml"),
+        "artifacts_hash": fingerprint(artifacts),
+    }
+    try:
+        check_provenance(solution, artifacts=True)
+        prepared = "Matches current code, configuration and saved parameters"
+    except (CourseError, OSError, ValueError) as exc:
+        prepared = str(exc)
+    info = solution / "submission.toml"
+    return dict(
+        values,
+        version=fingerprint(values),
+        path=str(solution.resolve()),
+        name=read_toml(info).get("variant", solution.name)
+        if info.is_file()
+        else solution.name,
+        preparation=prepared,
+    )
 
 
 def train(
@@ -164,6 +245,7 @@ def train(
         "seed": seed,
         "python": platform.python_version(),
         "libraries": versions,
+        "artifacts": file_hashes(output),
     }
     if run_dir is not None:
         history = {} if history is None else history

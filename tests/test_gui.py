@@ -294,6 +294,7 @@ def failed(kind,value,tb):
     print(errors[-1],file=sys.stderr)
     for w in windows:
         try:
+            w.grab().save(str(output/'failed-window.png'))
             w.closing=True
             for job in [w.page.job,getattr(w.page,'preparation',None),getattr(w.page,'warmup',None)]:
                 if job is not None:
@@ -307,7 +308,7 @@ def settled(predicate,callback,timeout=8):
     deadline=time.monotonic()+timeout
     def poll():
         if predicate(): QTimer.singleShot(0,callback)
-        elif time.monotonic()>deadline: raise AssertionError('Did not settle: '+callback.__name__)
+        elif time.monotonic()>deadline: raise AssertionError('Did not settle: '+callback.__name__+'; window '+str(windows[-1].size())+'; minimum '+str(windows[-1].minimumSizeHint()))
         else: QTimer.singleShot(20,poll)
     poll()
 class Policy:
@@ -338,7 +339,8 @@ def prepare_baseline():
     global warm_process
     warm_process=robot.worker.process
     assert not (project/'work/line_following/baseline').exists()
-    assert not robot.start_button.isEnabled() and robot.solution_button.isEnabled()
+    assert robot.controller_mode.currentText()=='Built-in baseline'
+    assert robot.start_button.isEnabled() and robot.solution_button.isEnabled()
     assert robot.job is None and (robot.warmup is not None or robot.warmed_batch == 1)
     assert robot.course.isVisible() and robot.next_course.isVisible()
     assert window.width()<=1024 and window.height()<=700
@@ -348,7 +350,8 @@ def prepare_baseline():
 def open_recording():
     assert robot.courses
     assert robot.start_button.isEnabled()
-    assert (project/'work/line_following/baseline/artifacts/controller.json').is_file()
+    assert (robot.selected_path()/'artifacts/controller.json').is_file()
+    assert not (project/'work/line_following/baseline').exists()
     course=Course.polyline('recorded straight',np.array([[0.,0.],[1.,0.]]))
     model=physics.robot(); q=physics.initial_state(model).q.numpy(); end=q.copy(); end[0]+=.02
     record=dict(**recording.robot_metadata(), **recording.case_metadata([sample_case(course,0)]),physics_dt=.02,
@@ -412,10 +415,33 @@ def capture_motion():
     robot.render()
     assert 'Travelled:' in robot.view.status.text() and 'Accepted:' in robot.view.status.text()
     measurements={'first_ready_seconds':first_ready,'live_wall_seconds':time.monotonic()-motion_started,'live_simulated_seconds':float(robot.job.snapshot()[0]['time'][0])-sim_started}
+    identity=robot.job.controller.copy(); active=robot.job
+    assert identity['name']=='Built-in baseline' and identity['preparation'].startswith('Matches ')
+    robot.chooser.path.setText(str(project/'work/line_following/missing-working-copy'))
+    assert robot.controller_mode.currentText()=='Working solution'
+    assert robot.job is active and robot.job.controller==identity
+    assert 'Running controller: Built-in baseline' in robot.running_hint.text()
+    settled(lambda: window.width()<=1024 and window.height()<=700,capture_selection)
+def capture_selection():
+    global process
+    window.grab().save(str(output/'robot-working-selection.png'))
+    robot.controller_mode.setCurrentIndex(0)
     window.grab().save(str(output/'robot-live.png'))
     process=robot.job.process
+    QTimer.singleShot(0,inspect_controller_details)
+    QTest.mouseClick(robot.controller_details,Qt.LeftButton)
     QTest.mouseClick(robot.play_button,Qt.LeftButton)
     settled(lambda: robot.job.phase=='Paused',inspect_pause)
+def inspect_controller_details():
+    from PySide6.QtWidgets import QPlainTextEdit
+    dialog=app.activeModalWidget()
+    assert dialog is not None
+    data=json.loads(dialog.findChild(QPlainTextEdit).toPlainText())
+    assert data==robot.job.controller and data['name']=='Built-in baseline'
+    settled(lambda: dialog.isVisible(),lambda: capture_details(dialog))
+def capture_details(dialog):
+    dialog.grab().save(str(output/'robot-controller-details.png'))
+    dialog.accept()
 def inspect_pause():
     global paused_time
     paused_time=float(robot.job.snapshot()[0]['time'][0])
@@ -646,6 +672,7 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
         ),
     )
     page = line_following.LineFollowingPage(tmp_path)
+    page.controller_mode.setCurrentIndex(1)
     window = Window(page, "line_following")
     window.show()
 
@@ -958,6 +985,8 @@ class Solution:
         ),
     )
     page = line_following.LineFollowingPage(tmp_path)
+    page.chooser.path.setText(str(work))
+    page.controller_mode.setCurrentIndex(1)
     window = Window(page, "line_following")
     window.show()
     try:
@@ -1037,6 +1066,8 @@ class Solution:
         lambda *args, **kwargs: line_run.Run(*args, **kwargs, compiled=False),
     )
     page = line_following.LineFollowingPage(tmp_path)
+    page.chooser.path.setText(str(path))
+    page.controller_mode.setCurrentIndex(1)
     window = Window(page, "line_following")
     closed = []
     window.destroyed.connect(lambda: closed.append(True))
@@ -1067,3 +1098,142 @@ class Solution:
             window.closing = True
             window.close()
             app.processEvents()
+
+
+def test_robot_builtin_identity_working_copy_and_restored_selection(
+    app, tmp_path, monkeypatch
+):
+    import json
+    import shutil
+    from pathlib import Path
+
+    from PySide6.QtCore import Signal
+    from PySide6.QtWidgets import QFileDialog, QWidget
+
+    from coursekit import recording, training
+    from coursekit.gui import line_following, line_run
+    from coursekit.gui.__main__ import Window
+
+    class Scene(QWidget):
+        failed = Signal(str)
+
+        def show_pose(self, *args):
+            pass
+
+        def cleanup(self):
+            pass
+
+    root = Path(__file__).resolve().parents[1]
+    shutil.copytree(root / "labs/line_following", tmp_path / "labs/line_following")
+    old = training.new_solution(tmp_path, "line_following", "baseline")
+    (old / "solution.py").write_text("# Existing student work\n")
+    monkeypatch.setattr(line_following, "Scene", Scene)
+    monkeypatch.setattr(
+        line_following,
+        "Run",
+        lambda *a, **kw: line_run.Run(*a, **kw, compiled=False, time_limit=0.025),
+    )
+    page = line_following.LineFollowingPage(tmp_path)
+    window = Window(page, "line_following")
+    window.show()
+    try:
+        wait_for(app, lambda: page.preparation is None)
+        assert page.controller_mode.currentText() == "Built-in baseline"
+        page.start_button.click()
+        wait_for(app, lambda: page.job is not None and not page.job.isRunning())
+        assert page.job.error is None
+        page.refresh()
+        builtin = page.job.controller.copy()
+        assert builtin["name"] == "Built-in baseline"
+        assert builtin["preparation"].startswith("Matches ")
+        assert "Built-in baseline" in page.running_hint.text()
+        assert (old / "solution.py").read_text() == "# Existing student work\n"
+        process = page.worker.process
+        builtin_path = page.job.path
+        before = (builtin_path / "artifacts/controller.json").read_bytes()
+        page.copy_button.click()
+        wait_for(app, lambda: page.preparation is None)
+        copy = page.selected_path()
+        assert page.controller_mode.currentText() == "Working solution"
+        assert copy.name == "baseline-current"
+        assert page.job.controller == builtin
+        assert "Built-in baseline" in page.running_hint.text()
+        assert (copy / "artifacts/controller.json").read_bytes() == before
+        config = copy / "config.toml"
+        config.write_text(config.read_text().replace("0.12", "0.11"))
+        page.buttons()
+        assert "Preparation not current" in page.solution_hint.text()
+        page.start_button.click()
+        wait_for(app, lambda: page.job.path == copy and not page.job.isRunning())
+        assert page.job.error is None
+        assert page.worker.process is process
+        assert page.job.controller["config_hash"] != builtin["config_hash"]
+        assert "changed" in page.job.controller["preparation"]
+        assert page.job.controls[0]["reset"].all()
+        page.refresh()
+        assert "preparation differs" in page.running_hint.text()
+        page.solution_button.click()
+        wait_for(app, lambda: page.preparation is None)
+        old_job = page.job
+        page.start_button.click()
+        wait_for(app, lambda: page.job is not old_job and not page.job.isRunning())
+        assert page.job.controller["preparation"].startswith("Matches ")
+        trained = page.job.controller.copy()
+        artifacts = copy / "artifacts/controller.json"
+        artifacts.write_text(artifacts.read_text().replace("0.11", "0.10"))
+        old_job = page.job
+        page.start_button.click()
+        wait_for(app, lambda: page.job is not old_job and not page.job.isRunning())
+        assert "parameters changed" in page.job.controller["preparation"]
+        assert page.job.controller["artifacts_hash"] != trained["artifacts_hash"]
+        recorded = page.job.controller.copy()
+        target = tmp_path / "controller-run.npz"
+        monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a: (str(target), "NPZ"))
+        page.save_button.click()
+        assert recording.load(target)["controller"] == recorded
+        (copy / "solution.py").write_text("# Deleted after the run\n")
+        monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a: (str(target), "NPZ"))
+        wait_for(app, lambda: page.open_button.isEnabled())
+        page.open_button.click()
+        assert page.loaded_controller() == recorded
+        assert "Recorded controller" in page.running_hint.text()
+        # Malformed optional identity must not replace an already open recording.
+        previous = page.replay
+        bad = recording.load(target)
+        bad["controller"] = {"name": "incomplete"}
+        recording.save(target, bad)
+        page.open_button.click()
+        assert page.replay is previous
+        # A new copy restores the installed template without touching either prior copy.
+        page.copy_button.click()
+        wait_for(app, lambda: page.preparation is None)
+        fresh = page.selected_path()
+        assert fresh.name == "baseline-current-2"
+        assert (copy / "solution.py").read_text() == "# Deleted after the run\n"
+        assert (fresh / "solution.py").read_bytes() == (
+            root / "labs/line_following/baseline/solution.py"
+        ).read_bytes()
+        assert (
+            json.loads((fresh / "artifacts/controller.json").read_text())["speed"] == 0.12
+        )
+        assert (builtin_path / "artifacts/controller.json").read_bytes() == before
+    finally:
+        page.stop()
+        for task in (page.job, page.warmup, page.preparation):
+            if task is not None:
+                assert task.wait(10000)
+        window.close()
+        app.processEvents()
+    page = line_following.LineFollowingPage(tmp_path)
+    window = Window(page, "line_following")
+    try:
+        assert page.controller_mode.currentText() == "Working solution"
+        assert page.selected_path() == fresh
+        wait_for(app, lambda: page.preparation is None)
+    finally:
+        page.stop()
+        for task in (page.job, page.warmup, page.preparation):
+            if task is not None:
+                assert task.wait(10000)
+        window.close()
+        app.processEvents()

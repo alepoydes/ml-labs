@@ -916,25 +916,44 @@ To reproduce a fixed episode, select its case identifier under **Course** and se
 the displayed row. Turning **Sensor noise** off creates a diagnostic run, labelled
 as such and recorded with that setting. Normal evaluation keeps noise enabled.
 
-On a fresh checkout, **Create baseline** copies the template into
-`work/line_following/baseline`, runs its preparation procedure and enables **Start**.
-Existing source is never replaced. **Copy current baseline** creates a new numbered
-working copy and prepares it. The solution path and source fingerprint remain
-visible, with an indication of whether the sources and configuration match the
-current template. For a working copy, **Prepare solution** runs its `train.py`,
-just like `step_2_train`. These are explicit preparation actions;
-previewing a course performs no training. To select your own prepared solution
-at launch:
+The **Next run** selector distinguishes **Built-in baseline** from **Working
+solution**. The first launch selects the built-in baseline. **Start** prepares a
+managed copy of the installed template under `runs/line_following/builtin/`, then
+starts the episode. It does not select an older copy merely because its directory
+is named `baseline`. Previewing courses performs no training. The controller choice
+and working path are retained in `runs/line_following/viewer.json` between openings.
+
+**New copy from baseline** creates, prepares and selects a new numbered working copy
+under `work/line_following/baseline-current[-N]`. Use it to start again from the
+installed example while preserving earlier code and parameters. For a working copy,
+**Prepare solution** runs that copy's `train.py`, just like `step_2_train`; it does
+not replace the algorithm with the baseline. The preparation status checks source
+and configuration fingerprints. Edited code remains runnable for local debugging
+with a notice that preparation is no longer current. Saved parameter hashes are
+checked at loading; changed or historically unverified parameters are identified
+in the loaded controller's status and details. Prepare again to record a matching
+set. To select your own prepared solution at launch:
 
 ```sh
 ./view_lab line_following --solution work/line_following/my-controller
 ```
+
+**Running controller** identifies what the process actually loaded, independently
+of **Next run**. **Controller details** shows its path and fingerprints of code,
+configuration and saved parameters, together with preparation status. These values
+are captured at loading and retained in recordings; choosing another solution or
+editing files does not change the identity of the existing run. When the run ends,
+the label becomes **Last run controller**. Playback shows **Recorded controller**;
+older recordings without this information explicitly show an unknown identity.
 
 The engine prepares in the background when the application opens, without loading
 controller code. **Start** begins motion automatically; during preparation it queues
 the run. **Cancel preparation** cancels preparation and any queued start. Changing
 **Course** during or after a run starts a fresh run. **Restart** reloads the selected
 solution with the selected cases and batch size, including a fresh controller state.
+Restart clears the controller's memory; it does not train or reset a working copy's
+saved parameters. Use **Prepare solution** to prepare that copy again, or **New copy
+from baseline** for a fresh reference controller.
 The setup controls remain visible during simulation.
 
 ### Time controls, diagnostics and recordings

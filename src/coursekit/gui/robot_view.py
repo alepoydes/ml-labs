@@ -22,6 +22,21 @@ from coursekit.recording import robot_metadata
 def recorded_courses(record):
     """Validate renderable frames before replacing the currently open recording."""
     expected = robot_metadata()
+    controller = record.get("controller")
+    if controller is not None:
+        if not isinstance(controller, dict) or any(
+            not isinstance(controller.get(key), str) or not controller[key]
+            for key in (
+                "name",
+                "path",
+                "preparation",
+                "version",
+                "source_hash",
+                "config_hash",
+                "artifacts_hash",
+            )
+        ):
+            raise ValueError("Invalid recorded controller identity.")
     if any(record.get(key) != expected[key] for key in ("lab", "version")):
         raise ValueError(
             "Expected Line Following recording version 4. Earlier recordings do not "

@@ -64,3 +64,41 @@ def test_invalid_copy_name_is_rejected(project, monkeypatch, name):
         main()
     assert error.value.code == 1
     assert not (project / "work").exists()
+
+
+def test_builtin_baseline_reuses_verified_parameters_and_preserves_old_copies(tmp_path):
+    from coursekit import resources, training
+
+    source = Path(__file__).resolve().parents[1] / "labs/line_following"
+    shutil.copytree(source, tmp_path / "labs/line_following")
+    resources.sync(
+        tmp_path / "data/line_following",
+        resources.manifest(tmp_path / "labs/line_following/resources.toml"),
+    )
+    installed = tmp_path / "labs/line_following/baseline"
+    original = file_hashes(installed)
+    managed = training.prepare_baseline(tmp_path, "line_following")
+    provenance = managed / "artifacts/provenance.json"
+    before = provenance.stat().st_mtime_ns
+    assert training.prepare_baseline(tmp_path, "line_following") == managed
+    assert provenance.stat().st_mtime_ns == before
+    assert training.check_provenance(managed, artifacts=True)["status"] == "complete"
+    params = managed / "artifacts/controller.json"
+    params.write_text(params.read_text().replace("0.12", "0.10"))
+    changed = params.read_bytes()
+    repaired = training.prepare_baseline(tmp_path, "line_following")
+    assert repaired == managed
+    assert (
+        next(managed.parent.glob("previous-*/artifacts/controller.json")).read_bytes()
+        == changed
+    )
+    assert file_hashes(installed) == original
+    assert not (tmp_path / "work").exists()
+    old_identity = training.controller_identity(managed)
+    # A course update selects a different managed copy and preserves old evidence.
+    config = installed / "config.toml"
+    config.write_text(config.read_text().replace("0.12", "0.11"))
+    updated = training.prepare_baseline(tmp_path, "line_following")
+    assert updated != managed
+    assert training.controller_identity(managed) == old_identity
+    assert training.controller_identity(updated)["version"] != old_identity["version"]
