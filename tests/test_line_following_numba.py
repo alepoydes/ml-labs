@@ -8,8 +8,9 @@ from torch.func import grad
 from coursekit.labs import line_following as reference
 from coursekit.labs import line_following_geometry as geometry
 from coursekit.labs import line_following_numba as native
+from coursekit.labs.line_following_cases import sample_case, sample_robot
 from coursekit.labs.line_following_course import advance, load_courses, optical
-from coursekit.labs.line_following_env import Environment, sample_robot
+from coursekit.labs.line_following_env import Environment
 
 
 def arrays(model):
@@ -218,8 +219,16 @@ def test_native_block_preserves_every_frame_and_terminal_rows_without_torch_comp
         torch, "compile", lambda *a, **k: pytest.fail("Optional compiler used")
     )
     course = Course.polyline("straight", np.array([[0.0, 0.0], [1.0, 0.0]]))
-    plain = Environment([course, course], [13, 15], noise=False, time_limit=0.007)
-    recorded = Environment([course, course], [13, 15], noise=False, time_limit=0.007)
+    plain = Environment(
+        [sample_case(c, seed) for c, seed in zip([course, course], [13, 15])],
+        noise=False,
+        time_limit=0.007,
+    )
+    recorded = Environment(
+        [sample_case(c, seed) for c, seed in zip([course, course], [13, 15])],
+        noise=False,
+        time_limit=0.007,
+    )
     plain.status[1] = recorded.status[1] = "timeout"
     snapshots = []
     plain.step(torch.full((2, 2), 0.2))
@@ -265,6 +274,8 @@ def test_imported_colour_change_invalidates_native_cache(tmp_path):
     }
     script = """
 import json
+from coursekit.labs.line_following_cases import sample_case
+
 import numpy as np
 from coursekit.labs import line_following_geometry as g
 from coursekit.labs.line_following_course import Course

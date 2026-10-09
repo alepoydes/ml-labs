@@ -4,6 +4,8 @@ import time
 import numpy as np
 import pytest
 
+from coursekit.labs.line_following_cases import sample_case
+
 
 @pytest.fixture(scope="session")
 def app():
@@ -282,6 +284,7 @@ from coursekit.gui.blindjack import BlindjackPage
 from coursekit.gui.line_following import LineFollowingPage
 from coursekit.labs import line_following as physics
 from coursekit.labs.line_following_course import Course
+from coursekit.labs.line_following_cases import sample_case
 format=QSurfaceFormat(); format.setVersion(3,3); format.setProfile(QSurfaceFormat.CoreProfile)
 format.setDepthBufferSize(24); QSurfaceFormat.setDefaultFormat(format)
 app=QApplication([]); project=Path(sys.argv[1]); output=Path(sys.argv[2]); errors=[]; windows=[]
@@ -348,7 +351,7 @@ def open_recording():
     assert (project/'work/line_following/baseline/artifacts/controller.json').is_file()
     course=Course.polyline('recorded straight',np.array([[0.,0.],[1.,0.]]))
     model=physics.robot(); q=physics.initial_state(model).q.numpy(); end=q.copy(); end[0]+=.02
-    record=dict(**recording.robot_metadata(),physics_dt=.02,
+    record=dict(**recording.robot_metadata(), **recording.case_metadata([sample_case(course,0)]),physics_dt=.02,
       courses=[dict(name=course.name,controls=course.controls,knots=course.knots,corners=course.corners)],
       model={k:v.numpy()[None] for k,v in model._asdict().items()},
       frames=dict(q=np.array([q,end])[:,None,:],time=np.array([[0.],[.02]]),progress=np.array([[0.],[.02]]),score=np.zeros((2,1)),status=np.array([['running'],['running']]),control=np.array([-1,0])),
@@ -531,7 +534,11 @@ class Solution:
     course = Course.polyline("straight", np.array([[0.0, 0.0], [1.0, 0.0]]))
     worker = line_run.Worker()
     run = line_run.Run(
-        tmp_path, [course, course], [1, 2], worker=worker, compiled=False, time_limit=0.05
+        tmp_path,
+        [sample_case(c, seed) for c, seed in zip([course, course], [1, 2])],
+        worker=worker,
+        compiled=False,
+        time_limit=0.05,
     )
     run.start()
 
@@ -582,7 +589,12 @@ class Solution:
         assert saved["controls"][1]["debug"][1]["row"] == 1
         assert len(run.controls) == 3
         process = worker.process
-        run = line_run.Run(tmp_path, [course], [31], worker=worker, compiled=False)
+        run = line_run.Run(
+            tmp_path,
+            [sample_case(c, seed) for c, seed in zip([course], [31])],
+            worker=worker,
+            compiled=False,
+        )
         run.start()
         wait_for(lambda: run.snapshot() is not None)
         assert run.process is process and run.snapshot()[2] == 1
@@ -646,6 +658,7 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
 
     wait_for(lambda: page.preparation is None)
     assert not work.exists() and page.scene.pose is not None
+    np.testing.assert_array_equal(page.scene.pose[1], page.cases[0].initial.q.numpy())
     assert not page.start_button.isEnabled() and page.solution_button.isEnabled()
     page.start()
     assert page.job is None and not work.exists()
@@ -659,6 +672,19 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
     page.solution_button.click()
     wait_for(lambda: page.preparation is None)
     assert (work / "solution.py").read_text() == edited
+    page.copy_button.click()
+    wait_for(lambda: page.preparation is None)
+    copied = Path(page.chooser.path.text())
+    assert copied != work and copied.name == "baseline-current"
+    assert (copied / "solution.py").read_text() == (
+        tmp_path / "labs/line_following/baseline/solution.py"
+    ).read_text()
+    assert (work / "solution.py").read_text() == edited
+    assert "current baseline" in page.solution_hint.text()
+    config = copied / "config.toml"
+    config.write_text(config.read_text() + "\n# Locally changed settings\n")
+    page.buttons()
+    assert "differs from current baseline" in page.solution_hint.text()
     page.chooser.path.setText(str(tmp_path / "does-not-exist"))
     assert not page.start_button.isEnabled() and not page.solution_button.isEnabled()
     page.chooser.path.setText(str(work))
@@ -690,7 +716,12 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
         )
         page.save()
         saved = recording.load(target)
-        assert saved["version"] == 3
+        assert saved["version"] == 4 and saved["sensor_noise"] is True
+        assert saved["case_ids"].tolist() == [c.name for c in job.cases]
+        for name, values in saved["model"].items():
+            np.testing.assert_array_equal(
+                values, np.stack([getattr(c.robot, name).numpy() for c in job.cases])
+            )
         assert "controls" in saved["courses"][0]
         assert saved["frames"]["q"].shape == (4, 2, 8)
         process = page.worker.process
@@ -727,7 +758,8 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
         )  # The old two-row recording must not invalidate preparation.
         # Switching to a shorter, smaller recorded batch must clamp both controls first.
         saved["courses"] = saved["courses"][:1]
-        saved["seeds"] = saved["seeds"][:1]
+        saved["case_ids"] = saved["case_ids"][:1]
+        saved["case_fingerprints"] = saved["case_fingerprints"][:1]
         saved["controls"] = []
         saved["model"] = {k: v[:1] for k, v in saved["model"].items()}
         saved["frames"] = {k: v[:1] for k, v in saved["frames"].items()}
@@ -751,13 +783,13 @@ def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkey
             assert page.replay is previous
             assert "Invalid recorded travelled distance" in page.message.text()
         saved["frames"]["travelled_distance"] = distance
-        for version in (1, 2):
+        for version in (1, 2, 3):
             saved["version"] = version
             recording.save(target, saved)
             page.open_recording()
             assert page.replay is previous
             assert "Earlier recordings" in page.message.text()
-        saved["version"] = 3
+        saved["version"] = 4
         # Current containers must also reject missing or incompatible rule metadata.
         geometry, coverage = saved["geometry"], saved["coverage_version"]
         for changed in (
@@ -830,7 +862,11 @@ class Solution:
     def act(self, observation, reset): self.block()
 """)
     course = Course.polyline("straight", np.array([[0.0, 0.0], [1.0, 0.0]]))
-    run = Run(tmp_path, [course], [0], compiled=stage == "physics")
+    run = Run(
+        tmp_path,
+        [sample_case(c, seed) for c, seed in zip([course], [0])],
+        compiled=stage == "physics",
+    )
     run.start()
     try:
         if stage == "act":
@@ -931,7 +967,7 @@ class Solution:
         page.start_button.click()
         assert page.pending_start and page.job is None
         page.course.setCurrentIndex(3)
-        page.seed.setValue(19)
+        page.noise.setChecked(False)
         page.batch.setValue(2)
         if cancel:
             page.stop_button.click()
@@ -943,7 +979,11 @@ class Solution:
             page.start_button.click()
         wait_for(app, lambda: page.job is not None and not page.job.isRunning())
         assert page.job.error is None
-        assert page.job.courses == page.courses[3:5] and page.job.seeds == [19, 20]
+        assert page.job.cases == page.cases[3:5]
+        assert page.job.record()["sensor_noise"] is False
+        np.testing.assert_array_equal(
+            page.job.controls[0]["observation"]["gyro"], np.zeros((2, 3))
+        )
         assert (work / "loaded").is_file()
         np.testing.assert_array_equal(page.job.frames[0]["time"], [0.0, 0.0])
         np.testing.assert_array_equal(page.job.snapshot()[0]["time"], [0.002, 0.002])

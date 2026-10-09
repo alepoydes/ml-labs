@@ -11,7 +11,7 @@ def wrap(angle):
 
 
 class Solution:
-    """Two-point line geometry, damped steering and short reverse recovery."""
+    """Supported driving with two-point line geometry and short reverse recovery."""
 
     def __init__(self, artifact_dir: Path, config: dict, seed: int):
         self.settings = json.loads((artifact_dir / "controller.json").read_text())
@@ -23,59 +23,78 @@ class Solution:
         if self.position is None or len(self.position) != len(time):
             self.position = time.new_zeros((len(time), 2))
             self.anchor = self.position.clone()
-            self.last_point = self.position.clone()
-            self.ahead = self.position.clone()
+            self.bookmark = self.position.clone()
             self.retreat = self.position.clone()
             self.previous_encoders = encoders.clone()
             self.previous_time = time.clone()
             self.yaw = torch.zeros_like(time)
             self.line_yaw = torch.zeros_like(time)
+            self.bookmark_yaw = torch.zeros_like(time)
+            self.retreat_yaw = torch.zeros_like(time)
             self.speed = torch.zeros_like(time)
             self.target_speed = torch.zeros_like(time)
+            self.target_yaw = torch.zeros_like(time)
             self.speed_integral = torch.zeros_like(time)
-            self.heading_integral = torch.zeros_like(time)
             self.error = torch.zeros_like(time)
             self.endpoint_distance = torch.zeros_like(time)
             self.caution = torch.zeros_like(time)
             self.direction = torch.ones_like(time)
-            self.mode = torch.zeros_like(time, dtype=torch.int64)  # follow, back, align
-            self.end_seen = torch.zeros_like(reset)
-            self.return_line = torch.zeros_like(reset)
+            self.mode = torch.zeros_like(time, dtype=torch.int64)
+            self.end_mode = torch.zeros_like(time, dtype=torch.int64)
+            self.settled = torch.zeros_like(time)
+            self.probe_distance = torch.zeros_like(time)
+            self.loss_distance = torch.zeros_like(time)
+            self.probe_started = torch.zeros_like(reset)
         for state in (
             self.position,
             self.anchor,
-            self.last_point,
-            self.ahead,
+            self.bookmark,
             self.retreat,
             self.yaw,
             self.line_yaw,
+            self.bookmark_yaw,
+            self.retreat_yaw,
             self.speed,
             self.target_speed,
+            self.target_yaw,
             self.speed_integral,
-            self.heading_integral,
             self.error,
             self.endpoint_distance,
             self.caution,
             self.mode,
+            self.end_mode,
+            self.settled,
+            self.probe_distance,
+            self.loss_distance,
         ):
             state[reset] = 0
         self.direction[reset] = 1
-        self.end_seen[reset] = self.return_line[reset] = False
+        self.probe_started[reset] = False
         self.previous_time[reset] = time[reset]
         self.previous_encoders[reset] = encoders[reset]
         dt = (time - self.previous_time).clamp(min=0, max=0.1)
-        # Rolling odometry: encoders are body-relative, so include pitch rate.
-        # The wheel radius is public; slip and the planar approximation cause drift.
+        # Encoders are body-relative: include pitch rate in rolling odometry.
+        # The resting pitch is about -0.25 rad, so gyro Z is yaw rate * cos(0.25).
+        # This planar approximation still drifts under slip and changes in tilt.
         ds = 0.035 * ((encoders - self.previous_encoders).mean(dim=1) + gyro[:, 1] * dt)
-        dyaw = gyro[:, 2] * dt
+        self.yaw_rate = gyro[:, 2] / 0.9689124
+        dyaw = self.yaw_rate * dt
         middle = self.yaw + dyaw / 2
         self.position += ds[:, None] * torch.stack((middle.cos(), middle.sin()), dim=1)
         self.yaw += dyaw
         self.speed += dt / (0.04 + dt) * (ds / dt.clamp(min=0.02) - self.speed)
 
-        # Keep one connected stripe, preserving the previously selected branch.
-        weight = (0.8 - rgb.mean(dim=-1)).clamp(min=0)
-        dark = weight > 0.02
+        # Normalise darkness by the recognised paint's contrast with the floor.
+        # Keep a connected stripe near the previous intersection; averaging across
+        # separate branches would place the inferred line in the white gap.
+        colour = rgb[..., 0] - rgb[..., 2]
+        contrast = torch.where(
+            colour > 0.05,
+            0.94 - 1.10 / 3,
+            torch.where(colour < -0.05, 0.94 - 1.23 / 3, 0.88),
+        )
+        weight = (0.94 - rgb.mean(dim=-1)).clamp(min=0) * 0.88 / contrast
+        dark = weight > 0.025
         groups = (dark & ~torch.nn.functional.pad(dark[:, :-1], (1, 0))).cumsum(dim=1)
         coordinates = SENSOR_WIDTH * (
             (torch.arange(16, device=rgb.device) + 0.5) / 16 - 0.5
@@ -88,113 +107,184 @@ class Solution:
         visible = weight.sum(dim=1) > 0.2
         offset = (weight * coordinates).sum(dim=1) / weight.sum(dim=1).clamp(min=0.01)
         self.error = torch.where(visible, offset, self.error)
-        # Lift each optical intersection (0, e) into the same local ground frame.
+        # Lift (0, offset) into the same local ground frame as the older point.
         point = self.position + self.error[:, None] * torch.stack(
             (-self.yaw.sin(), self.yaw.cos()), dim=1
         )
         self.anchor[reset] = point[reset]
-        self.last_point[reset] = point[reset]
-        self.retreat[reset] = point[reset]
 
-        red = (((rgb[..., 0] - rgb[..., 2]) > 0.35) & (weight > 0)).any(dim=1)
-        self.end_seen |= red & (self.direction > 0)
+        # Pass the physical end of either coloured stripe before reversing.
+        # Initial blue paint is not the outward target. Do not rotate the body.
+        colour = rgb[..., 0] - rgb[..., 2]
+        target_marker = ((colour * self.direction[:, None] > 0.35) & (weight > 0)).any(
+            dim=1
+        )
+        self.end_mode[(self.end_mode == 0) & target_marker & (self.mode == 0)] = 1
+        endpoint = self.end_mode != 0
         self.endpoint_distance = torch.where(
-            self.end_seen & ~visible & (self.direction > 0),
-            self.endpoint_distance + ds.clamp(min=0),
+            (self.end_mode == 1) & ~visible,
+            self.endpoint_distance + (ds * self.direction).clamp(min=0),
             0.0,
         )
-        turning_back = (self.endpoint_distance > 0.015) & (self.direction > 0)
-        self.direction[turning_back] = -1
+        turning_back = (self.end_mode == 1) & (self.endpoint_distance > 0.012)
+        self.direction[turning_back] *= -1
+        self.end_mode[turning_back] = 2
         self.anchor[turning_back] = point[turning_back]
-        self.return_line |= (self.direction < 0) & visible
-        endpoint = self.end_seen & ~self.return_line
+        self.end_mode[(self.end_mode == 2) & visible] = 0
 
-        # Two observed line points estimate the tangent without a pixel derivative.
-        # Wait for 12 mm separation; renew at 30 mm. Modulo pi prevents a noisy
-        # measurement from accidentally reversing the inferred route orientation.
+        # Fit over net spatial displacement, not instantaneous encoder speed.
+        # Slow pivots can have almost zero v - omega*offset without erasing useful
+        # earlier observations. Reject a segment pointing back along the old line.
         vector = (point - self.anchor) * self.direction[:, None]
         span = torch.linalg.vector_norm(vector, dim=1)
-        reliable = visible & (self.error.abs() < 0.037)
-        fit = reliable & (span > 0.012) & (self.mode == 0) & ~endpoint
+        tangent = torch.stack((self.line_yaw.cos(), self.line_yaw.sin()), dim=1)
+        advancing = (vector * tangent).sum(dim=1) > -0.0007
+        reliable = visible & (self.error.abs() < 0.033)
+        # Longer separation suppresses optical quantisation near the centre;
+        # shorten it when the line approaches an edge to respond to tight bends.
+        spacing = torch.where(self.error.abs() < 0.006, 0.016, 0.004)
+        beyond_bookmark = (
+            (self.position - self.retreat)
+            * torch.stack((self.retreat_yaw.cos(), self.retreat_yaw.sin()), dim=1)
+        ).sum(dim=1) * self.direction >= 0
+        # Crossing the bookmark is an event, not a continuing position test:
+        # a hairpin legitimately returns behind the incoming tangent's plane.
+        self.probe_started &= self.mode == 3
+        self.probe_started |= (self.mode == 3) & beyond_bookmark
+        fit = (
+            reliable
+            & advancing
+            & (span > spacing)
+            & ((self.mode == 0) | ((self.mode == 3) & self.probe_started))
+        )
         measured = torch.atan2(vector[:, 1], vector[:, 0])
-        delta = (measured - self.line_yaw + torch.pi / 2) % torch.pi - torch.pi / 2
-        self.line_yaw += torch.where(fit, 0.5 * delta, 0.0)
-        renew = reliable & (span > 0.03) & (self.mode == 0)
-        self.retreat[renew] = self.anchor[renew]
+        delta = wrap(measured - self.line_yaw)
+        # Bound changes in the local tangent: a quantised centroid must not
+        # request an instantaneous reversal of the estimated line direction.
+        self.line_yaw += torch.where(fit, (0.3 * delta).clamp(-3 * dt, 3 * dt), 0.0)
+        self.probe_distance = torch.where(
+            self.mode == 3, self.probe_distance + ds.abs(), 0.0
+        )
+        recovered = (
+            (self.mode == 3)
+            & fit
+            & (self.probe_distance > self.loss_distance + 0.04)
+            & (self.error.abs() < 0.006)
+            & (wrap(self.line_yaw - self.yaw).abs() < 0.15)
+            & (self.yaw_rate.abs() < 0.2)
+        )
+        self.mode[recovered] = 0
+        renew = fit & (span > 2 * spacing)
         self.anchor[renew] = point[renew]
-
-        # Retreat before fitting a new direction. Keep an older observed point,
-        # since simply reacquiring paint near the last observation can skip a gap.
-        lost = (~visible | (self.error.abs() > 0.040)) & ~endpoint & (self.mode != 1)
-        self.ahead[lost & (self.mode == 0)] = self.last_point[lost & (self.mode == 0)]
-        self.anchor[lost & (self.mode == 0)] = self.retreat[lost & (self.mode == 0)]
+        # Save a point ON the line and its tangent while the fit is trustworthy.
+        # The previous bookmark leaves a margin before the bend that caused loss.
+        bookmark = (
+            fit
+            & (self.error.abs() < 0.012)
+            & (self.mode == 0)
+            & (torch.linalg.vector_norm(point - self.bookmark, dim=1) > 0.02)
+        )
+        self.retreat[bookmark] = self.bookmark[bookmark]
+        self.retreat_yaw[bookmark] = self.bookmark_yaw[bookmark]
+        self.bookmark[bookmark] = point[bookmark]
+        self.bookmark_yaw[bookmark] = self.line_yaw[bookmark]
+        lost = (~visible | (self.error.abs() > 0.038)) & ~endpoint & (self.mode == 0)
+        self.loss_distance[lost] = torch.linalg.vector_norm(point - self.retreat, dim=1)[
+            lost
+        ]
         self.mode[lost] = 1
-        backing = self.mode == 1
-        back_vector = (self.anchor - self.position) * -self.direction[:, None]
-        back_angle = wrap(torch.atan2(back_vector[:, 1], back_vector[:, 0]) - self.yaw)
-        found = backing & reliable & (torch.linalg.vector_norm(back_vector, dim=1) < 0.012)
-        # The last point before loss is now ahead: turn towards that observed continuation.
-        vector = (self.ahead - point) * self.direction[:, None]
-        measured = torch.atan2(vector[:, 1], vector[:, 0])
-        delta = (measured - self.line_yaw + torch.pi / 2) % torch.pi - torch.pi / 2
-        self.line_yaw += torch.where(found, delta, 0.0)
-        self.mode[found] = 2
-        self.anchor[found] = point[found]
+        # Back along the frozen virtual line, settle, then approach the bookmark.
+        # Never estimate a new tangent from observations gathered while retreating.
+        tangent = torch.stack((self.retreat_yaw.cos(), self.retreat_yaw.sin()), dim=1)
+        normal = torch.stack((-tangent[:, 1], tangent[:, 0]), dim=1)
+        displacement = self.position - self.retreat
+        along_bookmark = (displacement * tangent).sum(dim=1) * self.direction
+        virtual_error = -(displacement * normal).sum(dim=1)
+        virtual_heading = wrap(self.retreat_yaw - self.yaw)
+        self.mode[
+            (self.mode == 1) & (along_bookmark < -0.035) & (virtual_error.abs() < 0.003)
+        ] = 2
+        quiet = (
+            (virtual_heading.abs() < 0.06)
+            & (self.yaw_rate.abs() < 0.08)
+            & (self.speed.abs() < 0.01)
+        )
+        self.settled = torch.where((self.mode == 2) & quiet, self.settled + dt, 0.0)
+        approach = (self.mode == 2) & (self.settled > 0.2)
+        # Measure probe travel from the bookmark, including the distance backed up.
+        self.probe_distance[approach] = along_bookmark[approach]
+        self.mode[approach] = 3
+        virtual = (
+            (self.mode == 1) | (self.mode == 2) | ((self.mode == 3) & ~self.probe_started)
+        )
+        reenter = (self.mode == 3) & self.probe_started
+        self.line_yaw[virtual] = self.retreat_yaw[virtual]
+        self.anchor[virtual] = point[virtual]
         self.heading = wrap(self.line_yaw - self.yaw)
-        aligned = (self.mode == 2) & visible & (self.heading.abs() < 0.15)
-        self.mode[aligned] = 0
-        self.anchor[aligned] = point[aligned]
+        steering_error = torch.where(
+            virtual,
+            (virtual_error / virtual_heading.cos().clamp(min=0.5)).clamp(-0.04, 0.04),
+            self.error,
+        )
+        drive = torch.where(self.mode == 1, -self.direction, self.direction)
         self.caution = torch.where(self.mode != 0, 1.5, (self.caution - dt).clamp(min=0))
-        self.last_point[reliable & (self.mode == 0)] = point[reliable & (self.mode == 0)]
+        # Repeated failure after a fresh approach is a new retreat, not a fit to
+        # whatever paint happened to be visible during the backwards movement.
+        self.mode[reenter & ~visible] = 1
 
-        # PID heading feedback uses the gyro for damping, without differentiating pixels.
-        heading_error = (
-            self.heading + self.direction * self.settings["offset_gain"] * self.error
+        # Gentle lateral convergence, with gyro feedback in the inner yaw loop.
+        # No heading integral: a stale tangent must not accumulate a turn demand.
+        # Limit lateral convergence relative to travel along the estimated line.
+        # The larger lookahead makes the approach gentler near the centre.
+        correction = torch.atan(drive * steering_error / self.settings["lookahead"]).clamp(
+            -0.5, 0.5
         )
-        self.heading_integral = (self.heading_integral + dt * heading_error).clamp(
-            -0.4, 0.4
-        )
-        self.heading_integral[self.mode != 0] = 0
-        target_yaw = (
-            self.settings["heading_gain"] * heading_error + 0.2 * self.heading_integral
-        ).clamp(-2.0, 2.0)
-        target_yaw = torch.where(
-            self.mode == 1, (3 * back_angle).clamp(-1.2, 1.2), target_yaw
-        )
-        target_yaw = torch.where(
-            self.mode == 2, (4 * self.heading).clamp(-1.0, 1.0), target_yaw
-        )
+        correction = torch.where(self.mode == 2, 0.0, correction)
+        heading_error = self.heading + correction
+        target_yaw = (self.settings["heading_gain"] * heading_error).clamp(-1.2, 1.2)
         target_yaw = torch.where(~visible & endpoint, 0.0, target_yaw)
-        target_speed = (
-            self.direction
+        self.target_yaw += (target_yaw - self.target_yaw).clamp(
+            -12 * dt.clamp(min=0.02), 12 * dt.clamp(min=0.02)
+        )
+        along = (
+            drive
             * self.settings["speed"]
-            / (1 + (self.error / 0.02).square() + self.heading.square() * 3)
+            / (1 + (self.heading / 0.3).square())
+            / (1 + (steering_error / 0.015).square())
         )
-        target_speed /= (weight.sum(dim=1) / 1.5).clamp(min=1).square()
+        along /= 1 + self.yaw_rate.abs()
+        along /= (weight.sum(dim=1) / 1.75).clamp(min=1).square()
+        along = torch.where(self.caution > 0, along.clamp(-0.025, 0.025), along)
+        along = torch.where(
+            (self.mode == 2) | ((self.mode != 0) & (heading_error.abs() > 0.15)), 0.0, along
+        )
+        # Rotate approximately about the current intersection with the line.
+        target_speed = along * self.heading.cos() + self.yaw_rate * steering_error
+        # During recovery the frozen line may be outside the sensor. Steering
+        # then rotates the axle; it must not translate about an unseen intersection.
         target_speed = torch.where(
-            self.caution > 0, target_speed.clamp(-0.07, 0.07), target_speed
+            virtual, drive * 0.04 * self.heading.cos().clamp(min=0), target_speed
         )
         target_speed = torch.where(
-            self.mode == 1,
-            -self.direction * 0.055 * back_angle.cos().clamp(min=0),
-            target_speed,
+            virtual & ((self.mode == 2) | (heading_error.abs() > 0.15)), 0.0, target_speed
         )
-        # v = omega * e pivots approximately about the sensed line intersection.
-        target_speed = torch.where(self.mode == 2, gyro[:, 2] * self.error, target_speed)
-        target_speed = torch.where(endpoint, self.direction * 0.07, target_speed)
-        # Command slew also runs at reset; the odometry still integrates zero time.
+        # Coloured paint is still line geometry. Keep following its bends;
+        # only the short passage beyond the physical endpoint is blind travel.
+        target_speed = torch.where(endpoint, target_speed.clamp(-0.06, 0.06), target_speed)
+        target_speed = torch.where(endpoint & ~visible, self.direction * 0.06, target_speed)
         self.target_speed += (target_speed - self.target_speed).clamp(
             -0.7 * dt.clamp(min=0.02), 0.7 * dt.clamp(min=0.02)
         )
+        # PI speed feedback overcomes sphere drag; yaw feedback damps steering.
         speed_error = self.target_speed - self.speed
         self.speed_integral = (self.speed_integral + dt * speed_error).clamp(-0.08, 0.08)
         throttle = 0.8 * self.target_speed + 0.6 * speed_error + 0.5 * self.speed_integral
-        steering = 0.035 * target_yaw + 0.10 * (target_yaw - gyro[:, 2])
-        self.command = torch.stack(
-            (throttle - steering, throttle + steering), dim=-1
-        ).clamp(-0.5, 0.5)
+        steering = 0.035 * self.target_yaw + 0.1 * (self.target_yaw - self.yaw_rate)
+        self.command = torch.stack((throttle - steering, throttle + steering), dim=1).clamp(
+            -0.5, 0.5
+        )
         self.previous_time, self.previous_encoders = time.clone(), encoders.clone()
-        self.visible, self.yaw_rate = visible, gyro[:, 2]
+        self.visible = visible
         return self.command.clone()
 
     def debug(self, index=0):
@@ -205,8 +295,11 @@ class Solution:
             "line_visible": bool(self.visible[index]),
             "drive_direction": float(self.direction[index]),
             "heading_error_rad": float(self.heading[index]),
-            "recovering": int(self.mode[index]),  # 0: follow, 1: reverse, 2: align
+            "recovering": int(
+                self.mode[index]
+            ),  # 0: follow, 1: retreat, 2: settle, 3: approach
             "speed_m_s": float(self.speed[index]),
             "yaw_rate": float(self.yaw_rate[index]),
+            "target_yaw_rate": float(self.target_yaw[index]),
             "command": self.command[index].detach().cpu().numpy().copy(),
         }

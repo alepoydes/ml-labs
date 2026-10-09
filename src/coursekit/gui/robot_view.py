@@ -24,16 +24,25 @@ def recorded_courses(record):
     expected = robot_metadata()
     if any(record.get(key) != expected[key] for key in ("lab", "version")):
         raise ValueError(
-            "Expected Line Following recording version 3. Earlier recordings do not "
+            "Expected Line Following recording version 4. Earlier recordings do not "
             "identify compatible sensor geometry and coverage rules; create a new recording."
         )
-    if any(record.get(key) != expected[key] for key in ("geometry", "coverage_version")):
+    if any(
+        record.get(key) != expected[key]
+        for key in ("geometry", "coverage_version", "case_version")
+    ):
         raise ValueError(
             "Recording geometry or coverage rules differ from this viewer. "
             "Use the matching coursekit version or create a new recording."
         )
     courses = [Course(**c) for c in record["courses"]]
     n = len(courses)
+    for key in ("case_ids", "case_fingerprints"):
+        value = np.asarray(record.get(key))
+        if value.shape != (n,) or value.dtype.kind != "U" or any(not v for v in value):
+            raise ValueError(f"Invalid recorded {key}.")
+    if not isinstance(record.get("sensor_noise"), bool):
+        raise ValueError("Recording must identify whether sensor noise was enabled.")
     frames, controls, model = record["frames"], record["controls"], record["model"]
     count = len(frames["q"])
     if (
@@ -186,7 +195,18 @@ class RobotView(QWidget):
         self.scene.zoom, self.scene.pan = 1.0, np.zeros(2)
         self.scene.update()
 
-    def show_frame(self, course, frame, model, controls, row=0, *, pitch_history=None):
+    def show_frame(
+        self,
+        course,
+        frame,
+        model,
+        controls,
+        row=0,
+        *,
+        pitch_history=None,
+        case_id=None,
+        sensor_noise=True,
+    ):
         self.scene.show_pose(course, frame["q"][row], {k: v[row] for k, v in model.items()})
         leg = "return" if "leg" in frame and frame["leg"][row] else "outward"
         outcome = OUTCOMES.get(str(frame["status"][row]), str(frame["status"][row]))
@@ -196,7 +216,7 @@ class RobotView(QWidget):
             else "—"
         )
         self.status.setText(
-            f"{course.name} · {frame['time'][row]:.3f} s · {outcome} · {leg} · {frame['score'][row]:.2f} points\n"
+            f"{case_id or course.name}{' · noise OFF (diagnostic)' if not sensor_noise else ''} · {frame['time'][row]:.3f} s · {outcome} · {leg} · {frame['score'][row]:.2f} points\n"
             f"Accepted: {frame['progress'][row]:.3f} / {2 * course.length:.3f} m "
             f"({100 * frame['progress'][row] / (2 * course.length):.1f}%) · Travelled: {distance}"
         )

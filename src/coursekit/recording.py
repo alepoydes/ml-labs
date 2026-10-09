@@ -21,10 +21,12 @@ ROBOT_FRAME_FIELDS = (
 def robot_metadata():
     """Identify the geometry and coverage rules used by both robot recorders."""
     from coursekit.labs import line_following_course as course
+    from coursekit.labs.line_following_cases import CASE_VERSION
 
     return {
         "lab": "line_following",
-        "version": 3,
+        "version": 4,
+        "case_version": CASE_VERSION,
         "coverage_version": course.COVERAGE_VERSION,
         "geometry": {
             "sensor_width": course.SENSOR_WIDTH,
@@ -36,6 +38,16 @@ def robot_metadata():
             "start": course.START.tolist(),
             "end": course.END.tolist(),
         },
+    }
+
+
+def case_metadata(cases, *, noise=True):
+    from coursekit.labs.line_following_cases import case_identity
+
+    return {
+        "case_ids": np.array([c.name for c in cases]),
+        "case_fingerprints": np.array([case_identity(c) for c in cases]),
+        "sensor_noise": bool(noise),
     }
 
 

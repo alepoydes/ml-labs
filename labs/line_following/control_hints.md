@@ -242,8 +242,9 @@ covering its final point, and it does not prove that the outward leg was accepte
 
 The supplied baseline implements conventional supported driving. Its optical
 detector selects a connected dark stripe near the previous observation before
-computing a centroid. This avoids averaging separate branches into their white
-gap; it does not resolve every ambiguous crossing or merged stripe.
+computing a centroid. Brightness is normalised by the recognised paint colour,
+so changing between black and endpoint paint does not change the intended
+geometry. This avoids averaging separate branches into their white gap; it does not resolve every ambiguous crossing or merged stripe.
 
 The direction estimate uses two observed line points. Wheel rotation and the gyro
 provide approximate planar odometry $(\hat x,\hat y,\hat\psi)$ in a local frame
@@ -254,12 +255,20 @@ $$
 $$
 
 The vector between an earlier point and the current point estimates the line
-tangent. The controller waits for 12 mm separation before updating this estimate
-and replaces the earlier point after 30 mm. Separating measurements in space
-reduces the effect of pixel noise; too long a separation delays the estimate on
-a tight bend. The estimate is smoothed and its orientation is selected modulo
-$\pi$ near the previous estimate, so a small noisy displacement cannot cause an
-accidental reversal. Reverse travel changes the sign of the point difference.
+tangent. Near the centre of the sensor, the controller waits for 16 mm separation
+and replaces the earlier point after 32 mm. Beyond 6 mm lateral offset, these
+distances decrease to 4 and 8 mm to respond to tighter bends. Separating measurements
+in space reduces optical quantisation noise; too long a separation delays the
+estimate on a tight bend. The tangent estimate is smoothed and its rate is
+limited to 3 rad/s, reducing abrupt turn demands from optical quantisation.
+The fit uses net displacement between observed points, allowing 0.7 mm backward
+uncertainty. Earlier observations remain available during slow pivots, when the
+instantaneous intersection velocity may be nearly zero. Retreat observations never
+update the tangent. Fresh forward measurements are required after returning to the
+saved point.
+On the return leg, the point difference changes sign. Its oriented angle is
+unwrapped modulo $2\pi$: choosing an unoriented tangent modulo $\pi$ can select
+the wrong continuation of a tight bend.
 These points describe the line already observed; extrapolating their tangent is
 a local prediction, not a forward sensor or a map of the unobserved route.
 
@@ -277,30 +286,66 @@ estimating this derivative from consecutive optical rows amplifies noise and
 becomes ill-conditioned when $v-\omega e$ is small; spatially separated points
 avoid that division. Neither method removes errors from slip, body tilt or
 ambiguous paint. The baseline uses the public wheel radius
-and planar gyro integration; it is not a full state observer.
+and planar gyro integration, correcting the body-Z rate for the approximate
+supported pitch of $-0.25$ rad; it is not a full state observer.
 
-The heading error is corrected by a signed lateral-offset term. Proportional
-and bounded integral feedback request a yaw rate; measured gyro rate damps the
-motor difference. This is a simple cascaded PID-like steering controller, not
-a numerical derivative of optical noise. PI speed control drives the common
-motor input. Speed decreases with offset, heading error and stripe width, and
-its rate of change is limited to retain sphere support. Red paint reduces speed;
-the controller proceeds beyond the visible endpoint before reversing, then
-follows the line backwards.
+With travel direction $d\in\{-1,1\}$, the requested yaw rate is
 
-Recovery has three states: follow, reverse, and align. On line loss or an offset
-near the row edge, the controller drives slowly back towards an older observed
-line point. It keeps this target fixed until the line is visible near that point.
-The vector from the recovered intersection to the last reliable point before
-loss gives a new direction estimate. The robot aligns with it before retrying
-at reduced speed. During alignment, $v=\omega e$ approximately keeps the optical
-intersection stationary while the body turns. The controller uses only RGB,
+$$
+\omega_* = k_\alpha\left[\alpha+\operatorname{clip}(\arctan(de/\ell),-0.5,0.5)\right],
+$$
+
+where $\ell=0.08$ m sets a lateral convergence distance. This parameter is a
+control scale, not the range of a forward-looking sensor. Proportional heading
+feedback requests a yaw rate; measured gyro rate damps the motor difference.
+On a straight line, with constant forward speed and instantaneous, noiseless
+heading feedback, linearisation gives
+$\ddot e+k_\alpha\dot e+(vk_\alpha/\ell)e=0$. Its damping ratio is
+$\zeta=\tfrac12\sqrt{k_\alpha\ell/v}$, about 1.29 at the configured cruise speed.
+This motivates a smooth approach to the line; it is not a stability proof for
+the full robot with delayed direction estimates, friction and motor saturation.
+There is no heading integral, so an outdated tangent does not accumulate a turn
+demand. PI speed control drives the common motor input. Along-line speed $u$
+decreases with offset, heading error, yaw rate and stripe width. The body-speed
+request coordinates translation with turning:
+
+$$
+v_* = u\cos\alpha + \omega e.
+$$
+
+In the reduced planar model, $v-\omega e$ is the forward component of the line
+intersection's velocity. This correction avoids sweeping the intersection out
+of the sensor during a slow turn. Requested speed and yaw rate have bounded
+rates of change. Both red and blue endpoints reduce speed; after reaching the
+physical end the controller changes the sign of travel without rotating the body.
+The initial blue marker is not the outward destination. Direction estimation and
+turn-dependent slowing remain active on coloured paint; recognising an endpoint
+must not suppress the remaining line geometry.
+
+Recovery has four states: follow, retreat, settle and approach. The controller
+stores recent points **on the line** and their fitted tangents, about 20 mm apart.
+On line loss it freezes the older point and tangent. It reverses along that virtual
+line until it is at least 35 mm behind the point and within 3 mm laterally.
+It then stops and waits for both heading and yaw rate to settle before approaching
+again. Seeing paint during the retreat is not sufficient to resume normal driving.
+During the approach it gathers fresh forward observations and keeps speed low;
+the probing distance includes the retreat and extends 40 mm beyond the estimated
+loss location. A small offset, heading error and yaw rate allow normal tracking.
+Passing the saved point is latched: a hairpin may bring the robot behind that
+point's incoming tangent plane again without restarting virtual-line alignment.
+
+The virtual line may lie outside the sensor. During recovery, turn about the axle
+rather than applying the visible-line compensation $\omega e$ to an unseen point.
+The condition permitting translation must use the same heading target as steering,
+including lateral correction; otherwise a robot can satisfy steering while its
+independent movement condition keeps it stopped indefinitely.
+The controller uses only RGB,
 encoders and gyro; it cannot certify that this recovered position lies before
 the judge's frontier. Odometry drift and a wrong branch can still defeat this
 short recovery procedure.
 
 `debug()` exposes offset, estimated heading and speed, recovery state, travel
-direction, yaw rate and motor inputs. Compare these estimates with the simulator
+direction, measured/requested yaw rate and motor inputs. Compare these estimates with the simulator
 in training and inspect unsuccessful runs. The baseline does not balance upright,
 learn dynamics, build a route map or optimise the return journey. Its measured
 reference results and remaining failures are given in the
@@ -375,9 +420,9 @@ labels it `truncated`, it is not merely an arbitrary training rollout cutoff.
 Decide value targets accordingly. A rollout buffer boundary while an episode is
 still running is a different event.
 
-Vary courses and robot seeds during training, retaining simpler cases as difficulty
-increases. Evaluate with fixed seeds for reproducible comparisons and with additional
-seeds to estimate sensitivity to dynamics. Keep model selection separate from the
+Vary geometry and explicitly generated robot cases during training, retaining simpler
+cases as difficulty increases. Repeat fixed cases for reproducible comparisons and
+prepare additional cases with `sample_case` to estimate sensitivity to dynamics. Keep model selection separate from the
 experiments used to report generalisation. Record training cost and failed episodes,
 and compare against the conventional controller under the same conditions.
 

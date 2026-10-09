@@ -52,7 +52,7 @@ capabilities. Wheel rotation measured by an encoder may differ from actual
 movement over the ground.
 
 The physical model and pilot parameter ranges are public. The actual
-parameters are chosen at the start of each episode and are not supplied to your
+parameters belong to the selected fixed experiment and are not supplied to your
 controller. They stay unchanged for the complete outward and return journey.
 You can adapt using the robot's observed response to your actions.
 
@@ -215,8 +215,11 @@ commands zero motor effort. `baseline` drives with the sphere on the floor. It
 tracks one connected optical stripe, estimates its direction using observation
 history and the gyro, and regulates speed using the encoders. Two observed line
 points estimate its direction; gyro feedback damps steering. It slows for turns,
-backs up to an earlier observed point after losing the line, aligns with the
-observed continuation, and retries slowly. It returns in reverse. Its preparation procedure saves hand-tuned settings; it does not learn.
+coordinates translation with rotation, and backs up along a saved line tangent
+after losing the line. It settles behind a previously observed line point, then
+gathers fresh forward observations while retrying slowly. At either endpoint it
+can reverse travel without turning its body. Its preparation procedure saves
+hand-tuned settings; it does not learn.
 The [control guide](control_hints.md#the-reference-controller) explains the design
 and its limitations. Replace or extend the preparation procedure with learning or
 fitting.
@@ -228,8 +231,8 @@ Measure completion rate and total journey time, including recovery. Compare
 familiar and unfamiliar courses; outward and return times can help assess the
 value of memory. Include failures when comparing scores.
 
-Practice episodes may be repeated with different robot seeds. Training can use
-simulator diagnostics to construct rewards or learning targets. During assessment,
+Practice cases can be repeated exactly; extra robots can be generated explicitly
+for training. Training can use simulator diagnostics to construct rewards or learning targets. During assessment,
 adaptation must use the permitted observations and action history: accepted
 progress, true pose and rewards are not controller inputs. Final inference and
 adaptation run on CPU without network access, within the
@@ -275,9 +278,11 @@ experiments under `work/` and `runs/`.
 | File in `data/line_following/` | Contents |
 | --- | --- |
 | `courses.npz` | Canonical centreline geometry for all 65 courses. |
-| `train.csv` | The 50 fixed training episodes, one course and robot seed per row. |
+| `train.csv` | The 50 fixed training episodes, one case identifier per row. |
 | `validation.csv` | The 15 fixed validation episodes. |
-| `index.html` | An offline atlas with course drawings, lengths and fixed episode seeds. |
+| `cases.npz` | Explicit robot parameters, initial states and reproducible sensor noise for all cases. |
+| `diagnostic.csv` | One extra case, `diagnostic-train-04-robot-0`, sharing train-04 geometry with another robot. |
+| `index.html` | An offline atlas with course drawings, lengths and fixed case identifiers. |
 
 ### Composition of the collection
 
@@ -286,7 +291,7 @@ named `validation-01` through `validation-15`.
 
 | Training courses | Validation courses | Geometric characteristics |
 | --- | --- | --- |
-| 01–02 | — | The same one-metre straight route with two different robot seeds. |
+| 01–02 | — | The same one-metre straight route with two different robots. |
 | 03–10 | 01–02 | Broad curves and an S bend, rounded triangular and rectangular routes, meanders and asymmetric loop-shaped sections. |
 | 11–20 | 03–05 | Compact meanders, slaloms, S bends and a spiral; varying radii and successive left/right turns. |
 | 21–30 | 06–08 | Hairpins, spirals, compact serpentine routes and closely spaced parallel branches. |
@@ -307,11 +312,18 @@ controllers and report generalisation; repeatedly selecting settings on the same
 validation set also fits those choices to that set. This finite collection does
 not cover every permitted situation in assessment.
 
-A fixed episode is a pair `(course, seed)`. Its seed determines the sampled robot
-parameters and sensor randomness, independently of the controller's own random
-seed. Robot seeds are sampled independently of course geometry. Repeating a course
-with other seeds exposes the controller to different dynamics. The randomisation
-sequence on successive resets is described in the [environment API](#batched-environment).
+A **case** specifies geometry, all robot parameters, the initial physical state,
+and a reproducible sensor-noise stream. Selecting the case completely defines the
+experiment. Repeating or resetting it does not draw another robot. `train-01` and
+`train-02` have the same geometry but different stored physical parameters.
+The extra diagnostic case does not enter training/validation aggregate scores.
+
+The physics has no stochastic forces, friction changes or random actuator commands.
+Independent zero-mean Gaussian measurement noise is added once per observation:
+RGB standard deviation 0.008, gyroscope 0.004 rad/s, accelerometer 0.025 m/s²,
+and encoders 0.0005 rad. RGB is then clipped to `[0, 1]`. Noise is reproducible and
+independent of batch order and the controller's own RNG. Randomisation of new
+robots is an explicit data-preparation operation, separate from running a case.
 
 ### Loading with the supplied functions
 
@@ -329,11 +341,12 @@ from coursekit.labs.line_following_task import benchmark
 
 courses = load_courses(Path("data/line_following/courses.npz"))
 cases = benchmark(Path("data/line_following"), "train")
-course, robot_seed = cases[0]
+case = cases[0]
+course = case.course
 s = np.linspace(0.0, course.length, 101)
 points = course.at(s)  # Shape (101, 2), world x/y in metres.
 curvature, change = course.geometry(s)
-print(course.name, course.length, robot_seed)
+print(case.name, course.length)
 ```
 
 `benchmark(..., "validation")` loads the fixed validation episodes; validation
@@ -347,11 +360,44 @@ clamped to the corresponding endpoint.
 
 ### CSV episode format
 
-Both CSV files are UTF-8 text with comma separators and the exact header
-`course,seed`. Each subsequent row contains a course name present in `names` in
-the NPZ archive and a nonnegative decimal integer seed smaller than `2**63`.
-Rows define episode order; identical `(course, seed)` pairs do not repeat within
-one file. A course may in general occur with several different seeds.
+The split files are UTF-8 CSV with the exact single-column header `case`.
+Each following row names one entry in `cases.npz`; names are distinct within a
+split and row order is the evaluation order. Several cases may refer to the same
+course geometry. `load_cases(data_dir, split)` in `line_following_cases` loads
+`train`, `validation` or `diagnostic`; omitting the split loads all stored cases.
+`benchmark(data_dir, split="validation")` uses the same loader.
+
+### NPZ experiment format
+
+Read `cases.npz` with `numpy.load(..., allow_pickle=False)`. Format 1 stores the
+following arrays, where `K` is the number of cases (66 in this release):
+
+| Array | Shape | Type and meaning |
+| --- | --- | --- |
+| `version` | `()` | Integer `1`. |
+| `names`, `courses` | `(K,)` each | Unicode case identifiers and references to `courses.npz` names. |
+| `noise_state` | `(K,)` | Unicode JSON descriptions of NumPy PCG64 state before the first observation. |
+| `noise_std` | `(K, 4)` | Float64 deviations in RGB, gyro, accelerometer, encoder order. |
+| `robot_mass` | `(K, 4)` | Float64 masses: body, left wheel, right wheel, sphere (kg). |
+| `robot_inertia` | `(K, 4, 3)` | Principal inertias of those bodies (kg m²). |
+| `robot_offset` | `(K, 4, 3)` | Body-frame centre offsets from the axle (m). |
+| `robot_radius`, `robot_friction` | `(K, 3)` each | Radii (m), Coulomb coefficients: left wheel, right wheel, sphere. |
+| `robot_stiffness`, `robot_compression` | `(K, 3)` each | Contact stiffness (N/m) and compression damping (N s/m), left/right/sphere. |
+| `robot_ball_drag`, `robot_gravity` | `(K,)` each | Sphere drag (N m s), gravity (m/s²). |
+| `robot_stall`, `robot_speed` | `(K, 2)` each | Left/right stall torque (N m) and no-load speed (rad/s). |
+| `initial_q`, `initial_p` | `(K, 8)` each | Float64 generalised coordinates and canonical momenta. |
+| `initial_spin` | `(K, 3)` | Float64 sphere angular momentum in world coordinates (kg m²/s). |
+| `initial_fallen` | `(K,)` | Boolean, initially false. |
+
+The [mechanics guide](dynamics.md) defines coordinates and conjugate momenta.
+Numeric values must be finite, physical masses/inertias/radii/stiffness/drive
+limits positive, and noise deviations nonnegative. No pickled objects or runtime
+robot-generation seeds occur in this archive. To reconstruct a noise stream, parse
+its JSON, create `np.random.Generator(np.random.PCG64(0))`, and assign the parsed
+state to `generator.bit_generator.state`. Draw normal arrays in the order RGB
+`(16, 3)`, gyro `(3,)`, accelerometer `(3,)`, encoders `(2,)`, including the initial
+observation. Draw even for a zero deviation to preserve other sensors' streams.
+Per-row generators keep batch scheduling independent.
 
 ### NPZ geometry format
 
@@ -423,9 +469,24 @@ with np.load(root / "courses.npz", allow_pickle=False) as archive:
             "corners": corners[i, : m + 1].copy(),
         }
 with (root / "train.csv").open(encoding="utf-8", newline="") as stream:
-    episodes = [(row["course"], int(row["seed"])) for row in csv.DictReader(stream)]
-name, seed = episodes[0]
-p0, p1, p2, p3 = raw_courses[name]["controls"][0]
+    episode_names = [row["case"] for row in csv.DictReader(stream)]
+with np.load(root / "cases.npz", allow_pickle=False) as archive:
+    if archive["version"].item() != 1:
+        raise ValueError("Expected fixed-case format 1")
+    i = archive["names"].tolist().index(episode_names[0])
+    course_name = str(archive["courses"][i])
+    robot = {
+        k.removeprefix("robot_"): archive[k][i].copy()
+        for k in archive.files
+        if k.startswith("robot_")
+    }
+    initial = {
+        k.removeprefix("initial_"): archive[k][i].copy()
+        for k in archive.files
+        if k.startswith("initial_")
+    }
+    noise_state, noise_std = str(archive["noise_state"][i]), archive["noise_std"][i].copy()
+p0, p1, p2, p3 = raw_courses[course_name]["controls"][0]
 t = 0.5
 point = (1 - t) ** 3 * p0 + 3 * (1 - t) ** 2 * t * p1 + 3 * (1 - t) * t**2 * p2 + t**3 * p3
 ```
@@ -449,8 +510,9 @@ solution. For this lab, the required entry points are:
 Directory arguments are `pathlib.Path` objects; `config` is a dictionary read from
 `config.toml`. Training may return `None` or a dictionary of finite numeric NumPy
 arrays for saved learning histories. Initialise your random generators using the
-supplied seed to make experiments reproducible. Load models relative to
-`artifact_dir`, so the solution also works after packaging and extraction.
+supplied seed to make experiments reproducible. This seed controls your method,
+not the stored robot or sensor noise; the baseline ignores it during inference.
+Load models relative to `artifact_dir`, so the solution also works after packaging and extraction.
 
 All observations are float32 PyTorch tensors on CPU with a leading batch dimension
 `B`, including when `B = 1`. Return finite float32 commands of shape `(B, 2)` in
@@ -484,9 +546,9 @@ Encoder increments can differ from ground displacement because wheels may slip.
 
 ### Batched environment
 
-`Environment(courses, seeds=None, *, compiled=True, time_limit=120.0, noise=True)`
-constructs one independent episode per course. If supplied, `seeds` contains one
-nonnegative 63-bit integer per row; otherwise the initial seeds are `0, ..., B-1`.
+`Environment(cases, *, compiled=True, time_limit=120.0, noise=True)`
+constructs one independent episode per fixed `Case`. Parameters and initial
+conditions are copied from the case, and its noise stream starts from the recorded state.
 Courses must be at least 0.3 m long. The environment uses float64 CPU physics with
 a 1 ms physical step and a 20 ms control interval (50 observations/actions per
 simulated second).
@@ -502,7 +564,7 @@ from coursekit.labs.line_following_task import benchmark
 from coursekit.training import load_solution
 
 cases = benchmark(Path("data/line_following"), "train")[:2]
-env = Environment([c for c, seed in cases], [seed for c, seed in cases])
+env = Environment(cases)
 controller = load_solution(Path("work/line_following/my-controller"))
 observation = env.observe()
 action = controller.act(observation, env.first)
@@ -521,12 +583,21 @@ are observations, float32 reward `(B,)`, Boolean `terminated` and `truncated` te
 `terminated` identifies completion or falling; `truncated` identifies the time
 limit, which scores zero. Finished rows and their final observations remain frozen
 until explicitly reset. After `env.reset(done)`, pass the updated `env.first` to
-the next `act` call. `reset(mask)` samples new episodes for the selected rows only.
-It increments each selected row's episode counter; the RNG is initialised from its
-seed and counter. Supplying `seeds=[...]` resets those counters to zero and reproduces
-the specified initial episodes. Optional `courses=[...]` and `seeds=[...]` must each
-have one entry per selected row, in row order. Randomness is independent between
-rows and from the controller's random generators.
+the next `act` call. `reset(mask)` repeats exactly the selected cases, including
+initial observations and noise. Optional `reset(mask, cases=[...])` replaces those
+rows, with one case per selected row. Other rows retain physical/controller state.
+
+To prepare additional training robots, call `sample_case(course, seed, name=...)`
+from `coursekit.labs.line_following_cases`. The seed belongs to generation, not
+to `Environment`. Save resulting cases with `save_cases` and a split with
+`save_split`; save their unique geometries separately with `save_courses`.
+For example, `extra = sample_case(cases[0].course, 42, name="extra-42")`, followed
+by `env.reset([True, False], cases=[extra])`, replaces only the first row above.
+These utilities are for training; evaluated `act()` never receives case data.
+
+`noise=False` disables measurement noise for diagnosis without changing the robot.
+For individual sensors, `dataclasses.replace(case, noise_std=(...))` creates an
+explicit diagnostic case. Evaluation always uses the stored noise settings.
 
 The default training reward is newly accepted distance divided by the complete
 out-and-back route length. Revisiting an already accepted portion of the current
@@ -629,7 +700,7 @@ Exact subdivisions do not introduce artificial reference constraints. Speed pass
 use cumulative acceleration bounds; time is integrated along the spline's arc
 coordinate. Legal driving may beat this approximation.
 
-`sample_robot` publishes the complete pilot distribution. Component masses and
+`line_following_cases.sample_robot` publishes the complete pilot distribution. Component masses and
 their inertias scale together by 0.85–1.15; body centre-of-mass height scales by
 0.9–1.1 with consistent inertia scaling. Wheel friction lies in 0.65–0.95, support
 friction in 0.45–0.75, motor stall torque in 0.065–0.095 N m, no-load speed in
@@ -707,53 +778,102 @@ anything. Follow the [submission format](../../docs/submissions.md) and
 
 ### Reference measurements and experimental comparison
 
-The two-point baseline was measured on 2026-10-09 using every published episode,
-its fixed robot seed, sensor noise and the standard 120-second limit. It completed
-37 training and 9 validation episodes. The table retains measurements of the two
-previous reference controllers under the same mechanical, sensor-area coverage
-and scoring rules. Mean scores include failed episodes as zero.
+The fixed-case baseline was evaluated on all 65 published training and validation
+experiments, with their stored robots and sensor noise, on 2026-10-09. The limit
+remained 120 simulated seconds.
 
-| Measurement | Earlier centroid/PD | Encoder replay (2026-10-08) | Two-point recovery (2026-10-09) |
-| --- | ---: | ---: | ---: |
-| Training completions | 6 / 50 | 33 / 50 | 37 / 50 |
-| Validation completions | 1 / 15 | 8 / 15 | 9 / 15 |
-| Training mean score | 1.03 | 7.86 | 8.46 |
-| Validation mean score | 0.52 | 6.02 | 7.00 |
-| Training mean accepted coverage | 22.1% | 84.3% | 83.4% |
-| Validation mean accepted coverage | 20.6% | 74.8% | 79.4% |
+| Measurement | Training | Validation |
+| --- | ---: | ---: |
+| Completed journeys | 27 / 50 | 6 / 15 |
+| Mean score, including failures | 3.82 | 2.83 |
+| Mean accepted coverage | 79.2% | 76.4% |
+| Falls | 0 | 0 |
 
-The current controller completed every episode from `train-01` through `train-27`.
-All 19 remaining failures were timeouts; there were no falls. The previous
-encoder-replay controller completed every episode through `train-18`, also with
-no falls. More completions do not imply improvement on every course: some close
-branches and crossings still cause incorrect continuation or failed recovery.
-Accepted coverage remains diagnostic and does not contribute points.
+Every case through `train-20` completed. The published `train-04` case took
+95.370 s; the additional `diagnostic-train-04-robot-0` case took 80.531 s.
+Both completed the outward and return legs with accepted progress restored after
+recovery. Singleton runs through the graphical simulator's worker and batched
+runs produce identical observations, actions and final states for these two cases.
+
+The baseline is deliberately conservative and is not a universal route solver.
+Its 33 completions are fewer than the previous conservative pilot's 38 under the
+same time limit; the remaining 32 episodes time out. Difficult branches, crossings
+and recovery remain limitations. Small steering fluctuations from the discretised
+optical measurements also remain: disabling random sensor noise does not make the
+16-sector observation continuous. These measurements do not establish stability
+for every admissible robot or route.
+
+The following tables retain historical measurements of four earlier controllers
+from 2026-10-08 and 2026-10-09. Their physical experiments were preserved by the
+fixed-case migration. All used sensor noise, the 120-second limit and the same
+mechanical, sensor-area coverage and scoring rules. Mean scores include failures
+as zero. These results do not describe the current controller.
+
+| Measurement | Earlier centroid/PD | Encoder replay (2026-10-08) | Earlier two-point recovery (2026-10-09) | Previous conservative recovery |
+| --- | ---: | ---: | ---: | ---: |
+| Training completions | 6 / 50 | 33 / 50 | 37 / 50 | 31 / 50 |
+| Validation completions | 1 / 15 | 8 / 15 | 9 / 15 | 7 / 15 |
+| Training mean score | 1.03 | 7.86 | 8.46 | 4.65 |
+| Validation mean score | 0.52 | 6.02 | 7.00 | 3.31 |
+| Training mean accepted coverage | 22.1% | 84.3% | 83.4% | 87.3% |
+| Validation mean accepted coverage | 20.6% | 74.8% | 79.4% | 79.8% |
+
+The previous conservative controller completed every episode from `train-01`
+through `train-25`.
+All 27 failures were timeouts; there were no falls. In 18 timed-out episodes,
+accepted distance still increased by more than 10 mm during the final 10 seconds;
+the slower driving and recovery used up the time budget. The remaining nine made
+little or no accepted progress over that interval. Close branches and crossings
+can still cause incorrect continuation or failed recovery.
+
+The previous two-point controller completed every published episode through
+`train-27`, with 19 timeouts and no falls overall. However, its result on `train-04`
+depended on the robot: the published seed finished, while the viewer's default
+seed did not. The earlier encoder-replay controller completed every episode through
+`train-18`, also without falls. That revision improved repeatability on
+varied robots at the cost of speed, scores and some completions under the fixed
+limit. Accepted coverage remains diagnostic and does not contribute points.
 
 Selected out-and-back times, in simulated seconds:
 
-| Episode | Earlier centroid/PD | Encoder replay | Two-point recovery |
-| --- | ---: | ---: | ---: |
-| `train-01` | 19.405 | 10.485 | 14.277 |
-| `train-02` | 19.699 | 11.044 | 14.361 |
-| `train-03` | 38.499 | 28.047 | 31.039 |
-| `train-04` | Timeout at 120 s | 58.747 | 50.193 |
-| `train-19` | — | Timeout at 120 s | 63.046 |
-| `train-25` | — | Timeout at 120 s | 80.706 |
-| `train-34` | — | Timeout at 120 s | 98.531 |
+| Episode | Earlier centroid/PD | Encoder replay | Earlier two-point recovery | Conservative recovery |
+| --- | ---: | ---: | ---: | ---: |
+| `train-01` | 19.405 | 10.485 | 14.277 | 19.339 |
+| `train-02` | 19.699 | 11.044 | 14.361 | 20.108 |
+| `train-03` | 38.499 | 28.047 | 31.039 | 53.796 |
+| `train-04` | Timeout at 120 s | 58.747 | 50.193 | 75.524 |
+| `train-19` | — | Timeout at 120 s | 63.046 | 88.459 |
+| `train-25` | — | Timeout at 120 s | 80.706 | 114.379 |
+| `train-34` | — | Timeout at 120 s | 98.531 | Timeout at 120 s |
 
-The lower cruise speed makes straight courses slower but gives feedback more time
-to recover after turns. A separate regression check covers sharp and C2-rounded
-90-degree turns, both left and right, with eight robot seeds: all 32 journeys
-completed both legs. It also checks reverse recovery and bounds lateral and
-heading errors on the straight after the turn. These checks do not establish
-stability for every admissible robot or route.
+An additional pilot of that previous controller used `train-04` robots generated
+with seeds 0–31 and the former published CSV seed.
+All 33 journeys completed both legs in 68.545–87.303 simulated seconds; seed 0 took
+69.686 seconds. On the gently curving section after the first bend (outward route
+distance 1.1–1.7 m), maximum lateral and heading errors were 3.95 mm and 0.059 rad.
+The largest yaw-rate standard deviation over that section was 0.144 rad/s.
+This check detects sustained steering oscillation even when an episode finishes.
 
-Hand tuning used training episodes; settings were held fixed for validation. The
-controller does not guarantee completion on the assessment benchmark. Results
+Current regression tests cover sharp and C2-rounded 90-degree turns, both left
+and right, with eight explicitly generated robots: all 32 journeys complete both
+legs within the public episode limit. They also check physical reverse recovery and retain bounds
+of 6 mm lateral error and 0.15 rad heading error on the straight after the turn.
+An additional `train-04` check covers nine robots with normal sensor noise,
+and ten ablations using the published and diagnostic robots with noise disabled
+or enabled for only one sensor type. It checks both legs, recovered progress,
+accumulated body rotation and time spent without progress, as well as lateral
+and heading errors. The original nine noisy cases retain a 0.20 rad/s yaw-rate
+standard-deviation bound on the gently curving section. In the noise-free published
+case that statistic is 0.213 rad/s; its spatial and whole-journey checks still pass.
+
+Tuning and regression checks used synthetic corners and public cases; settings
+were held fixed throughout each reported sweep. These are development results,
+not an unbiased estimate on unseen courses. The controller does not guarantee
+completion on the assessment benchmark. Results
 obtained under earlier coverage rules are not directly comparable. Learned-controller
 calibration and academic grade thresholds remain separate work.
 
-Record the courses, robot seeds, training seed, configuration and computational
+Record case identifiers/fingerprints, training seed, configuration and computational
 cost of your experiments. Compare learned changes against a reference on the same
 episodes, report failures as well as successful times, and examine outward and
 return performance separately. A faster controller on familiar routes may still
@@ -764,8 +884,8 @@ have a lower average score on unfamiliar routes.
 ### Offline course atlas
 
 The [course atlas](resources/index.html) is an HTML page containing drawings of all
-65 routes, training/validation filters, lengths and fixed robot seeds. Open it in
-a web browser; no Python process or network connection is required. After resource
+65 routes plus the diagnostic example, split filters, lengths and fixed case
+identifiers. Open it in a web browser; no Python process or network connection is required. After resource
 preparation, the same page is available at `data/line_following/index.html`.
 
 ### Graphical simulator
@@ -791,15 +911,18 @@ the camera centred on the robot. **Sensor area** overlays the 16 measured ground
 sectors through the chassis, including the exact 94×8 mm route-coverage region.
 The RGB strip displays readings in body order, from right (0) to left (15).
 
-To reproduce a fixed episode, select its **Course** and **Robot seed** from the CSV
-and set **Batch** to 1. The initial GUI seed is for exploration; it is not taken
-from the benchmark CSV. Larger batches use consecutive course entries and seeds;
-**View robot** chooses the displayed row.
+To reproduce a fixed episode, select its case identifier under **Course** and set
+**Batch** to 1. Larger batches use consecutive fixed cases; **View robot** chooses
+the displayed row. Turning **Sensor noise** off creates a diagnostic run, labelled
+as such and recorded with that setting. Normal evaluation keeps noise enabled.
 
 On a fresh checkout, **Create baseline** copies the template into
 `work/line_following/baseline`, runs its preparation procedure and enables **Start**.
-Existing source is never replaced. For a working copy, **Prepare solution** runs
-its `train.py`, just like `step_2_train`. These are explicit preparation actions;
+Existing source is never replaced. **Copy current baseline** creates a new numbered
+working copy and prepares it. The solution path and source fingerprint remain
+visible, with an indication of whether the sources and configuration match the
+current template. For a working copy, **Prepare solution** runs its `train.py`,
+just like `step_2_train`. These are explicit preparation actions;
 previewing a course performs no training. To select your own prepared solution
 at launch:
 
@@ -811,7 +934,7 @@ The engine prepares in the background when the application opens, without loadin
 controller code. **Start** begins motion automatically; during preparation it queues
 the run. **Cancel preparation** cancels preparation and any queued start. Changing
 **Course** during or after a run starts a fresh run. **Restart** reloads the selected
-solution with the current seed and batch size, including a fresh controller state.
+solution with the selected cases and batch size, including a fresh controller state.
 The setup controls remain visible during simulation.
 
 ### Time controls, diagnostics and recordings
@@ -840,7 +963,8 @@ distance and the episode outcome for the selected robot and frame. New recording
 save travelled distance directly. Compatible older recordings without this field
 show a dash; the viewer does not infer an exact path length from sparse frames.
 
-Robot recordings use format version 3 and include sensor dimensions, line width,
+Robot recordings use format version 4 and include case identifiers/fingerprints,
+noise configuration, case-format version and sensor dimensions, line width,
 marker length, paint colours and the coverage rule version. Both the local and
 instructor applications reject older or incompatible recordings without replacing
 the currently open view. Use the matching coursekit environment to inspect such
@@ -849,7 +973,7 @@ separate format version 2; controller observations and actions retain their API.
 
 ### Compilation and stopping a run
 
-The physics process stays available between runs. Changing courses, seeds,
+The physics process stays available between runs. Changing cases,
 solutions or batch lengths reuses the Numba functions with matching array types
 and layouts. New application processes load saved functions from a local user
 cache; engine or Python/Numba changes invalidate that cache. Compilation is

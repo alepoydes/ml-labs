@@ -1,5 +1,5 @@
 # Supported driving; train.py saves these hand-tuned settings without learning.
-# Cruise speed (m/s), offset-to-heading gain (rad/m), heading-to-yaw-rate gain (1/s).
-speed = 0.16
-offset_gain = 20.0
-heading_gain = 5.0
+# Cruise speed (m/s), lateral convergence distance (m), heading feedback (1/s).
+speed = 0.12
+lookahead = 0.08
+heading_gain = 10.0

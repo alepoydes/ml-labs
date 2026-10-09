@@ -17,7 +17,8 @@ from coursekit.common import CourseError
 from coursekit.labs import line_following as physics
 from coursekit.labs import line_following_geometry as geometry
 from coursekit.labs import line_following_rollout as rollout
-from coursekit.labs.line_following_course import Course, advance, optical, reference_time
+from coursekit.labs.line_following_cases import SENSOR_NAMES, Case
+from coursekit.labs.line_following_course import advance, optical, reference_time
 
 PHYSICS_DT = 0.001
 CONTROL_STEPS = 20
@@ -29,28 +30,6 @@ OBSERVATION_SHAPES = {
     "accel": (3,),
     "encoders": (2,),
 }
-
-
-def sample_robot(rng: np.random.Generator) -> physics.Robot:
-    """Pilot parameter family; shape is fixed and inertias scale with masses."""
-    model = physics.robot()
-    scale = torch.from_numpy(rng.uniform(0.85, 1.15, 4))
-    height = rng.uniform(0.9, 1.1)
-    inertia = model.inertia * scale[:, None]
-    inertia[0] *= height**2
-    offset = model.offset.clone()
-    offset[0, 2] *= height
-    return model._replace(
-        mass=model.mass * scale,
-        inertia=inertia,
-        offset=offset,
-        friction=torch.from_numpy(
-            np.r_[rng.uniform(0.65, 0.95, 2), rng.uniform(0.45, 0.75)]
-        ),
-        stall=torch.from_numpy(rng.uniform(0.065, 0.095, 2)),
-        speed=torch.from_numpy(rng.uniform(38.0, 52.0, 2)),
-        ball_drag=torch.tensor(rng.uniform(0.00015, 0.00025), dtype=torch.float64),
-    )
 
 
 def validate_observation(observation: dict, reset: torch.Tensor) -> None:
@@ -100,39 +79,23 @@ def _step(state, action, model):
     return _inspect(*vmap(physics.step)(state, action, model))
 
 
-def _seeds(values, size):
-    values = np.asarray(values)
-    if (
-        values.shape != (size,)
-        or values.dtype.kind not in "iu"
-        or (values < 0).any()
-        or (values.dtype.kind == "u" and values.max(initial=0) > np.iinfo(np.int64).max)
-    ):
-        raise CourseError("Provide one nonnegative 63-bit integer seed per course.")
-    return values.astype(np.int64, copy=True)
-
-
 class Environment:
     def __init__(
         self,
-        courses: Sequence[Course],
-        seeds: Sequence[int] | None = None,
+        cases: Sequence[Case],
         *,
         compiled=True,
         time_limit=TIME_LIMIT,
         noise=True,
     ):
-        if not courses or any(course.length < 0.3 for course in courses):
-            raise CourseError(
-                "Episodes need at least one course, each at least 0.3 m long."
-            )
+        if not cases or any(not isinstance(case, Case) for case in cases):
+            raise CourseError("Provide at least one fixed Case.")
         if not np.isfinite(time_limit) or time_limit <= 0:
             raise CourseError("The episode time limit must be positive and finite.")
-        self.courses = list(courses)
-        self.reverse = [c.reversed() for c in courses]
-        self.size = len(courses)
-        self.seeds = _seeds(range(self.size) if seeds is None else seeds, self.size)
-        self.episodes = np.full(self.size, -1, dtype=np.int64)
+        self.cases = list(cases)
+        self.courses = [c.course for c in cases]
+        self.reverse = [c.reversed() for c in self.courses]
+        self.size = len(cases)
         self.rng = [None] * self.size
         self.noise = noise
         self.limit_steps = int(np.ceil(time_limit / PHYSICS_DT))
@@ -174,34 +137,23 @@ class Environment:
     def observe(self):
         return {key: value.clone() for key, value in self._observation.items()}
 
-    def reset(self, mask=None, *, courses=None, seeds=None):
+    def reset(self, mask=None, *, cases=None):
         mask = np.ones(self.size, dtype=bool) if mask is None else np.asarray(mask)
         if mask.shape != (self.size,) or mask.dtype != np.bool_:
             raise CourseError("Reset mask must be Boolean with shape (B,).")
         indices = np.flatnonzero(mask)
-        if courses is not None and (
-            len(courses) != len(indices) or any(c.length < 0.3 for c in courses)
+        if cases is not None and (
+            len(cases) != len(indices) or any(not isinstance(c, Case) for c in cases)
         ):
-            raise CourseError("Provide one course of at least 0.3 m per reset row.")
-        if seeds is not None:
-            seeds = _seeds(seeds, len(indices))
+            raise CourseError("Provide one fixed Case per reset row.")
         for position, i in enumerate(indices):
-            if courses is not None:
-                self.courses[i] = courses[position]
-                self.reverse[i] = courses[position].reversed()
-            if seeds is not None:
-                self.seeds[i] = seeds[position]
-                self.episodes[i] = -1
-            self.episodes[i] += 1
-            rng = np.random.default_rng(
-                np.random.SeedSequence([self.seeds[i], self.episodes[i]])
-            )
-            self.rng[i] = rng
-            model = sample_robot(rng)
-            state = physics.initial_state(model)
-            direction = self.courses[i].at(0.0, derivative=1)
-            state.q[:2] = torch.from_numpy(self.courses[i].at(0.0).copy())
-            state.q[5] = float(np.arctan2(direction[1], direction[0]))
+            if cases is not None:
+                self.cases[i] = cases[position]
+                self.courses[i] = cases[position].course
+                self.reverse[i] = self.courses[i].reversed()
+            case = self.cases[i]
+            self.rng[i] = case.noise_generator()
+            model, state = case.robot, case.initial
             for target, value in zip(self.model, model):
                 target[i] = value
             for target, value in zip(self.state, state):
@@ -255,12 +207,7 @@ class Environment:
                 "accel": local_acceleration[i].numpy(),
                 "encoders": q[6:].copy(),
             }
-            for name, sigma in (
-                ("rgb", 0.008),
-                ("gyro", 0.004),
-                ("accel", 0.025),
-                ("encoders", 0.0005),
-            ):
+            for name, sigma in zip(SENSOR_NAMES, self.cases[i].noise_std):
                 if self.noise:
                     readings[name] = readings[name] + rng.normal(
                         0.0, sigma, readings[name].shape

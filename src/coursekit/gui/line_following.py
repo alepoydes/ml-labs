@@ -2,10 +2,10 @@ import time
 from pathlib import Path
 
 import numpy as np
-import torch
 from PySide6.QtCore import Qt, QThread, QTimer, Slot
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -17,15 +17,15 @@ from PySide6.QtWidgets import (
 )
 
 from coursekit import recording, resources, submissions, training
+from coursekit.common import digest
 from coursekit.gui.common import Job, Notice, SolutionPath, heading
 from coursekit.gui.line_run import Run, Worker
 from coursekit.gui.playback import Playback
 from coursekit.gui.robot_view import RobotView, recorded_courses
 from coursekit.gui.scene import Scene
 from coursekit.gui.style import apply_style
-from coursekit.labs import line_following as physics
+from coursekit.labs.line_following_cases import iter_cases, sample_case
 from coursekit.labs.line_following_course import Course
-from coursekit.labs.line_following_curve import iter_courses
 from coursekit.labs.line_following_env import CONTROL_STEPS, PHYSICS_DT
 
 
@@ -39,13 +39,18 @@ class LineFollowingPage(QWidget):
         self.worker = Worker()
         self.pending_start = False
         self.selected_course = -1
-        self.courses = []
+        self.cases, self.courses = [], []
         self.live, self.shown = True, None
         self.chooser = SolutionPath(self.project, "line_following")
         self.solution_button = QPushButton("Create baseline")
         self.solution_button.setToolTip(
             "Create the baseline if missing, then run train.py to prepare its artifacts. Existing code is never replaced."
         )
+        self.copy_button = QPushButton("Copy current baseline")
+        self.copy_button.setToolTip(
+            "Create and prepare a new working copy of the current template; keep existing solutions."
+        )
+        self.copy_button.clicked.connect(self.copy_baseline)
         self.solution_hint = QLabel()
         self.solution_hint.setObjectName("muted")
         self.solution_hint.setTextFormat(Qt.TextFormat.PlainText)
@@ -54,14 +59,15 @@ class LineFollowingPage(QWidget):
         self.course.setMinimumContentsLength(14)
         self.previous_course = QPushButton("Previous course")
         self.next_course = QPushButton("Next course")
-        self.seed, self.batch, self.episode = QSpinBox(), QSpinBox(), QSpinBox()
-        self.seed.setRange(0, 2**31 - 1)
-        self.batch.setRange(1, 32)
-        self.batch.setToolTip(
-            "Run consecutive courses with consecutive robot seeds in one batch."
+        self.batch, self.episode = QSpinBox(), QSpinBox()
+        self.noise = QCheckBox("Sensor noise")
+        self.noise.setChecked(True)
+        self.noise.setToolTip(
+            "Disable only for diagnostic runs; evaluation always uses recorded noise. Restart applies changes."
         )
+        self.batch.setRange(1, 32)
+        self.batch.setToolTip("Run consecutive fixed cases in one batch.")
         self.episode.setRange(1, 1)
-        self.seed.setToolTip("Robot parameters for the next run; click Restart to apply.")
         self.start_button = QPushButton("Start")
         self.start_button.setProperty("primary", True)
         self.play_button = QPushButton("Pause")
@@ -111,6 +117,7 @@ class LineFollowingPage(QWidget):
         solution_row = QHBoxLayout()
         solution_row.addWidget(self.chooser, 1)
         solution_row.addWidget(self.solution_button)
+        solution_row.addWidget(self.copy_button)
         form.addLayout(solution_row)
         form.addWidget(self.solution_hint)
         setup = QHBoxLayout()
@@ -119,8 +126,7 @@ class LineFollowingPage(QWidget):
             QLabel("Course"),
             self.course,
             self.next_course,
-            QLabel("Robot seed"),
-            self.seed,
+            self.noise,
             QLabel("Batch"),
             self.batch,
             self.prepare_button,
@@ -194,7 +200,7 @@ class LineFollowingPage(QWidget):
         course = Course.polyline("warmup", np.array([[0.0, 0.0], [1.0, 0.0]]))
         size = self.batch.value()
         self.warmup = Run(
-            None, [course] * size, list(range(size)), self, worker=self.worker
+            None, [sample_case(course, i) for i in range(size)], self, worker=self.worker
         )
         self.warm_started = time.monotonic()
         self.warmup.finished.connect(
@@ -233,7 +239,7 @@ class LineFollowingPage(QWidget):
                 resources.manifest(self.project / "labs/line_following/resources.toml"),
             )
             courses = []
-            for course in iter_courses(self.project / "data/line_following/courses.npz"):
+            for course in iter_cases(self.project / "data/line_following"):
                 if QThread.currentThread().isInterruptionRequested():
                     return None
                 courses.append(course)
@@ -253,10 +259,11 @@ class LineFollowingPage(QWidget):
         elif job.value is None:
             self.message.setText("Course preparation cancelled. Prepare courses to retry.")
         else:
-            self.courses = job.value
+            self.cases = job.value
+            self.courses = [case.course for case in self.cases]
             self.course.blockSignals(True)
             self.course.clear()
-            self.course.addItems([c.name for c in self.courses])
+            self.course.addItems([c.name for c in self.cases])
             self.course.blockSignals(False)
             self.selected_course = self.course.currentIndex()
             self.preview()
@@ -274,17 +281,13 @@ class LineFollowingPage(QWidget):
             or self.course.currentIndex() < 0
         ):
             return
-        course = self.courses[self.course.currentIndex()]
-        model = physics.robot()
-        q = physics.initial_state(model).q
-        q[:2] = torch.from_numpy(course.at(0.0).copy())
-        direction = course.at(0.0, derivative=1)
-        q[5] = float(np.arctan2(direction[1], direction[0]))
+        case = self.cases[self.course.currentIndex()]
+        course, model, q = case.course, case.robot, case.initial.q
         self.scene.show_pose(
             course, q.numpy(), {k: v.numpy() for k, v in model._asdict().items()}
         )
         self.status.setText(
-            f"{course.name} · {course.length:.2f} m each way · course preview"
+            f"{case.name} · {course.length:.2f} m each way · fixed experiment preview"
         )
 
     def change_course(self):
@@ -332,6 +335,18 @@ class LineFollowingPage(QWidget):
         except Exception as exc:
             return str(exc)
         return ""
+
+    def copy_baseline(self):
+        try:
+            name, number = "baseline-current", 1
+            while (self.project / "work/line_following" / name).exists():
+                number += 1
+                name = f"baseline-current-{number}"
+            path = training.new_solution(self.project, "line_following", "baseline", name)
+            self.chooser.path.setText(str(path))
+            self.prepare_solution()
+        except Exception as exc:
+            self.message.setText(str(exc))
 
     def prepare_solution(self):
         if self.preparation is not None or self.job is not None and self.job.isRunning():
@@ -393,7 +408,32 @@ class LineFollowingPage(QWidget):
                 else "Prepare solution to create its artifacts before running."
             )
         )
-        self.solution_hint.setVisible(bool(problem) or not created)
+        source = path / "solution.py"
+        if source.is_file():
+            current = digest(source)
+            template = self.project / "labs/line_following/baseline"
+            matches = (
+                not problem
+                and training.source_hash(path) == training.source_hash(template)
+                and digest(path / "config.toml") == digest(template / "config.toml")
+            )
+            self.solution_hint.setText(
+                f"{path.resolve()} · source {current[:10]} · "
+                + (
+                    "current baseline"
+                    if matches
+                    else "working solution differs from current baseline"
+                )
+                + (
+                    " · artifacts ready"
+                    if created
+                    else " · prepare artifacts before running"
+                )
+            )
+        self.solution_hint.setVisible(True)
+        self.copy_button.setEnabled(
+            not running and not preparing and not self.pending_start
+        )
         self.start_button.setText(
             "Starting…"
             if self.pending_start
@@ -410,7 +450,7 @@ class LineFollowingPage(QWidget):
         )
         for widget in [
             self.chooser,
-            self.seed,
+            self.noise,
             self.batch,
             self.prepare_button,
         ]:
@@ -487,21 +527,21 @@ class LineFollowingPage(QWidget):
         self.playback.pause()
         if self.job is not None:
             self.job.deleteLater()
-        courses = [
-            self.courses[(self.course.currentIndex() + i) % len(self.courses)]
+        cases = [
+            self.cases[(self.course.currentIndex() + i) % len(self.cases)]
             for i in range(self.batch.value())
         ]
         self.job = Run(
             Path(self.chooser.path.text()),
-            courses,
-            [self.seed.value() + i for i in range(len(courses))],
+            cases,
             self,
             worker=self.worker,
+            noise=self.noise.isChecked(),
         )
         self.job.finished.connect(self.finished_run, Qt.ConnectionType.QueuedConnection)
         self.replay, self.live, self.shown = None, True, None
         self.episode.blockSignals(True)
-        self.episode.setMaximum(len(courses))
+        self.episode.setMaximum(len(cases))
         self.episode.setValue(1)
         self.episode.blockSignals(False)
         self.playback.set_frames(0, PHYSICS_DT)
@@ -509,7 +549,8 @@ class LineFollowingPage(QWidget):
         self.sensors.clear()
         self.sensors.setText("Waiting for the first controller call.")
         self.message.setText(
-            "Starting simulation process. Stop or close the window to cancel."
+            "Starting simulation process."
+            + (" Sensor noise OFF: diagnostic run." if not self.noise.isChecked() else "")
         )
         self.job.command(paused=False, speed=self.speed.currentData())
         self.job.start()
@@ -632,6 +673,10 @@ class LineFollowingPage(QWidget):
     def render(self):
         index, row = self.timeline.value(), self.episode.value() - 1
         if self.replay is not None:
+            case_id, sensor_noise = (
+                self.replay["case_ids"][row],
+                self.replay["sensor_noise"],
+            )
             frames = self.replay["frames"]
             frame = {k: v[index] for k, v in frames.items()}
             course, model, controls = (
@@ -644,6 +689,10 @@ class LineFollowingPage(QWidget):
             snapshot = self.job.snapshot(index)
             if snapshot is None:
                 return
+            case_id, sensor_noise = (
+                self.job.cases[row].name,
+                self.job.options.get("noise", True),
+            )
             frame = snapshot[0]
             course, model, controls = (
                 self.job.courses[row],
@@ -657,7 +706,16 @@ class LineFollowingPage(QWidget):
         else:
             return
         self.shown = index, row + 1
-        self.view.show_frame(course, frame, model, controls, row, pitch_history=pitch)
+        self.view.show_frame(
+            course,
+            frame,
+            model,
+            controls,
+            row,
+            pitch_history=pitch,
+            case_id=case_id,
+            sensor_noise=sensor_noise,
+        )
 
     def save(self):
         record = (

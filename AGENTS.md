@@ -54,3 +54,8 @@ Rendering the chassis body must not define the judge geometry.
 Record sensor/paint geometry and the coverage rule version with robot runs. Reject
 incompatible recordings before replacing the current view. Label the RGB strip in
 its documented body-coordinate order, independently of the camera orientation.
+
+Robot experiments are fixed Case data, including model, initial state and sensor
+noise. Environment.reset repeats them exactly; sample extra training cases explicitly.
+Keep GUI, CLI and assessment case selection consistent. Validate whole recovery
+manoeuvres and restored route progress on both legs, with and without sensor noise.

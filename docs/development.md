@@ -94,7 +94,7 @@ from coursekit.labs.line_following_task import benchmark
 from coursekit.training import load_solution
 
 cases = benchmark(Path("data/line_following"), "train")[:2]
-env = Environment([c for c, seed in cases], [seed for c, seed in cases])
+env = Environment(cases)
 controller = load_solution(Path("work/line_following/my-controller"))
 action = controller.act(env.observe(), env.first)
 observation, reward, terminated, truncated, info = env.step(action)
@@ -180,23 +180,23 @@ controller. For an existing copy, **Prepare solution** runs its `train.py`. Thes
 are explicit training actions, using the same functions as the numbered scripts;
 existing source is preserved. **Start** remains disabled until artifacts exist.
 See the [data description](../labs/line_following/README.md#data-and-course-collection)
-for files and fixed episode seeds, and the
+for files and fixed experiment cases, and the
 [episode rules](../labs/line_following/README.md#rules-of-the-episode) for marker
 dimensions and route coverage.
 There are 50 training courses and 15 separate validation courses. Begin with the two
 straight episodes, then progress through compact curves, turn sequences, hairpins,
 sharp corners, crossings and mixed layouts. The
 [offline atlas](../labs/line_following/resources/index.html) shows all courses with
-lengths and fixed robot seeds; it is also copied to `data/line_following/index.html`.
+lengths and fixed case identifiers; it is also copied to `data/line_following/index.html`.
 
-The solution, course, robot seed and batch size stay visible during a run.
+The solution, fixed case and batch size stay visible during a run.
 The engine and course geometry prepare in the background on opening the viewer,
 without executing a student controller. **Start** begins moving automatically as
 soon as preparation is complete. **Cancel preparation** cancels a queued start;
 closing also cancels background preparation. The status shows preparation and
 simulation separately. First use compiles the Numba functions; later windows load
 saved functions. A different batch length reuses the same array-type specialization. **Restart** reloads the
-solution, seed and batch settings. Course changes start a fresh run automatically.
+solution, case and batch settings. Course changes start a fresh run automatically.
 Ordinary restarts reuse the warm process; engine/runtime updates invalidate its cache.
 
 **Pause / Continue** controls simulation; Space does the same while a run is active.
@@ -207,9 +207,11 @@ controller call. Space toggles playback when viewing a finished run or saved fil
 Drag the timeline to seek; Home/End jump to its ends. Reviewing history pauses the
 run. **Continue** returns to its latest state without repeating old controller calls.
 
-Batch runs use consecutive course entries and seeds; **View robot** selects the row.
-The GUI's freely selected seeds do not automatically reproduce the fixed validation
-episodes; use the matching `course,seed` from `data/line_following/validation.csv`.
+Batch runs use consecutive fixed cases; **View robot** selects the row.
+The graphical and command-line runners use the same stored robot, initial state
+and noise for a case. Disable **Sensor noise** only for diagnostic comparisons.
+**Copy current baseline** creates a separate working copy of the latest template;
+the visible path and fingerprint identify the selected solution.
 Top view, follow camera, wheel zoom and dragging to pan help inspect the line, chassis
 and rear sphere; **Fit track** restores the full-course view. The RGB strip shows the
 latest actual optical reading. Use **Save recording** explicitly before replacing
@@ -238,8 +240,8 @@ verified public resource set and reuse its PNG sheets. Robot recordings include
 course geometry, physical parameters, poses, observations, actions and diagnostics;
 they are local inspection artifacts, not resumable simulator checkpoints or submissions.
 
-Robot recordings use version 3, including sensor/paint geometry and the coverage
-rule version. Both viewers reject older recordings or incompatible settings before
+Robot recordings use version 4, including case identities, sensor-noise settings,
+sensor/paint geometry and the case/coverage rule versions. Both viewers reject older recordings or incompatible settings before
 replacing the open run. Use the original coursekit environment for historical
 recordings, or create new recordings with the current environment. Course archives
 remain in spline format version 2.

@@ -1,38 +1,17 @@
 """Prepared episode sets and local/evaluator rollouts for Line Following."""
 
-import csv
 from pathlib import Path
 
 import numpy as np
 
-from coursekit.common import CourseError, file_hashes, fingerprint
-from coursekit.labs.line_following_course import load_courses
+from coursekit.common import file_hashes, fingerprint
+from coursekit.labs.line_following_cases import load_cases
 from coursekit.labs.line_following_env import Environment, validate_action
 from coursekit.labs.line_following_results import episode_metrics
 
 
 def benchmark(data: Path, split="validation"):
-    if split not in {"train", "validation", "hidden"}:
-        raise CourseError("Unknown episode split.")
-    courses = {c.name: c for c in load_courses(data / "courses.npz")}
-    episodes = []
-    with (data / f"{split}.csv").open(newline="", encoding="utf-8") as stream:
-        reader = csv.reader(stream)
-        if next(reader, None) != ["course", "seed"]:
-            raise CourseError("Expected episode CSV header: course,seed.")
-        for row in reader:
-            if (
-                len(row) != 2
-                or row[0] not in courses
-                or not row[1].isascii()
-                or not row[1].isdecimal()
-                or int(row[1]) >= 2**63
-            ):
-                raise CourseError("Invalid course or seed in episode CSV.")
-            episodes.append((courses[row[0]], int(row[1])))
-    if not episodes or len({(c.name, s) for c, s in episodes}) != len(episodes):
-        raise CourseError("Expected a nonempty set of distinct episodes.")
-    return episodes
+    return load_cases(data, split)
 
 
 def data_fingerprint(data: Path) -> str:
@@ -57,11 +36,11 @@ def evaluate(
     """
     episodes = benchmark(data, split)
     settings = {} if time_limit is None else {"time_limit": time_limit}
-    env = Environment([episodes[0][0]], [episodes[0][1]], compiled=compiled, **settings)
+    env = Environment([episodes[0]], compiled=compiled, **settings)
     scores, times, statuses, completion = [], [], [], []
-    for index, (course, seed) in enumerate(episodes):
+    for index, case in enumerate(episodes):
         if index:
-            env.reset(courses=[course], seeds=[seed])
+            env.reset(cases=[case])
         if progress:
             progress(
                 {

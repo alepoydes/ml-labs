@@ -2,6 +2,7 @@
 
 import multiprocessing
 import os
+import pickle
 import queue
 import signal
 import threading
@@ -12,14 +13,14 @@ import numpy as np
 from PySide6.QtCore import QThread
 
 from coursekit.labs.line_following_env import CONTROL_STEPS, PHYSICS_DT
-from coursekit.recording import ROBOT_FRAME_FIELDS, robot_metadata
+from coursekit.recording import ROBOT_FRAME_FIELDS, case_metadata, robot_metadata
 
 
 class _StopRun(Exception):
     pass
 
 
-def _simulate(connection, path, courses, seeds, options):
+def _simulate(connection, path, cases, options):
     import torch
 
     from coursekit.inspection import debug_snapshot
@@ -48,13 +49,13 @@ def _simulate(connection, path, courses, seeds, options):
             phase("Loading solution")
             solution = load_solution(path)
         phase("Preparing physics")
-        env = Environment(courses, seeds, **options)
+        env = Environment(cases, **options)
         if options.get("compiled", True):
             phase("Warming physics")
             # The process retains compiled kernels; only a new specialization compiles.
             # Restore physical state and sensor RNG before the first controller call.
             env.step(torch.zeros((env.size, 2)))
-            env.reset(seeds=seeds)
+            env.reset()
         if path is None:
             return  # Startup preparation warms this process without student code.
         connection.send(
@@ -201,9 +202,10 @@ class Worker:
 class Run(QThread):
     """Run a solution, or prepare the engine when path is None."""
 
-    def __init__(self, path, courses, seeds, parent=None, *, worker=None, **options):
+    def __init__(self, path, cases, parent=None, *, worker=None, **options):
         super().__init__(parent)
-        self.path, self.courses, self.seeds = path, courses, seeds
+        self.path, self.cases = path, cases
+        self.courses = [c.course for c in cases]
         self.options = options
         self.worker = worker if worker is not None else Worker()
         self.shared_worker = worker is not None
@@ -234,7 +236,11 @@ class Run(QThread):
         try:
             connection, process = self.worker.acquire()
             self.process = process
-            connection.send(("run", (self.path, self.courses, self.seeds, self.options)))
+            # Cases contain small immutable parameter tensors. Send their values,
+            # without PyTorch's shared-storage handles or resource-sharer sockets.
+            connection.send_bytes(
+                pickle.dumps(("run", (self.path, self.cases, self.options)))
+            )
             while True:
                 while not self.commands.empty():
                     connection.send(self.commands.get_nowait())
@@ -289,7 +295,7 @@ class Run(QThread):
             return {
                 **robot_metadata(),
                 "solution": str(self.path),
-                "seeds": np.array(self.seeds),
+                **case_metadata(self.cases, noise=self.options.get("noise", True)),
                 "physics_dt": PHYSICS_DT,
                 "control_steps": CONTROL_STEPS,
                 "courses": [

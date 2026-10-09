@@ -6,6 +6,7 @@ import torch
 
 from coursekit.common import CourseError
 from coursekit.labs import line_following as physics
+from coursekit.labs.line_following_cases import sample_case
 from coursekit.labs.line_following_course import Course
 from coursekit.labs.line_following_env import (
     Environment,
@@ -20,15 +21,21 @@ def straight(length=1.0, name="straight"):
 
 
 def test_batching_and_unrelated_resets_preserve_episode_conditions():
-    single = Environment([straight()], [19], compiled=False, time_limit=0.003)
+    single = Environment(
+        [sample_case(c, seed) for c, seed in zip([straight()], [19])],
+        compiled=False,
+        time_limit=0.003,
+    )
     batch = Environment(
-        [straight(), straight(2.0)], [19, 71], compiled=False, time_limit=0.003
+        [sample_case(c, seed) for c, seed in zip([straight(), straight(2.0)], [19, 71])],
+        compiled=False,
+        time_limit=0.003,
     )
     for name in single.observe():
         torch.testing.assert_close(single.observe()[name][0], batch.observe()[name][0])
     assert batch.reference[0] == single.reference[0]
     untouched = {name: value[0].clone() for name, value in batch.observe().items()}
-    batch.reset([False, True], courses=[straight(3.0)], seeds=[101])
+    batch.reset([False, True], cases=[sample_case(straight(3.0), 101)])
     assert batch.first.tolist() == [True, True]
     for name in untouched:
         torch.testing.assert_close(
@@ -51,7 +58,11 @@ def test_batching_and_unrelated_resets_preserve_episode_conditions():
 
 
 def test_observations_have_no_alias_to_environment_and_terminal_rows_freeze():
-    env = Environment([straight()], [0], compiled=False, time_limit=0.002)
+    env = Environment(
+        [sample_case(c, seed) for c, seed in zip([straight()], [0])],
+        compiled=False,
+        time_limit=0.002,
+    )
     obs = env.observe()
     validate_observation(obs, env.first)
     obs["encoders"].fill_(12345)
@@ -69,7 +80,11 @@ def test_observations_have_no_alias_to_environment_and_terminal_rows_freeze():
 
 
 def test_accepted_distance_is_training_feedback_separate_from_observations():
-    env = Environment([straight()], [13], noise=False, time_limit=0.08)
+    env = Environment(
+        [sample_case(c, seed) for c, seed in zip([straight()], [13])],
+        noise=False,
+        time_limit=0.08,
+    )
     initial = previous = env.info()["progress"]
     while not env.done.all():
         observation, reward, _, _, info = env.step(torch.full((1, 2), 0.2))
@@ -97,14 +112,16 @@ def test_native_batches_resets_and_terminal_masks_match_eager():
     for size, threads in ((1, 1), (2, 1), (8, 2), (1, 1)):
         torch.set_num_threads(threads)
         courses, seeds = [straight()] * size, list(range(size))
-        native = Environment(courses, seeds)
-        eager = Environment(courses, seeds, compiled=False)
+        native = Environment([sample_case(c, seed) for c, seed in zip(courses, seeds)])
+        eager = Environment(
+            [sample_case(c, seed) for c, seed in zip(courses, seeds)], compiled=False
+        )
         for phase in range(3):
             if phase == 1 and size > 1:
                 native.status[0] = eager.status[0] = "timeout"
             if phase == 2:
                 for env in (native, eager):
-                    env.reset(seeds=[31 + i for i in range(size)])
+                    env.reset(cases=[sample_case(c, 31 + i) for i, c in enumerate(courses)])
             action = torch.full((size, 2), 0.1 * (phase + 1))
             a, b = native.step(action), eager.step(action)
             assert numba.get_num_threads() == original_numba_threads
@@ -136,6 +153,7 @@ import torch
 from coursekit.labs import line_following_rollout as rollout
 from coursekit.labs.line_following_course import Course
 from coursekit.labs.line_following_env import Environment
+from coursekit.labs.line_following_cases import sample_case
 torch.set_num_threads(1)
 import numba
 from llvmlite import binding as llvm
@@ -154,8 +172,8 @@ warmed = None
 for size, threads in ((1,1),(2,1),(8,2),(1,1)):
     torch.set_num_threads(threads)
     numba.set_num_threads(min(threads, numba.config.NUMBA_NUM_THREADS))
-    env = Environment([course] * size, [51+i for i in range(size)])
-    reference = Environment([course] * size, [51+i for i in range(size)], compiled=False)
+    env = Environment([sample_case(course, 51+i) for i in range(size)])
+    reference = Environment([sample_case(course, 51+i) for i in range(size)], compiled=False)
     commands = torch.linspace(-.2, .3, 2 * size).reshape(2, size).T
     # Transposed, sliced and broadcast outputs are all valid controller commands.
     actions = (
@@ -186,7 +204,12 @@ for size, threads in ((1,1),(2,1),(8,2),(1,1)):
 
 
 def test_return_leg_allows_reverse_driving_without_rotating_body():
-    env = Environment([straight(0.4)], [3], compiled=False, time_limit=1.0, noise=False)
+    env = Environment(
+        [sample_case(c, seed) for c, seed in zip([straight(0.4)], [3])],
+        compiled=False,
+        time_limit=1.0,
+        noise=False,
+    )
     positions = [0.12, 0.24, 0.36, 0.40, 0.24, 0.12, 0.0]
 
     def transport(state, action, model):
@@ -220,7 +243,11 @@ def test_return_leg_allows_reverse_driving_without_rotating_body():
 
 
 def test_fall_and_numerical_failure_remain_distinct():
-    env = Environment([straight()], [0], compiled=False, time_limit=0.003)
+    env = Environment(
+        [sample_case(c, seed) for c, seed in zip([straight()], [0])],
+        compiled=False,
+        time_limit=0.003,
+    )
 
     def fall(state, action, model):
         return _inspect(
@@ -260,18 +287,25 @@ def test_invalid_motor_commands_are_rejected(action):
 @pytest.mark.parametrize("seeds", [[1.5], [True], [-1], [2**64]])
 def test_episode_seeds_cannot_silently_change(seeds):
     with pytest.raises(CourseError, match="seed"):
-        Environment([straight()], seeds, compiled=False)
+        Environment(
+            [sample_case(c, seed) for c, seed in zip([straight()], seeds)], compiled=False
+        )
 
 
 def test_reset_does_not_convert_numeric_values_to_boolean_masks():
-    env = Environment([straight()], [0], compiled=False)
+    env = Environment(
+        [sample_case(c, seed) for c, seed in zip([straight()], [0])], compiled=False
+    )
     with pytest.raises(CourseError, match="Boolean"):
         env.reset([1])
 
 
 def test_ground_path_counts_every_step_and_freezes_and_resets_independent_rows():
     env = Environment(
-        [straight(), straight()], [7, 11], compiled=False, time_limit=0.004, noise=False
+        [sample_case(c, seed) for c, seed in zip([straight(), straight()], [7, 11])],
+        compiled=False,
+        time_limit=0.004,
+        noise=False,
     )
     positions = np.array(
         [
@@ -316,7 +350,7 @@ def test_ground_path_counts_every_step_and_freezes_and_resets_independent_rows()
         env.info()["travelled_distance"], info["travelled_distance"]
     )
     info["travelled_distance"][:] = 99  # Returned diagnostics never alias the counters.
-    env.reset([True, False], seeds=[7])
+    env.reset([True, False])
     np.testing.assert_allclose(env.info()["travelled_distance"], [0.0, 0.014], atol=1e-12)
     env.reset([False, True])
     np.testing.assert_array_equal(env.info()["travelled_distance"], [0.0, 0.0])

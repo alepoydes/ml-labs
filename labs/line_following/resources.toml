@@ -1,5 +1,5 @@
 schema_version = 1
-revision = "line-following-pilot-5"
+revision = "line-following-pilot-6"
 
 [[files]]
 path = "courses.npz"
@@ -8,19 +8,31 @@ size = 76601
 sha256 = "537d29ab44375fbcfe21ec4af570015bfc5950dfca0c913d017afc959b1a8c67"
 
 [[files]]
+path = "cases.npz"
+source = "resources/cases.npz"
+size = 21899
+sha256 = "32769559674aa3a3bac7acd9fea28222777f8d77423241725a7fb6ad11e5b116"
+
+[[files]]
 path = "train.csv"
 source = "resources/train.csv"
-size = 984
-sha256 = "110645244b85e35100204858831a9e989cccc1a981d357b0393cfa2c09ddfd1f"
+size = 455
+sha256 = "fae7308b5022d3af854f531e1da767743cedbdaea303ab084de998f91e31518a"
 
 [[files]]
 path = "validation.csv"
 source = "resources/validation.csv"
-size = 380
-sha256 = "d46560a372dc3fdc59ba6a354954f1d1c98434f4701ad9f21e2145c7262bc2f3"
+size = 215
+sha256 = "ab96eb8d08350379692d2c50e57a3bae02e3e2d905276175eaf03bd24fbd0885"
+
+[[files]]
+path = "diagnostic.csv"
+source = "resources/diagnostic.csv"
+size = 33
+sha256 = "10749c210e415a2bb7c2110f6b91b04cc0c72f8756ee0d0179dff1cea7e79661"
 
 [[files]]
 path = "index.html"
 source = "resources/index.html"
-size = 256136
-sha256 = "868ca0a8183c79c603e489468045405900072a876272339caa63857daa310e26"
+size = 259954
+sha256 = "78edd72cb00ae10adc8080d63ecf0b13930c38d496860f6688c8cc1512228fd8"
