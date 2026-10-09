@@ -362,7 +362,7 @@ tracking and endpoint handling rather than triggering a straight crossing probe.
 These thresholds are heuristics for the published geometry, not a proof of
 correct branch selection under all slip, curvature and noise conditions.
 
-`debug()` exposes offset, estimated heading and speed, recovery state, travel
+`debug()` extends the base controller's sensor snapshot with offset, estimated heading and speed, recovery state, travel
 direction, crossing-probe state, measured/requested yaw rate and motor inputs. Compare these estimates with the simulator
 in training and inspect unsuccessful runs. The baseline does not balance upright,
 learn dynamics, build a route map or optimise the return journey. Its measured

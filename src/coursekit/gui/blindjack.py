@@ -57,7 +57,7 @@ class BlindjackPage(QWidget):
         self.totals = QLabel()
         self.totals.setObjectName("stat")
         self.totals.setWordWrap(True)
-        self.diagnostics = Diagnostics()
+        self.diagnostics = Diagnostics(compact=True)
         self.tiles, self.cards, self.answers = [], [], []
         board = QWidget()
         grid = QGridLayout(board)

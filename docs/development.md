@@ -228,20 +228,46 @@ or closing a run you want to keep; these operations do not show save prompts.
 Saving while running stores the frames captured so far; subsequent frames need another save. Malformed recordings leave the currently open recording intact.
 
 In the robot viewer, **Sensor area** overlays the 16 measured ground sectors
-through the chassis. Use **Top view**, **Follow robot** and the mouse wheel to
+through the chassis. Use **Top view**, **Follow** and the mouse wheel to
 inspect the 94×8 mm strip between the wheels. This strip also defines route
 coverage: the centreline must pass through it in route order.
 
 ### Diagnostics and recordings
 
 An optional `debug(index=0)` method may return a dictionary of text, finite scalars,
-or small numeric vectors/matrices. The viewer copies it after inference, lists values,
-and plots selected arrays or scalar history. Select a field in **Diagnostics**;
-the same field stays selected as new snapshots arrive. **Save plot** exports the
-current figure as PNG or SVG. Empty snapshots have an explicit empty state. Debug
-methods must not change controller behavior.
+or small numeric vectors/matrices. The viewer copies it after inference. The
+**Diagnostics** table contains exactly those fields. Click a row to inspect its
+value; check its box to add it to the selected plot. Expand a vector to choose
+individual components. Colours identify curves and remain stable across updates.
+The **Plot** selector and **+ / −** buttons manage multiple panels.
+
+**Time series** plots scalar and component histories with a legend. **Heatmap**
+shows selected components of one vector against time, with a value colour scale.
+**X–Y** pairs exactly two scalar channels at matching observation times; **Swap
+X/Y** exchanges the axes. Its highlighted point is the current sample. **Value**
+shows the current vector or matrix, also useful for Blindjack decisions without
+a time history. Text remains in the value inspector.
+
+Click a time plot or an X–Y trajectory to pause and inspect the nearest recorded
+controller call. Robot pose, sensor readings and all diagnostic panels follow
+the same playback position. **Follow time** scrolls the chosen time window;
+**Whole run** fits the available history. Pan/zoom freezes the time interval
+across time plots. Missing fields or changed array dimensions leave gaps.
+Robot viewers retain plot settings across restarts. **Save plot** exports the
+current figure and legend as PNG or SVG. Empty snapshots have an explicit empty
+state. Debug methods must not change controller behavior.
 The judge never calls it. Keep each array at most two-dimensional and 4096 elements,
 with at most 64 fields. Debug failures are visible inspection errors.
+
+For Line Following, the optional `coursekit.controller.Controller` base supplies
+sensor diagnostics. Initialise it with `super().__init__()` and call
+`super().act(observation, reset)` before processing inputs. It copies the current
+observations without retaining autograd graphs. `super().debug(index)` exports
+`sensor.time`, `sensor.gyro`, `sensor.accel`, `sensor.encoders` and the 16-element
+`sensor.red`, `sensor.green`, `sensor.blue` vectors. Extend that dictionary with
+your estimates and actions, as the baseline does. Controllers without this base
+remain valid. Explicit instructor diagnostic runs collect the same debug fields
+inside the isolated worker; ordinary grading does not call `debug()`.
 
 Both viewers save compressed NPZ recordings, including copied controller diagnostics.
 Opening a recording executes no solution code. Blindjack recordings refer to the

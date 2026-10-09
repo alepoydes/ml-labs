@@ -15,6 +15,11 @@ QListWidget#navigation::item:selected { background: #d8e6fa; color: #15477e; fon
 QTreeWidget { background: transparent; border: none; outline: none; }
 QTreeWidget::item { padding: 5px 0; }
 QTreeWidget::item:selected { background: #d8e6fa; color: #15477e; }
+QTreeWidget#diagnostic-fields { background: white; alternate-background-color: #f8fafe; }
+QTreeWidget#diagnostic-fields::item { padding: 2px 0; }
+QTreeWidget#diagnostic-fields::indicator { width: 12px; height: 12px; border: 1px solid #8295ad; background: white; }
+QTreeWidget#diagnostic-fields::indicator:checked { background: #2463a9; border: 2px solid #d8e6fa; }
+QTreeWidget#diagnostic-fields::indicator:indeterminate { background: #a4bbd9; }
 QToolButton, QPushButton { background: white; color: #263c59; border: 1px solid #ccd6e5;
     border-radius: 6px; padding: 6px 10px; }
 QToolButton:hover, QPushButton:hover { background: #e9f1fc; border-color: #85a8d6; }

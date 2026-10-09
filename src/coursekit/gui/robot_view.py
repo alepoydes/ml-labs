@@ -7,13 +7,14 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
 from coursekit.gui.common import Diagnostics, pixmap
-from coursekit.inspection import copy_debug
+from coursekit.inspection import DebugHistory, copy_debug
 from coursekit.labs.line_following_course import SENSOR_DEPTH, SENSOR_WIDTH, Course
 from coursekit.labs.line_following_results import OUTCOMES
 from coursekit.recording import robot_metadata
@@ -164,16 +165,20 @@ def recorded_courses(record):
 
 
 class RobotView(QWidget):
-    def __init__(self, scene):
+    def __init__(self, scene, *, diagnostic_state=None):
         super().__init__()
         self.scene = scene
-        self.diagnostics = Diagnostics()
+        self.diagnostics = Diagnostics(diagnostic_state)
+        self.history = DebugHistory()
         self.sensor = QLabel("Sensor readings appear after the first controller call.")
+        self.sensor.setWordWrap(True)
+        self.sensor.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.sensor.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status = QLabel("Choose a course to preview the track.")
         self.status.setWordWrap(True)
         self.status.setObjectName("selection")
-        self.follow, self.overhead = QCheckBox("Follow robot"), QCheckBox("Top view")
+        self.follow, self.overhead = QCheckBox("Follow"), QCheckBox("Top view")
+        self.follow.setToolTip("Keep the camera centred on the robot.")
         self.follow.toggled.connect(lambda value: self.camera("follow", value))
         self.overhead.toggled.connect(lambda value: self.camera("top", value))
         self.sensing = QCheckBox("Sensor area")
@@ -188,24 +193,22 @@ class RobotView(QWidget):
         for widget in [self.follow, self.overhead, self.sensing, self.fit]:
             camera.addWidget(widget)
         camera.addStretch()
-        hint = QLabel("Wheel: zoom · drag: pan")
-        hint.setObjectName("muted")
-        camera.addWidget(hint)
+        scene.setToolTip("Wheel: zoom · drag: pan")
         left = QWidget()
         layout = QVBoxLayout(left)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(camera)
         layout.addWidget(scene, 1)
-        layout.addWidget(
-            QLabel(
-                f"Optical sensor · {SENSOR_WIDTH * 1000:g}×{SENSOR_DEPTH * 1000:g} mm · body right (0) → left (15)"
-            )
+        sensor_label = QLabel(
+            f"Optical sensor · {SENSOR_WIDTH * 1000:g}×{SENSOR_DEPTH * 1000:g} mm · body right (0) → left (15)"
         )
+        sensor_label.setWordWrap(True)
+        layout.addWidget(sensor_label)
         layout.addWidget(self.sensor)
         split = QSplitter()
         split.addWidget(left)
         split.addWidget(self.diagnostics)
-        split.setSizes([780, 300])
+        split.setSizes([400, 620])
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self.status)
@@ -228,7 +231,6 @@ class RobotView(QWidget):
         controls,
         row=0,
         *,
-        pitch_history=None,
         case_id=None,
         sensor_noise=True,
     ):
@@ -256,39 +258,16 @@ class RobotView(QWidget):
         observation = control["observation"]
         self.sensor.setPixmap(
             pixmap(np.rint(observation["rgb"][row][None] * 255).astype(np.uint8)).scaled(
-                512, 32
+                max(16, self.sensor.width()), 32
             )
         )
         debug = control.get("debug", [{}] * len(control["action"]))[row]
-        values = {
-            **debug,
-            **{f"sensor.{k}": v[row] for k, v in observation.items() if k != "rgb"},
-            "left motor": float(control["action"][row, 0]),
-            "right motor": float(control["action"][row, 1]),
-            "pitch (rad)": float(frame["q"][row, 4]),
-        }
+        self.history.bind(controls, row)
 
         def history(key):
-            # Build only the selected plot, including when selection changes on pause.
-            if key == "pitch (rad)":
-                return pitch_history() if callable(pitch_history) else pitch_history
-            if key in ("left motor", "right motor"):
-                column = int(key == "right motor")
-                return (
-                    [float(c["observation"]["time"][row]) for c in controls[: index + 1]],
-                    [float(c["action"][row, column]) for c in controls[: index + 1]],
-                )
-            if isinstance(debug.get(key), (int, float)):
-                samples = [
-                    (
-                        c["observation"]["time"][row],
-                        c.get("debug", [{}] * len(c["action"]))[row].get(key),
-                    )
-                    for c in controls[: index + 1]
-                ]
-                samples = [(t, v) for t, v in samples if isinstance(v, (int, float))]
-                if samples:
-                    return tuple(zip(*samples))
+            value = debug.get(key)
+            if isinstance(value, (int, float, np.ndarray)):
+                return self.history.series(key, np.shape(value), index)
             return None
 
-        self.diagnostics.show_snapshot(values, history)
+        self.diagnostics.show_snapshot(debug, history, time=float(frame["time"][row]))

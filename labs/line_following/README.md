@@ -955,7 +955,7 @@ The application prepares the bundled courses automatically. Previewing a course
 requires neither a solution nor training. Select **Course**, or use **Previous
 course / Next course**; enable **Top view** and click **Fit track**. The status line
 shows the course name and one-way length. Blue marks the start/return finish;
-red marks the far endpoint. Scroll to zoom and drag to pan. **Follow robot** keeps
+red marks the far endpoint. Scroll to zoom and drag to pan. **Follow** keeps
 the camera centred on the robot. **Sensor area** overlays the 16 measured ground
 sectors through the chassis, including the exact 94×8 mm route-coverage region.
 The RGB strip displays readings in body order, from right (0) to left (15).
@@ -1015,7 +1015,42 @@ state. Playback offers a speed selector, previous/next frame and **Next control*
 navigation between recorded calls. Space controls playback when no run is active.
 
 An optional `debug(index=0)` method returns small diagnostic values for a batch row.
-The application copies them after each action and can display or plot them. The
+The application copies them after each action. The diagnostic table displays
+only fields explicitly returned by this method, including any sensor values.
+The starter and baseline inherit from `coursekit.controller.Controller`:
+`super().__init__()` initialises the sensor snapshot and
+`super().act(observation, reset)` copies the current observations. The base
+`debug(index)` exports the sensors for that row, with RGB split into three
+16-element vectors. Existing controllers need not inherit from this class.
+
+Extend the default dictionary in your own controller, for example:
+
+```python
+def debug(self, index=0):
+    return super().debug(index) | {
+        "line_offset_m": float(self.error[index]),
+        "target_speed_m_s": float(self.target_speed[index]),
+        "line_weights": self.line_weights[index],
+        "motor_commands": self.command[index],
+    }
+```
+
+The baseline additionally demonstrates visibility flags, recovery modes,
+estimated speed, measured/target yaw rate and the steering error actually used.
+These are controller estimates, not true line geometry or simulator pose.
+
+Check fields in **Diagnostics** to compare them on a plot. Expand vectors to
+choose components; each curve has a stable colour and legend entry. Use **+**
+to add another plot and the **Plot** selector to choose which panel the checkboxes
+edit. **Heatmap** displays a vector's history; **X–Y** compares two selected scalar
+channels, including components of the same vector. **Value** displays a current
+matrix. A useful baseline layout combines speed/target speed, yaw/target yaw and
+a heatmap of `line_weights`.
+
+Click a plot to pause and seek the nearest recorded controller call. All panels
+and the robot view follow that position. **Follow time** scrolls a selected time
+window, **Whole run** fits the history, and pan/zoom preserves a manually chosen
+interval. Plot selections, colours and modes persist between launches. The
 method must not change controller behaviour. See the
 [diagnostic value contract](../../docs/development.md#diagnostics-and-recordings)
 for supported values and limits. The judge never calls this method.

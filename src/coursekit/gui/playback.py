@@ -150,3 +150,16 @@ class Playback(QWidget):
             self.step(
                 1 if index == 0 else self.control_steps - (index - 1) % self.control_steps
             )
+
+    def inspect_time(self, seconds, controls, row=0):
+        """Seek the first physical frame carrying the nearest controller snapshot."""
+        if not controls:
+            return
+        times = np.array([float(c["observation"]["time"][row]) for c in controls])
+        call = int(np.argmin(abs(times - seconds)))
+        if self.controls is not None:
+            frame = int(np.searchsorted(self.controls, call, side="left"))
+        else:
+            frame = 1 + call * self.control_steps
+        self.pause()
+        self.step(frame - self.slider.value())

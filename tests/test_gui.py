@@ -83,6 +83,84 @@ def test_blindjack_visible_cards_drafts_sessions_and_small_window(
     app.processEvents()
 
 
+def test_diagnostic_comparison_heatmap_xy_cursor_and_restored_settings(app):
+    import json
+
+    from matplotlib.backend_bases import MouseEvent
+    from PySide6.QtCore import Qt
+
+    from coursekit.gui.diagnostics import Diagnostics
+
+    panel = Diagnostics()
+    panel.resize(1000, 650)
+    panel.show()
+    times = np.array([0.0, 0.02, 0.06, 0.08])
+    history = {
+        "v": (times, np.array([[1, 2], [np.nan, np.nan], [3, 4], [4, 2]])),
+        "target": (times, np.array([2.0, 2.0, 3.0, 3.0])),
+    }
+    snapshot = {"v": np.array([4.0, 2.0]), "target": 3.0, "mode": "follow"}
+    panel.show_snapshot(snapshot, history, time=0.08)
+    panel.items["v", None].setCheckState(0, Qt.Checked)
+    panel.items["target", None].setCheckState(0, Qt.Checked)
+    plot = panel.plots[0]
+    assert [text.get_text() for text in plot.axes.get_legend().texts] == [
+        "v[0]",
+        "v[1]",
+        "target",
+    ]
+    colours = [plot.artists[key].get_color() for key in plot.fields]
+    assert len(set(colours)) == 3
+    panel.items["v", 1].setCheckState(0, Qt.Unchecked)
+    assert panel.items["v", None].checkState(0) == Qt.PartiallyChecked
+    assert not panel.items["mode", None].flags() & Qt.ItemIsUserCheckable
+    heatmap = panel.add_plot()
+    panel.items["v", None].setCheckState(0, Qt.Checked)
+    heatmap.mode.setCurrentText("Heatmap")
+    assert len(heatmap.figure.axes) == 2  # Includes the value colour scale.
+    assert np.ma.getmaskarray(heatmap.artists["mesh"].get_array()).sum() == 2
+    np.testing.assert_allclose(
+        heatmap.artists["mesh"].get_coordinates()[0, :, 0], [0, 0.02, 0.06, 0.08, 0.1]
+    )
+    phase = panel.add_plot()
+    panel.items["v", None].setCheckState(0, Qt.Checked)
+    phase.mode.setCurrentText("X–Y")
+    assert phase.axes.get_xlabel() == "v[0]" and phase.axes.get_ylabel() == "v[1]"
+    phase.swap.click()
+    assert phase.axes.get_xlabel() == "v[1]"
+    panel.resize(800, 300)
+    wait_for(app, lambda: panel.scroll.verticalScrollBar().value() > 0)
+    selected = []
+    panel.seekRequested.connect(selected.append)
+    phase.canvas.draw()
+    px, py = phase.axes.transData.transform((4.0, 3.0))
+    event = MouseEvent("button_press_event", phase.canvas, px, py, button=1)
+    phase.canvas.callbacks.process("button_press_event", event)
+    assert selected[-1] == 0.06
+    plot.axes.set_xlim(0.01, 0.07)
+    assert not panel.follow.isChecked()
+    np.testing.assert_allclose(heatmap.axes.get_xlim(), [0.01, 0.07])
+    state = json.loads(json.dumps(panel.settings()))
+    restored = Diagnostics(state)
+    restored.show_snapshot(dict(reversed(list(snapshot.items()))), history, time=0.08)
+    assert restored.settings() == panel.settings()
+    assert restored.plots[0].artists["v", 0].get_color() == colours[0]
+    # History remains selected across reset/no-call frames, without stale values.
+    restored.show_snapshot({})
+    restored.show_snapshot(snapshot, history, time=0.08)
+    assert restored.plots[0].fields == plot.fields
+    restored.whole.click()
+    assert restored.follow.isChecked() and restored.window.value() == 0
+    assert restored.plots[2].axes.get_xlabel() == "v[1]"
+    name = r"$\notacommand$"
+    restored.active.setCurrentIndex(0)
+    restored.show_snapshot({name: 1.0}, {name: ([0, 1], [0, 1])}, time=1.0)
+    restored.items[name, None].setCheckState(0, Qt.Checked)
+    restored.plots[0].canvas.draw()  # Arbitrary debug names remain literal text.
+    restored.close()
+    panel.close()
+
+
 def test_playback_clock_controls_and_diagnostic_field_identity(app, monkeypatch, tmp_path):
     from types import SimpleNamespace
 
@@ -116,49 +194,48 @@ def test_playback_clock_controls_and_diagnostic_field_identity(app, monkeypatch,
     assert player.slider.value() == 6
     player.step(-100)
     assert player.slider.value() == 0 and not player.previous.isEnabled()
+    from PySide6.QtCore import Qt
+
     diagnostics = Diagnostics()
     diagnostics.show()
     diagnostics.show_snapshot({"state": "ready", "error": 2.0})
-    diagnostics.table.selectRow(1)
+    diagnostics.table.setCurrentItem(diagnostics.items["error", None])
+    diagnostics.items["error", None].setCheckState(0, Qt.Checked)
     diagnostics.show_snapshot(
-        {"error": 1.0, "state": "tracking"}, {"error": ([0, 1], [2, 1])}
+        {"error": 1.0, "state": "tracking"}, {"error": ([0, 1], [2, 1])}, time=1
     )
-    assert diagnostics.table.currentRow() == 0
-    np.testing.assert_array_equal(diagnostics.figure.axes[0].lines[0].get_ydata(), [2, 1])
-    line = diagnostics.figure.axes[0].lines[0]
+    assert diagnostics.table.currentItem() is diagnostics.items["error", None]
+    plot = diagnostics.plots[0]
+    line = plot.artists["error", None]
+    np.testing.assert_array_equal(line.get_ydata(), [2, 1])
     requested = []
 
     def history(name):
         requested.append(name)
         return ([0, 1, 2], [2, 1, 0.5]) if name == "error" else None
 
-    diagnostics.show_snapshot({"error": 0.5, "state": "tracking"}, history)
+    diagnostics.show_snapshot({"error": 0.5, "state": "tracking"}, history, time=2)
     assert requested == ["error"]
-    assert diagnostics.figure.axes[0].lines[0] is line
+    assert plot.artists["error", None] is line
     np.testing.assert_array_equal(line.get_ydata(), [2, 1, 0.5])
     destination = tmp_path / "plot.png"
     monkeypatch.setattr(
         QFileDialog, "getSaveFileName", lambda *a: (str(destination), "PNG")
     )
-    diagnostics.save_plot.click()
+    plot.save_plot.click()
     assert destination.read_bytes().startswith(b"\x89PNG")
     destination = tmp_path / "missing" / "plot.png"
     errors = []
     monkeypatch.setattr(QMessageBox, "warning", lambda *a: errors.append(a[1:]))
-    diagnostics.save_plot.click()
+    plot.save_plot.click()
     assert errors and errors[0][0] == "Cannot save plot"
-    assert diagnostics.table.currentRow() == 0
-    diagnostics.table.selectRow(1)
-    assert (
-        diagnostics.value.toPlainText() == "tracking" and not diagnostics.canvas.isVisible()
-    )
+    diagnostics.table.setCurrentItem(diagnostics.items["state", None])
+    assert "tracking" in diagnostics.value.toPlainText()
+    assert plot.canvas.isVisible()  # Inspecting text does not discard checked curves.
     diagnostics.show_snapshot({})
     assert diagnostics.empty.isVisible() and not diagnostics.table.isVisible()
     diagnostics.show_snapshot({"not yet initialized": np.empty((0, 0))})
-    assert (
-        diagnostics.value.toPlainText() == "Empty array (0, 0)"
-        and not diagnostics.canvas.isVisible()
-    )
+    assert "[]" in diagnostics.value.toPlainText()
     diagnostics.close()
     diagnostics.deleteLater()
     player.close()
@@ -358,18 +435,18 @@ def open_recording():
       courses=[dict(name=course.name,controls=course.controls,knots=course.knots,corners=course.corners)],
       model={k:v.numpy()[None] for k,v in model._asdict().items()},
       frames=dict(q=np.array([q,end])[:,None,:],time=np.array([[0.],[.02]]),progress=np.array([[0.],[.02]]),score=np.zeros((2,1)),status=np.array([['running'],['running']]),control=np.array([-1,0])),
-      controls=[dict(observation=dict(time=np.array([0.]),rgb=np.full((1,16,3),.5)),action=np.array([[.2,-.1]]),debug=[{'state':'tracking'}])])
+      controls=[dict(observation=dict(time=np.array([0.]),rgb=np.full((1,16,3),.5)),action=np.array([[.2,-.1]]),debug=[{'state':'tracking','motors':np.array([.2,-.1])}])])
     recording.save(output/'robot.npz',record)
     QFileDialog.getOpenFileName=lambda *a:(str(output/'robot.npz'),'NPZ')
     QTest.mouseClick(robot.open_button,Qt.LeftButton)
     QTest.mouseClick(robot.playback.control,Qt.LeftButton)
-    assert robot.timeline.value()==1 and robot.diagnostics.snapshot['left motor']==.2
+    assert robot.timeline.value()==1 and robot.diagnostics.snapshot['motors'][0]==.2 and 'left motor' not in robot.diagnostics.snapshot
     assert robot.view.sensing.isChecked() and robot.scene.sensing
     QTest.mouseClick(robot.view.sensing,Qt.LeftButton)
     assert not robot.scene.sensing
     QTest.mouseClick(robot.view.sensing,Qt.LeftButton)
     assert robot.scene.sensing
-    robot.diagnostics.table.selectRow(list(robot.diagnostics.snapshot).index('left motor'))
+    robot.diagnostics.items['motors',0].setCheckState(0,Qt.Checked)
     QTest.mousePress(robot.scene,Qt.LeftButton,pos=QPoint(100,100))
     QTest.mouseMove(robot.scene,QPoint(120,110)); QTest.mouseRelease(robot.scene,Qt.LeftButton,pos=QPoint(120,110))
     assert np.linalg.norm(robot.scene.pan)>0
@@ -401,7 +478,11 @@ def measure_motion():
     robot.refresh()
     np.testing.assert_array_equal(robot.job.controls[0]['observation']['time'],[0.])
     assert robot.job.controls[0]['reset'].all()
-    robot.diagnostics.table.selectRow(list(robot.diagnostics.snapshot).index('pitch (rad)'))
+    robot.diagnostics.items['speed_m_s',None].setCheckState(0,Qt.Checked)
+    robot.diagnostics.items['target_speed_m_s',None].setCheckState(0,Qt.Checked)
+    heat=robot.diagnostics.add_plot()
+    robot.diagnostics.items['line_weights',None].setCheckState(0,Qt.Checked)
+    heat.mode.setCurrentText('Heatmap')
     motion_started=time.monotonic()
     sim_started=float(robot.job.snapshot()[0]['time'][0])
     settled(lambda: robot.job.snapshot()[0]['time'][0]>=sim_started+5.,capture_motion,timeout=15)
@@ -449,6 +530,11 @@ def inspect_pause():
     paused_time=float(robot.job.snapshot()[0]['time'][0])
     robot.refresh()
     assert robot.play_button.text()=='Continue'
+    robot.diagnostics.seekRequested.emit(.02)
+    assert robot.job.frames[robot.timeline.value()]['control']==1
+    assert robot.diagnostics.snapshot['sensor.time']==np.float32(.02)
+    assert not robot.live
+    window.grab().save(str(output/'robot-diagnostic-seek.png'))
     robot.timeline.setValue(0)
     assert robot.diagnostics.snapshot=={} and not robot.live
     window.grab().save(str(output/'robot-paused.png'))

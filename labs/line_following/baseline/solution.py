@@ -3,6 +3,7 @@ from pathlib import Path
 
 import torch
 
+from coursekit.controller import Controller
 from coursekit.labs.line_following_course import SENSOR_WIDTH
 
 
@@ -10,14 +11,16 @@ def wrap(angle):
     return (angle + torch.pi) % (2 * torch.pi) - torch.pi
 
 
-class Solution:
+class Solution(Controller):
     """Supported driving with two-point line geometry and short reverse recovery."""
 
     def __init__(self, artifact_dir: Path, config: dict, seed: int):
+        super().__init__()
         self.settings = json.loads((artifact_dir / "controller.json").read_text())
         self.position = None
 
     def act(self, observation, reset):
+        super().act(observation, reset)
         rgb, time = observation["rgb"], observation["time"]
         encoders, gyro = observation["encoders"], observation["gyro"]
         if self.position is None or len(self.position) != len(time):
@@ -354,12 +357,14 @@ class Solution:
         )
         self.previous_time, self.previous_encoders = time.clone(), encoders.clone()
         self.visible = visible
+        self.line_weights = weight.detach().clone()
+        self.steering_error = steering_error.detach().clone()
         return self.command.clone()
 
     def debug(self, index=0):
         if self.position is None:
-            return {}
-        return {
+            return super().debug(index)
+        return super().debug(index) | {
             "line_offset_m": float(self.error[index]),
             "line_visible": bool(self.visible[index]),
             "crossing": bool(self.crossing[index]),
@@ -371,5 +376,9 @@ class Solution:
             "speed_m_s": float(self.speed[index]),
             "yaw_rate": float(self.yaw_rate[index]),
             "target_yaw_rate": float(self.target_yaw[index]),
+            "target_speed_m_s": float(self.target_speed[index]),
+            "steering_error_m": float(self.steering_error[index]),
+            "line_weights": self.line_weights[index],
+            "mode": ("follow", "retreat", "settle", "approach")[int(self.mode[index])],
             "command": self.command[index].detach().cpu().numpy().copy(),
         }

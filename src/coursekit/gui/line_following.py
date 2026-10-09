@@ -106,7 +106,7 @@ class LineFollowingPage(QWidget):
         self.engine_status.setObjectName("muted")
         self.engine_status.setWordWrap(True)
         self.engine_status.setMaximumWidth(180)
-        self.view = RobotView(Scene())
+        self.view = RobotView(Scene(), diagnostic_state=selection.get("diagnostics"))
         self.scene, self.diagnostics, self.sensors, self.status = (
             self.view.scene,
             self.view.diagnostics,
@@ -204,6 +204,8 @@ class LineFollowingPage(QWidget):
         self.solution_button.clicked.connect(self.prepare_solution)
         self.chooser.path.textChanged.connect(self.select_working)
         self.chooser.path.editingFinished.connect(self.save_selection)
+        self.diagnostics.changed.connect(self.save_selection)
+        self.diagnostics.seekRequested.connect(self.seek_plot)
         self.controller_mode.currentIndexChanged.connect(self.change_solution_mode)
         self.chooser.setVisible(self.controller_mode.currentIndex() == 1)
         # Space controls the current run; the lower controls play recorded history.
@@ -371,6 +373,7 @@ class LineFollowingPage(QWidget):
                     if self.controller_mode.currentIndex() == 0
                     else "working",
                     "path": self.chooser.path.text(),
+                    "diagnostics": self.diagnostics.settings(),
                 },
             )
         except OSError as exc:
@@ -777,6 +780,18 @@ class LineFollowingPage(QWidget):
         self.pause()
         self.render()
 
+    def seek_plot(self, seconds):
+        self.live = False
+        self.pause()
+        controls = (
+            self.replay["controls"]
+            if self.replay is not None
+            else self.job.controls
+            if self.job is not None
+            else []
+        )
+        self.playback.inspect_time(seconds, controls, self.episode.value() - 1)
+
     def refresh(self):
         if self.warmup is not None:
             elapsed = time.monotonic() - self.warm_started
@@ -821,7 +836,6 @@ class LineFollowingPage(QWidget):
                 self.replay["model"],
                 self.replay["controls"],
             )
-            pitch = frames["time"][: index + 1, row], frames["q"][: index + 1, row, 4]
         elif self.job is not None:
             snapshot = self.job.snapshot(index)
             if snapshot is None:
@@ -837,9 +851,6 @@ class LineFollowingPage(QWidget):
                 self.job.controls,
             )
 
-            def pitch():
-                history = self.job.frames[: index + 1]
-                return [f["time"][row] for f in history], [f["q"][row, 4] for f in history]
         else:
             return
         self.shown = index, row + 1
@@ -849,7 +860,6 @@ class LineFollowingPage(QWidget):
             model,
             controls,
             row,
-            pitch_history=pitch,
             case_id=case_id,
             sensor_noise=sensor_noise,
         )

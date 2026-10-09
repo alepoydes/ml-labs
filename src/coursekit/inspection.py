@@ -46,6 +46,76 @@ def copy_debug(values):
     return copied
 
 
+def encode_debug(values):
+    """JSON transport preserves array shape, including empty matrices."""
+    return {
+        name: {"array": value.tolist(), "shape": list(value.shape)}
+        if isinstance(value, np.ndarray)
+        else value
+        for name, value in copy_debug(values).items()
+    }
+
+
+def decode_debug(values):
+    if not isinstance(values, dict) or len(values) > 64:
+        raise CourseError("Invalid diagnostic dictionary.")
+    decoded = {}
+    for name, value in values.items():
+        if isinstance(value, dict):
+            shape = value.get("shape")
+            if (
+                set(value) != {"array", "shape"}
+                or not isinstance(shape, list)
+                or not 1 <= len(shape) <= 2
+                or any(type(n) is not int or not 0 <= n <= 4096 for n in shape)
+                or np.prod(shape) > 4096
+            ):
+                raise CourseError("Invalid diagnostic array shape.")
+            array = copy_debug({name: value["array"]})[name]
+            if not isinstance(array, np.ndarray) or array.size != np.prod(shape):
+                raise CourseError("Invalid diagnostic array contents.")
+            if array.size and list(array.shape) != shape:
+                raise CourseError("Diagnostic array dimensions do not match.")
+            value = array.reshape(shape)
+        decoded[name] = value
+    return copy_debug(decoded)
+
+
+class DebugHistory:
+    """Lazily append requested fields; array views make repeated GUI draws cheap."""
+
+    def __init__(self):
+        self.controls, self.row, self.fields = None, None, {}
+
+    def bind(self, controls, row):
+        if controls is not self.controls or row != self.row:
+            self.controls, self.row, self.fields = controls, row, {}
+
+    def series(self, name, shape, end):
+        key = name, shape
+        count = min(end + 1, len(self.controls))
+        used, times, values = self.fields.get(key, (0, np.empty(0), np.empty((0, *shape))))
+        if count > len(times):
+            capacity = max(count, 1024, 2 * len(times))
+            new_times, new_values = np.empty(capacity), np.empty((capacity, *shape))
+            new_times[:used], new_values[:used] = times[:used], values[:used]
+            times, values = new_times, new_values
+        for index in range(used, count):
+            control = self.controls[index]
+            times[index] = float(control["observation"]["time"][self.row])
+            debug = control.get("debug", [{}] * len(control["action"]))[self.row]
+            value = debug.get(name)
+            if (
+                isinstance(value, (bool, int, float, np.ndarray))
+                and np.shape(value) == shape
+            ):
+                values[index] = value
+            else:
+                values[index] = np.nan
+        self.fields[key] = max(used, count), times, values
+        return times[:count], values[:count]
+
+
 def inspect_hand(solution, images):
     started = time.perf_counter()
     mask = solution.select(images.copy())
