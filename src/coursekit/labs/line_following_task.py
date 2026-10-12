@@ -62,6 +62,7 @@ def evaluate(
                             "case": index + 1,
                             "cases": len(episodes),
                             "seconds": float(env.info()["time"][0]),
+                            "route_fraction": float(env.info()["completion_fraction"][0]),
                         }
                     )
         except BaseException:
