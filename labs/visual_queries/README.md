@@ -249,6 +249,11 @@ equal counts. Episodes can have different sizes; the evaluator sums counts inste
 of averaging episode percentages. Support examples are not scored. Valid wrong
 answers earn no credit for that question. A runtime/protocol failure or cancellation
 leaves an incomplete attempt, without a score computed from its successful prefix.
+Saved evaluation metrics also count questions using known and new language. New
+input words, new answer concepts and new episode constructions belong to the new
+group. This does not mean an exact previously seen question or image. Instructor
+reports additionally distinguish published training/validation, adaptation support
+and queries. Training/support diagnostics do not contribute to the official score.
 
 To start from the trainable example, use
 `./step_1_new_solution visual_queries --template baseline`, then train and evaluate

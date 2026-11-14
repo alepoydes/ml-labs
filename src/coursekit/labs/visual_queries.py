@@ -85,6 +85,7 @@ def evaluate(solution, data, split="base/validation", *, progress=None, batch_si
     count = len(answers)
     correct = 0
     levels = {}
+    language = {name: dict(correct=0, questions=0) for name in ("known", "new")}
     # Only an instructor dataset has this sidecar; it is never a worker mount.
     judge_path = data / "judge.json"
     judge = json.loads(judge_path.read_text()).get(split, {}) if judge_path.exists() else {}
@@ -109,6 +110,19 @@ def evaluate(solution, data, split="base/validation", *, progress=None, batch_si
         validate_answers(predicted, len(selected), size)
         right = predicted == answers[selected]
         correct += int(right.sum())
+        # New answer concepts count too, even with an otherwise familiar question.
+        novel = np.array(
+            [
+                np.any(loaded[2][i] >= meta["base_vocab_size"])
+                or answers[i] >= meta["base_vocab_size"]
+                or judge.get(ids[i], {}).get("language") == "new"
+                for i in selected
+            ],
+            dtype=bool,
+        )
+        for name, selected_group in (("known", ~novel), ("new", novel)):
+            language[name]["questions"] += int(selected_group.sum())
+            language[name]["correct"] += int(right[selected_group].sum())
         for index, value in zip(selected, right):
             if ids[index] in judge:
                 level = str(judge[ids[index]]["level"])
@@ -118,7 +132,11 @@ def evaluate(solution, data, split="base/validation", *, progress=None, batch_si
         if progress:
             progress(dict(completed=int(selected[-1]) + 1, total=count, correct=correct))
     return dict(
-        score=100 * correct / count, correct=correct, questions=count, levels=levels
+        score=100 * correct / count,
+        correct=correct,
+        questions=count,
+        levels=levels,
+        language=language,
     )
 
 
@@ -186,7 +204,7 @@ def run_benchmark(data, run_phase, *, progress=None):
         raise CourseError("A complete benchmark must include adaptation episodes.")
     counts = [len(load_split(data, split)[2]) for split, _ in phases]
     total, completed, correct = sum(counts), 0, 0
-    details, levels = [], {}
+    details, levels, language = [], {}, {}
     for (split, name), count in zip(phases, counts):
 
         def report(event):
@@ -206,10 +224,11 @@ def run_benchmark(data, run_phase, *, progress=None):
         completed += count
         correct += result["correct"]
         details.append(dict(episode=name, **result))
-        for level, record in result.get("levels", {}).items():
-            target = levels.setdefault(level, dict(correct=0, questions=0))
-            for key in target:
-                target[key] += record[key]
+        for field, totals in (("levels", levels), ("language", language)):
+            for group, record in result.get(field, {}).items():
+                target = totals.setdefault(group, dict(correct=0, questions=0))
+                for key in target:
+                    target[key] += record[key]
     if (data / "judge.json").exists() and {
         level: value["questions"] for level, value in levels.items()
     } != {str(level): meta["scored_questions_per_level"] for level in range(1, 6)}:
@@ -221,6 +240,7 @@ def run_benchmark(data, run_phase, *, progress=None):
         accuracy=correct / total,
         phases=details,
         levels=levels,
+        language=language,
     )
 
 
