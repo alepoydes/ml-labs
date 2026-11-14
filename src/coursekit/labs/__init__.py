@@ -2,15 +2,21 @@ from importlib import import_module
 
 from coursekit.common import CourseError
 
-MODULES = {"blindjack": "blindjack", "line_following": "line_following_task"}
+MODULES = {
+    "blindjack": "blindjack",
+    "line_following": "line_following_task",
+    "visual_queries": "visual_queries",
+}
 
 
-def require_lab(lab: str, api: int = 1) -> None:
+def require_lab(lab: str, api: int | None = None) -> None:
     if (
         not isinstance(lab, str)
         or lab not in MODULES
-        or type(api) is not int
-        or api not in (1, 2)
+        or api is not None
+        and (
+            type(api) is not int or api not in ((2,) if lab == "visual_queries" else (1, 2))
+        )
     ):
         raise CourseError(f"Unsupported lab/API: {lab}/{api}; update the course files.")
 

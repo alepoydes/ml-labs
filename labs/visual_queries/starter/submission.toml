@@ -1,0 +1,12 @@
+schema_version = 1
+lab = "visual_queries"
+api_version = 2
+variant = "template"
+
+[training]
+supports_adapt = true
+
+[ai_usage]
+access_tier = "none_or_free"
+tools = []
+notes = ""

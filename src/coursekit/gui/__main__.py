@@ -88,11 +88,27 @@ class Window(QMainWindow):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Inspect a solution or play a public lab.")
     parser.add_argument(
-        "lab", choices=["blindjack", "line_following"], nargs="?", default="blindjack"
+        "lab",
+        choices=["blindjack", "line_following", "visual_queries"],
+        nargs="?",
+        default="blindjack",
     )
     parser.add_argument("--project", type=Path, default=Path.cwd())
     parser.add_argument("--solution", type=Path)
     args = parser.parse_args(argv)
+    if args.lab == "visual_queries":
+        import webbrowser
+
+        from coursekit import resources
+
+        data = args.project / "data/visual_queries"
+        resources.sync(
+            data, resources.manifest(args.project / "labs/visual_queries/resources.toml")
+        )
+        path = (data / "index.html").resolve()
+        if not webbrowser.open(path.as_uri()):
+            print(f"Open this file in a browser: {path}")
+        return 0
     surface = QSurfaceFormat()
     surface.setVersion(3, 3)
     surface.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)

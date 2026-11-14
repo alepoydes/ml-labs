@@ -1,6 +1,7 @@
 # Training several components and selecting a device
 
-Both current labs accept API v1 and v2. The supplied starters and baselines retain
+Blindjack and Line Following accept API v1 and v2.
+[Visual Queries](../labs/visual_queries/README.md) requires v2 and mandatory adaptation. The supplied starters and baselines retain
 v1; their existing commands and results do not change. Choose v2 when you need
 explicit devices, separately trained components, reusable snapshots or independent
 learning histories. The task's observations, acting method and score are unchanged.

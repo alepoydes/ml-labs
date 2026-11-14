@@ -31,7 +31,9 @@ def metadata(raw: bytes) -> dict:
     value = tomllib.loads(raw.decode("utf-8"))
     if type(value.get("schema_version")) is not int or value["schema_version"] != 1:
         raise CourseError("Unsupported submission schema.")
-    require_lab(value.get("lab"), value.get("api_version"))
+    if type(value.get("api_version")) is not int:
+        raise CourseError("Submission api_version must be an integer.")
+    require_lab(value.get("lab"), value["api_version"])
     if not isinstance(value.get("variant"), str) or not re.fullmatch(
         r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", value["variant"]
     ):
@@ -62,6 +64,10 @@ def metadata(raw: bytes) -> dict:
         raise CourseError("training must be a table.")
     if type(value.get("training", {}).get("supports_adapt", False)) is not bool:
         raise CourseError("training.supports_adapt must be Boolean.")
+    if value["lab"] == "visual_queries" and not value.get("training", {}).get(
+        "supports_adapt"
+    ):
+        raise CourseError("Visual Queries requires training.supports_adapt = true.")
     stages = value.get("training", {}).get("stages", [])
     if (
         not isinstance(stages, list)

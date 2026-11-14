@@ -1,0 +1,2 @@
+# No learned parameters in the constant-answer API example.
+example_batch_size = 2

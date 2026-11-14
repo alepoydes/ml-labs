@@ -1,7 +1,8 @@
 # Student guide
 
-The same project supports [Blindjack](../labs/blindjack/README.md) and
-[Line Following](../labs/line_following/README.md). The numbered commands, working
+The same project supports [Blindjack](../labs/blindjack/README.md) ,
+[Line Following](../labs/line_following/README.md), and
+[Visual Queries](../labs/visual_queries/README.md). The numbered commands, working
 directories, submission format and AI-use policy are shared. Observations, actions,
 training methods and scores are defined by each lab's statement.
 
@@ -10,6 +11,7 @@ training methods and scores are defined by each lab's statement.
 | Install, choose a lab and run a template | [Project quick start](../README.md) |
 | Write, train and debug a solution | [Development](development.md) |
 | Inspect data or controller behaviour | [Graphical tools](development.md#graphical-inspection-and-manual-play) |
+| Learn image questions, data formats and mandatory adaptation | [Visual Queries statement](../labs/visual_queries/README.md) |
 | Understand the robot task, data and API | [Line Following statement](../labs/line_following/README.md) |
 | Study robot mechanics and numerical integration | [Robot dynamics](../labs/line_following/dynamics.md) |
 | Learn about balancing, line following and reinforcement learning | [Control and learning](../labs/line_following/control_hints.md) |

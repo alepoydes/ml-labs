@@ -123,12 +123,18 @@ def main():
                 complete = False
                 failure = None
                 try:
-                    instance = training.load_solution(
-                        solution, args.seed, device=args.device
-                    )
-                    result = get_lab(info["lab"]).evaluate(
-                        instance, data, **({"progress": record_case} if robot else {})
-                    )
+                    lab = get_lab(info["lab"])
+                    if info["lab"] == "visual_queries":
+                        result = lab.evaluate_solution(
+                            solution, data, seed=args.seed, device=args.device
+                        )
+                    else:
+                        instance = training.load_solution(
+                            solution, args.seed, device=args.device
+                        )
+                        result = lab.evaluate(
+                            instance, data, **({"progress": record_case} if robot else {})
+                        )
                     complete = True
                 except BaseException as exc:
                     failure = {"type": type(exc).__name__, "message": str(exc)}

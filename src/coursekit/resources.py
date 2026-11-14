@@ -161,10 +161,16 @@ def sync(root: Path, spec: dict) -> None:
                     )
                 ):
                     raise CourseError("Archive members do not match the resource manifest.")
-            for entry in missing:
+            for index, entry in enumerate(missing, 1):
                 path = _target(root, entry["path"])
                 path.parent.mkdir(parents=True, exist_ok=True)
-                print(f"Preparing {entry['path']} ({entry['size']} bytes)")
+                if (
+                    len(missing) <= 20
+                    or index == 1
+                    or index % 100 == 0
+                    or index == len(missing)
+                ):
+                    print(f"Preparing {index}/{len(missing)}: {entry['path']}")
                 source = (
                     archive.open(entry["path"])
                     if archive is not None

@@ -1,7 +1,10 @@
 # Develop your own solution
 
-The workflow is shared by [Blindjack](../labs/blindjack/README.md) and
-[Line Following](../labs/line_following/README.md). Choose `baseline` for a runnable
+The workflow is shared by [Blindjack](../labs/blindjack/README.md),
+[Line Following](../labs/line_following/README.md), and
+[Visual Queries](../labs/visual_queries/README.md). Visual Queries supplies a
+constant-answer starter, requires API v2, and always evaluates independent adaptation
+episodes; use its statement for prediction and data examples. Choose `baseline` for a runnable
 reference or `starter` for the smallest API example. Create the copy for your lab:
 
 ```sh

@@ -1,13 +1,14 @@
 # Machine learning course
 
 Five substantial labs connect machine learning methods with complete working
-solutions. Two labs are available with pilot settings; [three more](docs/planned-labs.md)
+solutions. Three labs have runnable pilot foundations; [two more](docs/planned-labs.md)
 are planned. Choose the lab assigned by your instructor:
 
 | Lab | Task and API | Inspect before training |
 | --- | --- | --- |
 | [Blindjack](labs/blindjack/README.md) | Learn image values and select cards with `select(images)`. | Open `data/blindjack/index.html` after resource preparation, or run `./view_lab blindjack`. |
 | [Line Following](labs/line_following/README.md) | Train an adaptive robot controller with `act(observation, reset)`. | Run `./view_lab line_following`; choose **Course** in the top row, then **Top view** and **Fit track**. No trained solution is needed to preview courses. |
+| [Visual Queries](labs/visual_queries/README.md) | Learn one-token answers to image questions and adapt to unknown tokens with `predict(images, tokens, mask)`. | Open `data/visual_queries/index.html` after resource preparation, or run `./view_lab visual_queries`. |
 
 The [student guide](docs/README.md) links the common development, environment and
 submission instructions. Task rules and score definitions live in each lab's statement.
@@ -23,8 +24,9 @@ Commands use one shared locked Python environment.
 Line Following's Numba simulator needs no separate C++ compiler. Build tools for
 accelerating its educational PyTorch example are [optional](docs/environment.md#optional-acceleration-of-the-pytorch-mechanics-example).
 
-Each `labs/<lab>/` provides `starter`, a minimal API example, and `baseline`, a
-runnable reference. Blindjack's baseline trains an MLP; Line Following's baseline
+Each `labs/<lab>/` provides `starter`, a minimal API example. Blindjack and Line
+Following also provide `baseline`, a runnable reference. Visual Queries currently
+provides the constant-answer starter without a learned baseline. Blindjack's baseline trains an MLP; Line Following's baseline
 is hand tuned and its preparation only saves controller settings. Replace or improve
 it with your own learning procedure. First copy a template into `work/`, then edit,
 train and evaluate that copy. Leave tracked course files unchanged so updates do
@@ -124,7 +126,7 @@ The resource updater does not pull Git changes. It validates SHA-256 hashes, rep
 changed resources, and removes obsolete course-managed files. Interrupted updates
 must be rerun before training or evaluation.
 Blindjack's dataset is available from the
-[ML Labs pilot release](https://github.com/alepoydes/ml-labs/releases/tag/ml-labs-pilot-3).
+[ML Labs pilot release](https://github.com/alepoydes/ml-labs/releases/tag/ml-labs-pilot-4).
 The updater downloads its ZIP, verifies the archive and each
 extracted file, then removes the downloaded ZIP. Unchanged data are not downloaded
 again. PNG sheets remain directly viewable under `data/blindjack/`. The smaller robot

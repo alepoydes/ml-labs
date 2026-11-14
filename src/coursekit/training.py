@@ -32,6 +32,8 @@ def new_solution(project: Path, lab: str, template="starter", variant=None) -> P
     if template not in {"starter", "baseline"}:
         raise CourseError("Choose the starter or baseline template.")
     source = project / "labs" / lab / template
+    if not source.is_dir():
+        raise CourseError(f"The {lab} lab does not supply a {template} template.")
     variant = template if variant is None else variant
     destination = project / "work" / lab / variant
     return _copy_solution(source, destination, variant)

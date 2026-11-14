@@ -13,12 +13,13 @@ reference (trainable for Blindjack, hand tuned for Line Following). Copy a templ
 with `step_1_new_solution` before running or
 editing it. The working copy keeps the template's name unless a name is supplied.
 Include reproducible training, all inference artifacts, and an honest AI-use
-declaration. Submitted inference must run on CPU without network access.
+declaration. Submitted execution uses the lab's explicit CPU/CUDA profile without network access. Visual Queries requires v2
+and adaptation; its foundation supplies a constant-answer starter, not a baseline.
 All local commands and notebooks run directly in Python without isolation.
 Keep solution code in ordinary source files shared by training, evaluation, and
 the notebook. Use plain assignments and commented training calls in notebooks,
 without mode-selection widgets. See `docs/development.md` for direct entry points.
-Shared guides cover both runnable labs. Label lab-specific APIs, limits and examples,
+Shared guides cover all runnable labs. Label lab-specific APIs, limits and examples,
 and provide visual entry points before requiring training.
 Lab statements introduce the task and rules before data, APIs, workflow and graphical
 tools. Define the project directory by its launchers and configuration files. Keep
