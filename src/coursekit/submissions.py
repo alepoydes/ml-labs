@@ -56,6 +56,22 @@ def metadata(raw: bytes) -> dict:
         or not isinstance(ai.get("notes"), str)
     ):
         raise CourseError("AI tools must be a list of names and notes must be text.")
+    if value["api_version"] == 1:
+        return value
+    if not isinstance(value.get("training", {}), dict):
+        raise CourseError("training must be a table.")
+    stages = value.get("training", {}).get("stages", [])
+    if (
+        not isinstance(stages, list)
+        or any(
+            not isinstance(name, str)
+            or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", name)
+            or name == "all"
+            for name in stages
+        )
+        or len(set(stages)) != len(stages)
+    ):
+        raise CourseError("Training stages must be unique names; 'all' is reserved.")
     return value
 
 
@@ -211,6 +227,13 @@ def extract(archive: Path, destination: Path) -> dict:
 
 
 def pack(solution: Path, output: Path) -> Path:
+    from coursekit.execution import solution_lock
+
+    with solution_lock(solution):
+        return _pack(solution, output)
+
+
+def _pack(solution: Path, output: Path) -> Path:
     from coursekit.training import check_provenance
 
     info = metadata((solution / "submission.toml").read_bytes())

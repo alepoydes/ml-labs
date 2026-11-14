@@ -300,3 +300,6 @@ sensor/paint geometry and the case/coverage rule versions. Both viewers reject o
 replacing the open run. Use the original coursekit environment for historical
 recordings, or create new recordings with the current environment. Course archives
 remain in spline format version 2.
+
+For ensembles, reusable components, separate learning histories and explicit devices,
+see [API v2](api-v2.md). The current starter/baseline workflows above retain API v1.

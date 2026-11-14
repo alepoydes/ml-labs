@@ -5,7 +5,8 @@ Run commands with `uv run --locked` from the
 [project directory](../README.md#start-here), or use the numbered wrappers. The first
 run prepares the environment automatically.
 The environment includes NumPy, Numba, SciPy, scikit-learn, joblib, Pillow, Matplotlib,
-CPU PyTorch, and marimo. Both labs use this environment; the supplied
+CPU PyTorch, and marimo. An explicit [CUDA profile for API v2](api-v2.md#cuda-environment)
+is available through the locked `cuda` extra. Both labs use the same selected environment; the supplied
 [development notebook](notebook.md) belongs to the Blindjack baseline.
 
 Training, notebooks, evaluation, and ZIP checks run directly in your Python
@@ -24,8 +25,9 @@ Run local commands only on code and models you trust.
 ## Requirements for submitted inference
 
 The instructor evaluates submissions separately with protections. Final inference
-must use the locked libraries, run on CPU without network services, and read model
-files relative to `artifact_dir`. The submission directory is read-only; temporary
+must use the locked libraries and the instructor's explicit CPU or CUDA profile,
+without network services, and read model
+files relative to `artifact_dir`. The shipped assessment profile and API v1 remain CPU. The submission directory is read-only; temporary
 files may be written under `/tmp`. Only submitted files and the installed environment
 are available. Dependencies cannot be installed during grading.
 

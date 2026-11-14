@@ -1,0 +1,5 @@
+resolution = 8
+width = 16
+encoder_steps = 5
+member_steps = 10
+learning_rate = 0.03

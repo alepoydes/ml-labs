@@ -23,6 +23,8 @@ from coursekit.common import (
 from coursekit.labs import require_lab
 from coursekit.submissions import metadata
 
+_current_solution_path = None
+
 
 def new_solution(project: Path, lab: str, template="starter", variant=None) -> Path:
     """Copy a template for CLI or GUI use; never overwrite a working solution."""
@@ -98,6 +100,7 @@ class _SourceLoader(importlib.machinery.SourceFileLoader):
 
 def load_module(solution: Path, name: str):
     """Import one of your working copy's Python files in the current process."""
+    global _current_solution_path
     solution = solution.resolve()
     if not (solution / f"{name}.py").is_file():
         raise CourseError(
@@ -116,9 +119,13 @@ def load_module(solution: Path, name: str):
             str(directory), (_SourceLoader, importlib.machinery.SOURCE_SUFFIXES)
         )
     importlib.invalidate_caches()
-    if str(solution) in sys.path:
-        sys.path.remove(str(solution))
+    # An earlier variant's regular lib package must not override this variant's
+    # namespace package, or supply helpers absent from the current submission.
+    for path in {_current_solution_path, str(solution)}:
+        if path in sys.path:
+            sys.path.remove(path)
     sys.path.insert(0, str(solution))
+    _current_solution_path = str(solution)
     path = solution / f"{name}.py"
     spec = importlib.util.spec_from_file_location(
         name, path, loader=_SourceLoader(name, str(path))
@@ -129,13 +136,25 @@ def load_module(solution: Path, name: str):
     return module
 
 
-def load_solution(solution: Path, seed: int = 0):
+def load_solution(solution: Path, seed: int = 0, *, device="cpu", artifact_dir=None):
     """Create your solution directly, with its saved artifacts and configuration."""
     solution = solution.resolve()
-    module = load_module(solution, "solution")
-    return module.Solution(
-        solution / "artifacts", read_toml(solution / "config.toml"), seed
-    )
+    from coursekit.execution import resolve_device, solution_lock
+
+    # Minimal local viewer prototypes without metadata retain the v1 signature.
+    info = solution / "submission.toml"
+    api = metadata(info.read_bytes())["api_version"] if info.exists() else 1
+    device = resolve_device(device)
+    if api == 1 and device != "cpu":
+        raise CourseError("API v1 uses CPU; declare API v2 to select CUDA.")
+    with solution_lock(solution):
+        module = load_module(solution, "solution")
+        return module.Solution(
+            artifact_dir or solution / "artifacts",
+            read_toml(solution / "config.toml"),
+            seed,
+            **({"device": device} if api == 2 else {}),
+        )
 
 
 def source_hash(solution: Path) -> str:
@@ -154,6 +173,8 @@ def check_provenance(solution: Path, *, artifacts=False) -> dict:
         or value.get("status") != "complete"
         or value.get("source_hash") != source_hash(solution)
         or value.get("config_hash") != digest(solution / "config.toml")
+        or value.get("api_version", 1)
+        != metadata((solution / "submission.toml").read_bytes())["api_version"]
     ):
         raise CourseError(
             "Training is missing or source/configuration changed; rerun step_2_train."
@@ -205,9 +226,29 @@ def train(
     seed: int,
     *,
     run_dir: Path | None = None,
-) -> None:
+    device="cpu",
+    stage="all",
+    inputs=None,
+    report=None,
+) -> Path | None:
     solution = solution.resolve()
     info = metadata((solution / "submission.toml").read_bytes())
+    if info["api_version"] == 2:
+        from coursekit.training_v2 import run
+
+        return run(
+            solution,
+            data,
+            resource_hash,
+            seed,
+            run_dir=run_dir,
+            device=device,
+            stage=stage,
+            inputs=inputs,
+            report=report,
+        )
+    if device != "cpu" or stage != "all" or inputs:
+        raise CourseError("Device, stage and input options require API v2.")
     output = solution / "artifacts"
     output.mkdir(exist_ok=True)
     provenance = output / "provenance.json"
@@ -272,19 +313,20 @@ def train(
     print(f"Training complete: {output}")
 
 
-def train_local(solution: Path, project: Path, seed: int = 0) -> None:
+def train_local(solution: Path, project: Path, seed: int = 0, **options):
     """The shared CLI/notebook entry point for training your own working copy."""
     info = metadata((solution / "submission.toml").read_bytes())
     data = project / "data" / info["lab"]
     spec = resources.manifest(project / "labs" / info["lab"] / "resources.toml")
     with FileLock(str(data / ".update.lock"), timeout=0):
         resource_hash = resources.ready(data, spec)
-        train(
+        return train(
             solution,
             data,
             resource_hash,
             seed,
             run_dir=project / "runs" / info["lab"] / info["variant"],
+            **options,
         )
 
 
@@ -296,6 +338,10 @@ def load_training(solution: Path, run_dir: Path):
             "in the notebook's training cell."
         )
     saved = json.loads((run_dir / "training.json").read_text())
+    if saved.get("format_version") == 2:
+        from coursekit.training_v2 import load_history
+
+        return load_history(run_dir)
     artifacts = file_hashes(solution / "artifacts")
     artifacts.pop("provenance.json", None)
     if (
@@ -315,3 +361,10 @@ def load_training(solution: Path, run_dir: Path):
     with np.load(run_dir / "training.npz", allow_pickle=False) as source:
         history = dict(source)
     return history, saved
+
+
+def adapt_local(solution: Path, data: Path, input_dir: Path, **options):
+    """Run your own v2 adaptation code and retain a separate complete snapshot."""
+    from coursekit.training_v2 import adapt
+
+    return adapt(solution, data, input_dir, **options)

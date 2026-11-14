@@ -7,7 +7,7 @@ from pathlib import Path
 from filelock import FileLock, Timeout
 
 from coursekit import resources, submissions, training
-from coursekit.common import CourseError, write_json
+from coursekit.common import CourseError, read_toml, write_json
 from coursekit.labs import get_lab
 
 
@@ -28,11 +28,27 @@ def main():
         default="starter",
         help="Template to copy from labs/<lab>/ (default: %(default)s).",
     )
-    for step in ("train", "evaluate", "pack", "check"):
+    for step in ("train", "adapt", "evaluate", "pack", "check"):
         command = commands.add_parser(step)
         command.add_argument("path", type=Path)
-        if step in ("train", "evaluate", "check"):
+        if step in ("train", "adapt", "evaluate", "check"):
             command.add_argument("--seed", type=int, default=0)
+            command.add_argument("--device", default="cpu")
+        if step == "adapt":
+            command.add_argument("--data", type=Path, required=True)
+            command.add_argument("--base", type=Path, required=True)
+            command.add_argument("--runs", type=Path, required=True)
+            command.add_argument(
+                "--limits",
+                type=Path,
+                required=True,
+                help="Practice limits in TOML; local calls are not sandboxed.",
+            )
+        if step == "train":
+            command.add_argument("--stage", default="all")
+            command.add_argument(
+                "--input", action="append", default=[], metavar="NAME=PATH"
+            )
     args = parser.parse_args()
     root = Path.cwd()
     try:
@@ -46,8 +62,32 @@ def main():
         if args.step == "pack":
             submissions.pack(args.path, root / "dist")
             return
+        if args.step == "adapt":
+            training.adapt_local(
+                args.path,
+                args.data,
+                args.base,
+                run_dir=args.runs,
+                limits=read_toml(args.limits),
+                seed=args.seed,
+                device=args.device,
+            )
+            return
         if args.step == "train":
-            training.train_local(args.path, root, args.seed)
+            inputs = {}
+            for item in args.input:
+                name, separator, value = item.partition("=")
+                if not separator or not name or not value or name in inputs:
+                    raise CourseError("Inputs must be unique NAME=PATH pairs.")
+                inputs[name] = Path(value)
+            training.train_local(
+                args.path,
+                root,
+                args.seed,
+                device=args.device,
+                stage=args.stage,
+                inputs=inputs,
+            )
             return
         with tempfile.TemporaryDirectory(prefix="course-check-") as temporary:
             solution = (
@@ -83,7 +123,9 @@ def main():
                 complete = False
                 failure = None
                 try:
-                    instance = training.load_solution(solution, args.seed)
+                    instance = training.load_solution(
+                        solution, args.seed, device=args.device
+                    )
                     result = get_lab(info["lab"]).evaluate(
                         instance, data, **({"progress": record_case} if robot else {})
                     )

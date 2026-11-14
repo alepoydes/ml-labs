@@ -23,7 +23,7 @@ Links, special files, duplicate paths, traversal, and encrypted members are reje
 Datasets, environments, caches, logs, and unrelated variants are excluded. Do not use
 standalone NPY files; image resources use PNG and other numeric arrays compressed NPZ.
 
-`submission.toml` declares schema/API version 1, `lab = "blindjack"` or
+`submission.toml` declares `schema_version = 1`, `api_version = 1` or `2`, `lab = "blindjack"` or
 `lab = "line_following"`, a variant name,
 and [AI usage](ai-use.md). Student identity comes from the instructor's submission
 directory, not this file. The packer preserves the resource fingerprint of actual
@@ -35,8 +35,10 @@ Python and relevant library versions, and completion status. Failed training doe
 not leave successful provenance. It is reproducibility metadata, not an automatic
 proof of substantive learning or authorship.
 
-Both labs implement `train(data_dir, output_dir, config, seed)` and construct
-`Solution(artifact_dir, config, seed)`. Their acting interfaces differ:
+With API v1 both labs implement `train(data_dir, output_dir, config, seed)` and construct
+`Solution(artifact_dir, config, seed)`. [API v2](api-v2.md) adds explicit devices,
+named training stages, input snapshots and grouped histories. Both versions retain
+the same acting interfaces:
 
 | Lab | Required acting method | What persists during evaluation |
 | --- | --- | --- |

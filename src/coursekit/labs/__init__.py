@@ -6,7 +6,12 @@ MODULES = {"blindjack": "blindjack", "line_following": "line_following_task"}
 
 
 def require_lab(lab: str, api: int = 1) -> None:
-    if not isinstance(lab, str) or lab not in MODULES or type(api) is not int or api != 1:
+    if (
+        not isinstance(lab, str)
+        or lab not in MODULES
+        or type(api) is not int
+        or api not in (1, 2)
+    ):
         raise CourseError(f"Unsupported lab/API: {lab}/{api}; update the course files.")
 
 

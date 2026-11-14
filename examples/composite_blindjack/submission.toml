@@ -1,0 +1,12 @@
+schema_version = 1
+lab = "blindjack"
+api_version = 2
+variant = "composite-example"
+
+[training]
+stages = ["encoder", "member"]
+
+[ai_usage]
+access_tier = "none_or_free"
+tools = []
+notes = ""
