@@ -14,7 +14,12 @@ with `step_1_new_solution` before running or
 editing it. The working copy keeps the template's name unless a name is supplied.
 Include reproducible training, all inference artifacts, and an honest AI-use
 declaration. Submitted execution uses the lab's explicit CPU/CUDA profile without network access. Visual Queries requires v2
-and adaptation; its foundation supplies a constant-answer starter, not a baseline.
+and adaptation; it supplies a constant-answer starter and a small CNN/MLP baseline.
+Keep the baseline's spatial cells and word order, image-grouped internal holdout,
+fresh-base adaptation and input/output vocabulary growth. Measure actual learning
+and saved-model reloads on tiny fixtures; full accuracy pilots stay out of pytest.
+During model pilots, compare real images with erased images; a score improvement
+from answer/question priors alone does not establish visual learning.
 All local commands and notebooks run directly in Python without isolation.
 Keep solution code in ordinary source files shared by training, evaluation, and
 the notebook. Use plain assignments and commented training calls in notebooks,

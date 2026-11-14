@@ -2,8 +2,8 @@
 
 [Blindjack](../labs/blindjack/README.md), [Line Following](../labs/line_following/README.md)
 and [Visual Queries](../labs/visual_queries/README.md) have runnable pilot foundations.
-Visual Queries currently supplies the data, interface example and evaluation, without
-a learned baseline. The instructor announces the assessed labs and execution settings.
+Visual Queries supplies data, an interface example, a small CNN/MLP baseline and
+adaptive evaluation. The instructor announces the assessed labs and execution settings.
 
 | Lab | Direction | Decisions still open |
 | --- | --- | --- |

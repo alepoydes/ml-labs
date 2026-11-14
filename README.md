@@ -24,9 +24,9 @@ Commands use one shared locked Python environment.
 Line Following's Numba simulator needs no separate C++ compiler. Build tools for
 accelerating its educational PyTorch example are [optional](docs/environment.md#optional-acceleration-of-the-pytorch-mechanics-example).
 
-Each `labs/<lab>/` provides `starter`, a minimal API example. Blindjack and Line
-Following also provide `baseline`, a runnable reference. Visual Queries currently
-provides the constant-answer starter without a learned baseline. Blindjack's baseline trains an MLP; Line Following's baseline
+Each `labs/<lab>/` provides `starter`, a minimal API example, and `baseline`, a
+runnable reference. Visual Queries provides a constant-answer starter and a small
+trainable CNN/MLP with independent adaptation. Blindjack's baseline trains an MLP; Line Following's baseline
 is hand tuned and its preparation only saves controller settings. Replace or improve
 it with your own learning procedure. First copy a template into `work/`, then edit,
 train and evaluate that copy. Leave tracked course files unchanged so updates do

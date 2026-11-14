@@ -12,9 +12,10 @@ models, external language corpora or outside image collections. Your submitted c
 must support the supplied execution device, including CUDA on the instructor's
 server. CPU is supported for local development and the lifecycle example.
 
-This release provides the task, data, loader, constant-answer starter and evaluator.
-A learned baseline is not supplied yet. The starter demonstrates the interface;
-it does not analyze images or questions and always answers `yes`.
+This release provides the task, data, loader, constant-answer starter, a small
+learned CNN/MLP baseline and evaluator. The starter demonstrates the interface;
+it does not analyze images or questions and always answers `yes`. The baseline
+learns from images and ordered token embeddings and supports vocabulary growth.
 
 ## 1. Images and meanings
 
@@ -248,6 +249,13 @@ equal counts. Episodes can have different sizes; the evaluator sums counts inste
 of averaging episode percentages. Support examples are not scored. Valid wrong
 answers earn no credit for that question. A runtime/protocol failure or cancellation
 leaves an incomplete attempt, without a score computed from its successful prefix.
+
+To start from the trainable example, use
+`./step_1_new_solution visual_queries --template baseline`, then train and evaluate
+`work/visual_queries/baseline`. See the [baseline description](baseline/README.md)
+for the architecture, internal holdout, settings and adaptation procedure. Its
+numeric training histories describe training/internal validation, while
+`step_3_evaluate` runs the separate complete public benchmark.
 
 ## 7. Inspecting examples
 

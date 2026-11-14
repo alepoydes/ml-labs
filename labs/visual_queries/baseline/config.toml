@@ -1,0 +1,12 @@
+epochs = 20
+batch_size = 32
+learning_rate = 0.001
+weight_decay = 0.0001
+validation_fraction = 0.1
+patience = 5
+
+adapt_epochs = 12
+adapt_learning_rate = 0.0003
+# Up to 128 cached base examples; add one rehearsal row per four support rows.
+rehearsal_examples = 128
+rehearsal_fraction = 0.25

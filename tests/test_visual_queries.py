@@ -182,3 +182,66 @@ def test_prediction_boundary_rejects_coercion(queries):
     args[2][0, 1] = False
     with pytest.raises(CourseError):
         validate_inputs(*args, vocab_size=7, image_shape=[16, 16, 3])
+
+
+def test_learned_baseline_growth_reload_and_adaptation(queries, tmp_path):
+    import torch
+
+    from coursekit.common import read_toml
+    from coursekit.training import load_module
+
+    solution = tmp_path / "learned"
+    shutil.copytree(Path(__file__).parents[1] / "labs/visual_queries/baseline", solution)
+    module = load_module(solution, "train")
+    model_code = __import__("lib.model", fromlist=["Model"])
+    previous_threads = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        torch.manual_seed(0)
+        model = model_code.Model(7, 96).eval()
+        x, t, m = batch(load_split(queries, "base/train"), np.array([0, 1]))
+        args = model_code.tensors(x, t, m, "cpu")
+        with torch.no_grad():
+            expected = model(*args)
+            grown = model_code.expand(model, 8).eval()
+            torch.testing.assert_close(grown(*args)[:, :7], expected, rtol=0, atol=0)
+            torch.testing.assert_close(model(*(a[:1] for a in args)), expected[:1])
+        # Learn a newly appended answer class on a tiny support set.
+        view = adaptation_view(queries, "a", tmp_path / "learn-view")
+        csv_file(
+            view / "support/answers.csv",
+            ["question_id", "answer_id"],
+            [["q1", 7], ["q2", 7]],
+        )
+        source, target = tmp_path / "base", tmp_path / "adapted"
+        source.mkdir()
+        target.mkdir()
+        model_code.save(model, source, None)
+        original = digest(source / "model.pt")
+        config = read_toml(solution / "config.toml") | dict(
+            adapt_epochs=12, adapt_learning_rate=0.01, rehearsal_examples=0
+        )
+        history = module.adapt(
+            view, source, target, config, 0, device="cpu", limits={"wall_seconds": 30}
+        )
+        assert history["adapt"]["loss"][-1] < history["adapt"]["loss"][0]
+        assert digest(source / "model.pt") == original
+        predictor = load_module(solution, "solution").Solution(
+            target, config, 0, device="cpu"
+        )
+        assert predictor.episode_id == "a" and predictor.model.vocab_size == 8
+        prediction = predictor.predict(x, t, m)
+        np.testing.assert_array_equal(prediction, [7, 7])
+        np.testing.assert_array_equal(
+            predictor.predict(x[::-1], t[::-1], m[::-1]),
+            prediction[::-1],
+        )
+        padded_t, padded_m = (
+            np.pad(t[:1], ((0, 0), (0, 4))),
+            np.pad(m[:1], ((0, 0), (0, 4))),
+        )
+        np.testing.assert_array_equal(
+            predictor.predict(x[:1], padded_t, padded_m), prediction[:1]
+        )
+    finally:
+        torch.set_num_threads(previous_threads)
