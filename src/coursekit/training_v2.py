@@ -179,8 +179,8 @@ def run(
 
     solution, data = Path(solution).resolve(), Path(data).resolve()
     info = metadata((solution / "submission.toml").read_bytes())
-    if info["api_version"] != 2:
-        raise CourseError("This operation requires API v2.")
+    if info["api_version"] not in (2, 3):
+        raise CourseError("This operation requires API v2 or v3.")
     if stage not in ["all", *info.get("training", {}).get("stages", [])]:
         raise CourseError(f"Unknown training stage: {stage}")
     device = resolve_device(device)
@@ -204,7 +204,7 @@ def run(
         runtime=runtime_identity(device),
         limits=copy.deepcopy(limits),
         lab=info["lab"],
-        api_version=2,
+        api_version=info["api_version"],
         inputs={},
     )
     started = time.monotonic()
@@ -223,6 +223,10 @@ def run(
                 raise CourseError("Input artifacts changed while snapshotting.")
             record["inputs"][name] = before
             pinned[name] = target.resolve()
+        if info["api_version"] == 3:
+            from coursekit.labs.visual_queries_learning import open_data
+
+            data = open_data(data)
         module = load_module(solution, "train")
         kwargs = dict(device=device, report=reporter(report))
         if operation == "adapt":

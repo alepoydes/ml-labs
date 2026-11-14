@@ -45,7 +45,8 @@ images form the internal holdout: all questions sharing an image stay together.
 The selected checkpoint has the best internal accuracy. The supplied public
 validation and adaptation queries are never read by training or adaptation.
 
-PNG sheets and questions within each sheet are shuffled at every epoch. This
+Groups of nearby image indices and the questions within each group are shuffled
+at every epoch. The launcher retains the underlying PNG access. This
 keeps decoding bounded by the number of sheets rather than the number of
 questions, without retaining the entire image collection in RAM. Mini-batches can
 therefore contain related examples; this is a simple memory/decoding tradeoff.
@@ -69,7 +70,7 @@ binding. Measure its errors and adaptation results before choosing improvements.
 
 ## Measured example
 
-One seed-0 run with these defaults on the supplied public resources obtained
+An earlier API 2 seed-0 run of this architecture on resource format 1 obtained
 1,142/2,850 correct answers, or **40.07 points**, including all eight independent
 adaptations. Training took 252 seconds and the complete evaluation 69 seconds on
 an RTX 5060 Ti with PyTorch 2.14.1+cu130. Early stopping selected epoch 9 and

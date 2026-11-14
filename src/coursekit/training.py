@@ -155,7 +155,7 @@ def load_solution(solution: Path, seed: int = 0, *, device="cpu", artifact_dir=N
             artifact_dir or solution / "artifacts",
             read_toml(solution / "config.toml"),
             seed,
-            **({"device": device} if api == 2 else {}),
+            **({"device": device} if api >= 2 else {}),
         )
 
 
@@ -235,7 +235,7 @@ def train(
 ) -> Path | None:
     solution = solution.resolve()
     info = metadata((solution / "submission.toml").read_bytes())
-    if info["api_version"] == 2:
+    if info["api_version"] >= 2:
         from coursekit.training_v2 import run
 
         return run(

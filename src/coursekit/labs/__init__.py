@@ -15,7 +15,7 @@ def require_lab(lab: str, api: int | None = None) -> None:
         or lab not in MODULES
         or api is not None
         and (
-            type(api) is not int or api not in ((2,) if lab == "visual_queries" else (1, 2))
+            type(api) is not int or api not in ((3,) if lab == "visual_queries" else (1, 2))
         )
     ):
         raise CourseError(f"Unsupported lab/API: {lab}/{api}; update the course files.")

@@ -7,14 +7,14 @@ import torch
 from lib.model import Model, expand, load, save, tensors
 from torch.nn import functional as F
 
-from coursekit.labs.visual_queries_data import batch, episode, load_split, metadata
+from coursekit.labs.visual_queries_data import batch
 
 
 def shuffled_rows(data, rows, rng):
     # Decode a sheet once, rather than once per randomly selected question.
     groups = {}
     for row in rows:
-        sheet = data[0].positions[data[1][row]][0]
+        sheet = int(data[1][row]) // 16
         groups.setdefault(sheet, []).append(row)
     keys = list(groups)
     return np.concatenate(
@@ -146,7 +146,7 @@ def fit(
 
 
 def train(
-    data_dir, output_dir, config, seed, *, device, inputs=None, stage="all", report=None
+    datasets, output_dir, config, seed, *, device, inputs=None, stage="all", report=None
 ):
     if stage != "all" or inputs:
         raise ValueError(
@@ -154,7 +154,7 @@ def train(
         )
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
-    data, meta = load_split(data_dir, "base/train"), metadata(data_dir)
+    data, meta = datasets.load_split("base/train"), datasets.metadata
     # Questions sharing an image stay on the same side of the internal holdout.
     images = rng.permutation(np.unique(data[1]))
     n = max(1, int(len(images) * config["validation_fraction"]))
@@ -168,22 +168,18 @@ def train(
     return history
 
 
-def adapt(data_dir, input_dir, output_dir, config, seed, *, device, limits, report=None):
+def adapt(datasets, input_dir, output_dir, config, seed, *, device, limits, report=None):
     started = time.monotonic()
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
     model, _ = load(input_dir, device)
-    adapting = (data_dir / "episode.json").exists()
-    task = (
-        episode(data_dir)
-        if adapting
-        else dict(vocab_size=metadata(data_dir)["base_vocab_size"], episode_id=None)
-    )
+    adapting = datasets.episode["episode_id"] is not None
+    task = datasets.episode
     model = expand(model, task["vocab_size"])
-    data = load_split(data_dir, "support" if adapting else "base/train")
+    data = datasets.load_split("support" if adapting else "base/train")
     rehearsal = None
     if adapting and config["rehearsal_examples"] and config["rehearsal_fraction"]:
-        base = load_split(data_dir, "rehearsal/base/train")
+        base = datasets.load_split("base/train")
         rows = rng.choice(
             len(base[2]), min(config["rehearsal_examples"], len(base[2])), replace=False
         )

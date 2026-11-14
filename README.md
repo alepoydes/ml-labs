@@ -126,7 +126,7 @@ The resource updater does not pull Git changes. It validates SHA-256 hashes, rep
 changed resources, and removes obsolete course-managed files. Interrupted updates
 must be rerun before training or evaluation.
 Blindjack's dataset is available from the
-[ML Labs pilot release](https://github.com/alepoydes/ml-labs/releases/tag/ml-labs-pilot-4).
+[ML Labs pilot release](https://github.com/alepoydes/ml-labs/releases/tag/ml-labs-pilot-5).
 The updater downloads its ZIP, verifies the archive and each
 extracted file, then removes the downloaded ZIP. Unchanged data are not downloaded
 again. PNG sheets remain directly viewable under `data/blindjack/`. The smaller robot

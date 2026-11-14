@@ -13,7 +13,7 @@ reference (trainable for Blindjack, hand tuned for Line Following). Copy a templ
 with `step_1_new_solution` before running or
 editing it. The working copy keeps the template's name unless a name is supplied.
 Include reproducible training, all inference artifacts, and an honest AI-use
-declaration. Submitted execution uses the lab's explicit CPU/CUDA profile without network access. Visual Queries requires v2
+declaration. Submitted execution uses the lab's explicit CPU/CUDA profile without network access. Visual Queries requires v3
 and adaptation; it supplies a constant-answer starter and a small CNN/MLP baseline.
 Keep the baseline's spatial cells and word order, image-grouped internal holdout,
 fresh-base adaptation and input/output vocabulary growth. Measure actual learning
@@ -70,3 +70,6 @@ Robot experiments are fixed Case data, including model, initial state and sensor
 noise. Environment.reset repeats them exactly; sample extra training cases explicitly.
 Keep GUI, CLI and assessment case selection consistent. Validate whole recovery
 manoeuvres and restored route progress on both legs, with and without sensor noise.
+
+Visual Queries keeps readable CSV text outside submitted code. Learning receives
+only numeric tables and image batches; instructor containers never mount the corpus.

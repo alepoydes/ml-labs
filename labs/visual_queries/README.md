@@ -97,12 +97,12 @@ answer classes. The base training set includes examples of every question family
 
 Evaluation includes base questions and independent adaptation episodes. In each
 episode new token IDs are appended after the base dictionary, without gaps. Their
-spellings and grammatical classes are not supplied. Infer their meanings from
+spellings and grammatical classes are not supplied to solution code. Infer their meanings from
 labeled **support** examples. New tokens can affect attributes, relations, logical
 expressions or references, and can also appear as answers. Some episodes introduce
 one new element, others combine several. Existing IDs keep their base meanings.
 
-`episode.json` specifies the active vocabulary size. Read it rather than guessing
+`data.episode["vocab_size"]` specifies the active vocabulary size. Use it rather than guessing
 from the largest ID in a minibatch. The same added ID can mean different things in
 different episodes. Expand both input and output representations when necessary.
 
@@ -124,11 +124,11 @@ Copy the starter into a working directory and implement:
 1. `train.py:train(...)`: train one or several components and save a complete base
    state in `output_dir`. Named stages and component inputs are available.
 2. `train.py:adapt(...)`: initialize from immutable `input_dir`, learn from the
-   provided support view, and save a complete state in a separate `output_dir`.
+   provided numeric support data, and save a complete state in a separate `output_dir`.
 3. `solution.py:Solution(...)` and `predict(...)`: load saved components and return
    an answer ID for each row.
 
-Keep `training.supports_adapt = true` and `api_version = 2` in `submission.toml`.
+Keep `training.supports_adapt = true` and `api_version = 3` in `submission.toml`.
 Document your method and AI assistance honestly. Artifacts must contain all models
 and preprocessing state needed for prediction **and further training**, including
 active vocabulary size and episode identity. Do not assume a single model file.
@@ -138,13 +138,11 @@ The complete signatures are:
 
 ```python
 def train(
-    data_dir, output_dir, config, seed, *, device, inputs=None, stage="all", report=None
+    data, output_dir, config, seed, *, device, inputs=None, stage="all", report=None
 ): ...
 
 
-def adapt(
-    data_dir, input_dir, output_dir, config, seed, *, device, limits, report=None
-): ...
+def adapt(data, input_dir, output_dir, config, seed, *, device, limits, report=None): ...
 
 
 class Solution:
@@ -152,7 +150,8 @@ class Solution:
     def predict(self, images, question_tokens, question_mask): ...
 ```
 
-Paths are `pathlib.Path` objects. `config` is the parsed `config.toml`; `device` is an
+`data` is the numeric learning interface described in [API 3](../../docs/api-v3.md).
+Artifact paths are `pathlib.Path` objects. `config` is the parsed `config.toml`; `device` is an
 explicit device string. `train` and `adapt` can report bounded progress dictionaries
 and return histories grouped by stage. See the small starter and the shared
 [development guide](../../docs/development.md) for complete lifecycle conventions.
@@ -196,7 +195,9 @@ and 120 query questions each. The complete local benchmark has 2,850 questions,
 Resources appear under `data/visual_queries/`. The updater verifies the complete
 archive member set, sizes and hashes, extracts files, and removes the downloaded
 archive. See [the data format](DATA.md) for every CSV field, sheet coordinate,
-metadata key and the reduced adaptation view. Files can be read without coursekit.
+metadata key. Text is readable for human inspection; the launcher converts it to
+tokens before calling a solution. Files can be read without coursekit. The following
+example is an inspection script; model training uses `data.load_split(...)`.
 
 ```python
 from pathlib import Path
@@ -213,8 +214,7 @@ print(x.shape, tokens.shape, mask.shape, y)
 ```
 
 Images are lazy PNG tiles; `image_index` maps question rows to image rows. Multiple
-questions can refer to one image. `answers` follows question order regardless of
-CSV row order and is `None` for an unlabeled split. Glyph labels use the base
+questions can refer to one image. `answers` follows CSV question order and is `None` for an unlabeled split. Glyph labels use the base
 symbol IDs. The optional glyph pool contains only base-training source exemplars.
 
 [read_data.py](read_data.py) independently implements the CSV/JSON/Pillow reading
@@ -271,7 +271,7 @@ Open `data/visual_queries/index.html` in a browser, or run:
 ```
 
 The offline browser shows canonical PNG images, questions, optional answers and
-support/query navigation. New token spellings are displayed as numeric badges.
+support/query navigation. Practice questions and answers are shown as readable text.
 It does not need a trained solution or an internet connection after preparation.
 The image path and one-based sheet position are shown for independent inspection.
 

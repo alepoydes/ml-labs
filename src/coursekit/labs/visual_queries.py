@@ -89,12 +89,16 @@ def evaluate(solution, data, split="base/validation", *, progress=None, batch_si
     # Only an instructor dataset has this sidecar; it is never a worker mount.
     judge_path = data / "judge.json"
     judge = json.loads(judge_path.read_text()).get(split, {}) if judge_path.exists() else {}
-    ids = [
-        r["question_id"]
-        for r in rows(
-            data / split / "questions.csv", ["question_id", "image_id", "token_ids"]
-        )
-    ]
+    ids = (
+        [str(i + 1) for i in range(count)]
+        if meta["format_version"] == 2
+        else [
+            r["question_id"]
+            for r in rows(
+                data / split / "questions.csv", ["question_id", "image_id", "token_ids"]
+            )
+        ]
+    )
     step = min(batch_size, meta["max_batch_size"])
     for start in range(0, count, step):
         selected = np.arange(start, min(start + step, count))
@@ -154,20 +158,23 @@ def adaptation_view(root, name, destination, *, rehearsal=None):
         (root, f"adaptation/{name}/support", "support"),
         (rehearsal, "base/train", "rehearsal/base/train"),
     ]
+    modern = metadata(root)["format_version"] == 2
     for source, split, target in permitted:
         load_split(source, split)
         directory = destination / target
         directory.mkdir(parents=True)
-        for filename in ("images.csv", "questions.csv", "answers.csv"):
+        for filename in (
+            ("examples.csv",) if modern else ("images.csv", "questions.csv", "answers.csv")
+        ):
             shutil.copyfile(source / split / filename, directory / filename)
-        for filename in {
-            r["sheet"]
-            for r in rows(
-                source / split / "images.csv", ["image_id", "sheet", "row", "column"]
-            )
-        }:
+        for filename in {r["sheet"] for r in load_split(source, split)[0].index}:
             (directory / filename).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source / split / filename, directory / filename)
+    if modern:
+        shutil.copyfile(
+            root / "adaptation" / name / "vocabulary.csv",
+            destination / "support/vocabulary.csv",
+        )
     # The glyph pool is public supervised training data, in its own canonical sheets.
     from coursekit.labs.visual_queries_data import load_glyphs
 
@@ -176,8 +183,7 @@ def adaptation_view(root, name, destination, *, rehearsal=None):
     folder.mkdir(parents=True)
     for filename in (
         "metadata.json",
-        "images.csv",
-        "labels.csv",
+        *(("examples.csv",) if modern else ("images.csv", "labels.csv")),
         *{r["sheet"] for r in glyphs.index},
     ):
         (folder / filename).parent.mkdir(parents=True, exist_ok=True)

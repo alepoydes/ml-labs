@@ -16,7 +16,20 @@ from coursekit.labs.visual_queries import (
     validate_answers,
     validate_inputs,
 )
-from coursekit.labs.visual_queries_data import batch, load_split, metadata, vocabulary
+from coursekit.labs.visual_queries_data import (
+    batch,
+    load_glyphs,
+    load_split,
+    metadata,
+    vocabulary,
+)
+from coursekit.labs.visual_queries_learning import (
+    LearningData,
+    decode,
+    encode,
+    open_data,
+    provider,
+)
 from coursekit.training_v2 import run
 
 
@@ -44,7 +57,7 @@ def queries(tmp_path):
     write_json(
         root / "dataset.json",
         dict(
-            format_version=1,
+            format_version=2,
             lab="visual_queries",
             resource_version="fixture",
             pad_token_id=0,
@@ -63,29 +76,28 @@ def queries(tmp_path):
     )
     for split in names:
         folder = root / split
-        csv_file(
-            folder / "images.csv",
-            ["image_id", "sheet", "row", "column"],
-            [["r", "images/s.png", 1, 2], ["l", "images/s.png", 1, 1]],
-        )
+        (folder / "images").mkdir(parents=True)
         pixels = np.full((16, 32, 3), 255, np.uint8)
         pixels[:, 16:] = [12, 34, 56]
-        (folder / "images").mkdir()
-        Image.fromarray(pixels).save(folder / "images/s.png")
-        rows = [["q2", "r", "[3,4,5]"], ["q1", "l", "[4,5]"]]
+        Image.fromarray(pixels).save(folder / "images/000001.png")
+        records = [[1, 1, 2, "Is empty?", "no"], [1, 1, 1, "empty?", "yes"]]
         if split.endswith("query") and "/b/" in split:
-            rows = rows[:1]
-        csv_file(folder / "questions.csv", ["question_id", "image_id", "token_ids"], rows)
+            records = records[:1]
         csv_file(
-            folder / "answers.csv",
-            ["question_id", "answer_id"],
-            [(r[0], 1 if r[0] == "q1" else 2) for r in reversed(rows)],
+            folder / "examples.csv",
+            ["sheet", "row", "column", "question", "answer"],
+            records,
         )
     for name in ("a", "b"):
+        csv_file(
+            root / f"adaptation/{name}/vocabulary.csv",
+            ["token_id", "spelling"],
+            enumerate([*words, "novel"]),
+        )
         write_json(
             root / f"adaptation/{name}/episode.json",
             dict(
-                format_version=1,
+                format_version=2,
                 episode_id=name,
                 base_vocabulary_sha256=digest(root / "vocabulary.csv"),
                 base_vocab_size=7,
@@ -93,13 +105,12 @@ def queries(tmp_path):
             ),
         )
     (root / "glyphs/images").mkdir(parents=True)
-    shutil.copyfile(root / "base/train/images/s.png", root / "glyphs/images/s.png")
-    csv_file(
-        root / "glyphs/images.csv",
-        ["image_id", "sheet", "row", "column"],
-        [["g", "images/s.png", 1, 2]],
+    shutil.copyfile(
+        root / "base/train/images/000001.png", root / "glyphs/images/000001.png"
     )
-    csv_file(root / "glyphs/labels.csv", ["image_id", "symbol_id"], [["g", 6]])
+    csv_file(
+        root / "glyphs/examples.csv", ["sheet", "row", "column", "symbol"], [[1, 1, 2, "A"]]
+    )
     write_json(
         root / "glyphs/metadata.json", dict(image_shape=[16, 16, 3], sheet_grid=[1, 2])
     )
@@ -116,16 +127,33 @@ def test_loader_independent_csv_join_and_masks(queries):
     spec = importlib.util.spec_from_file_location("independent_reader", script)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    image, tokens, answer = module.read_example(queries, "base/train", "q2")
+    image, tokens, answer = module.read_example(queries, "base/train", 1)
     np.testing.assert_array_equal(image, x[0])
     np.testing.assert_array_equal(tokens, t[0])
     assert answer == 2
-    (queries / "base/train/answers.csv").unlink()
+    path = queries / "base/train/examples.csv"
+    csv_file(
+        path, ["sheet", "row", "column", "question", "answer"], [[1, 1, 1, "empty?", ""]]
+    )
     assert load_split(queries, "base/train")[3] is None
-    path = queries / "base/train/questions.csv"
-    path.write_text(path.read_text().replace("[3,4,5]", "[true,4,5]"))
+    path.write_text(path.read_text().replace("empty?", "missing?"))
     with pytest.raises(CourseError):
         load_split(queries, "base/train")
+
+
+def test_glyph_labels_follow_tiles_and_episode_preserves_base_tokens(queries):
+    csv_file(
+        queries / "glyphs/examples.csv",
+        ["sheet", "row", "column", "symbol"],
+        [[1, 1, 2, "A"], [1, 1, 1, "yes"]],
+    )
+    images, labels = load_glyphs(queries)
+    assert labels.tolist() == [1, 6]
+    assert np.all(images[np.array([1])][0] == [12, 34, 56])
+    path = queries / "adaptation/a/vocabulary.csv"
+    path.write_text(path.read_text().replace("1,yes", "1,changed"))
+    with pytest.raises(CourseError, match="old token"):
+        load_split(queries, "adaptation/a/support")
 
 
 def test_support_sealing_and_complete_independent_lifecycle(queries, tmp_path):
@@ -136,6 +164,7 @@ def test_support_sealing_and_complete_independent_lifecycle(queries, tmp_path):
     assert vocabulary(view) == vocabulary(queries)
     solution = tmp_path / "solution"
     shutil.copytree(Path(__file__).parents[1] / "labs/visual_queries/starter", solution)
+    (solution / "config.toml").write_text("example_batch_size=2\nconstant_answer_id=1\n")
     script = solution / "train.py"
     script.write_text(
         script.read_text().replace(
@@ -209,9 +238,9 @@ def test_learned_baseline_growth_reload_and_adaptation(queries, tmp_path):
         # Learn a newly appended answer class on a tiny support set.
         view = adaptation_view(queries, "a", tmp_path / "learn-view")
         csv_file(
-            view / "support/answers.csv",
-            ["question_id", "answer_id"],
-            [["q1", 7], ["q2", 7]],
+            view / "support/examples.csv",
+            ["sheet", "row", "column", "question", "answer"],
+            [[1, 1, 1, "empty?", "novel"], [1, 1, 2, "Is empty?", "novel"]],
         )
         source, target = tmp_path / "base", tmp_path / "adapted"
         source.mkdir()
@@ -222,7 +251,13 @@ def test_learned_baseline_growth_reload_and_adaptation(queries, tmp_path):
             adapt_epochs=12, adapt_learning_rate=0.01, rehearsal_examples=0
         )
         history = module.adapt(
-            view, source, target, config, 0, device="cpu", limits={"wall_seconds": 30}
+            open_data(view),
+            source,
+            target,
+            config,
+            0,
+            device="cpu",
+            limits={"wall_seconds": 30},
         )
         assert history["adapt"]["loss"][-1] < history["adapt"]["loss"][0]
         assert digest(source / "model.pt") == original
@@ -245,3 +280,30 @@ def test_learned_baseline_growth_reload_and_adaptation(queries, tmp_path):
         )
     finally:
         torch.set_num_threads(previous_threads)
+
+
+def test_numeric_learning_boundary(queries):
+    host = provider(queries)
+
+    def transport(message):
+        value = host(message)
+        return (
+            json.loads(json.dumps(value))
+            if message["kind"] == "metadata"
+            else decode(encode(value))
+        )
+
+    data = LearningData(transport)
+    assert set(data.splits) == {"base/train", "glyphs"}
+    assert "vocabulary" not in data.metadata and "spelling" not in json.dumps(data.metadata)
+    local = batch(load_split(queries, "base/train"), np.array([1, 0]))
+    remote = batch(data.load_split("base/train"), np.array([1, 0]))
+    for a, b in zip(local, remote):
+        np.testing.assert_array_equal(a, b)
+    for request in [
+        dict(kind="table", split="base/validation"),
+        dict(kind="images", split="../secret", indices=[0]),
+        dict(kind="images", split="base/train", indices=[True]),
+    ]:
+        with pytest.raises((CourseError, ValueError)):
+            transport(request)

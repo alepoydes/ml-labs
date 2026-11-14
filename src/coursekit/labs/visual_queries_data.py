@@ -2,6 +2,7 @@
 
 import csv
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -31,11 +32,11 @@ def integer(value, low, high):
 def metadata(root):
     value = json.loads((Path(root) / "dataset.json").read_text())
     if (
-        value.get("format_version") != 1
+        value.get("format_version") not in (1, 2)
         or value.get("lab") != "visual_queries"
         or value.get("pad_token_id") != 0
     ):
-        raise CourseError("Expected Visual Queries resource format 1.")
+        raise CourseError("Expected Visual Queries resource format 1 or 2.")
     shape, grid = value.get("image_shape"), value.get("sheet_grid")
     if (
         not isinstance(shape, list)
@@ -60,8 +61,8 @@ def metadata(root):
     return value
 
 
-def vocabulary(root):
-    table = rows(Path(root) / "vocabulary.csv", ["token_id", "spelling"])
+def read_vocabulary(path, size):
+    table = rows(path, ["token_id", "spelling"])
     if (
         [r["token_id"] for r in table] != [str(i) for i in range(len(table))]
         or not table
@@ -69,8 +70,23 @@ def vocabulary(root):
     ):
         raise CourseError("Vocabulary IDs must start at padding zero and be contiguous.")
     words = [r["spelling"] for r in table]
-    if len(set(words)) != len(words) or len(words) != metadata(root)["base_vocab_size"]:
-        raise CourseError("Invalid base vocabulary.")
+    if len(set(words)) != len(words) or len(words) != size:
+        raise CourseError("Invalid vocabulary size or duplicate spelling.")
+    if any(tokenize(word) != [word] for word in words[1:]):
+        raise CourseError("Each spelling must represent one token.")
+    return words
+
+
+def vocabulary(root, name=None):
+    folder = Path(root) if name is None else Path(root) / "adaptation" / safe_path(name)
+    size = (
+        metadata(root)["base_vocab_size"]
+        if name is None
+        else episode(root, name)["vocab_size"]
+    )
+    words = read_vocabulary(folder / "vocabulary.csv", size)
+    if name is not None and words[: metadata(root)["base_vocab_size"]] != vocabulary(root):
+        raise CourseError("An episode changes old token meanings.")
     return words
 
 
@@ -83,17 +99,13 @@ def episode(root, name=None):
     )
     value = json.loads(path.read_text())
     meta = metadata(root)
-    if (
-        set(value)
-        != {
-            "format_version",
-            "episode_id",
-            "base_vocabulary_sha256",
-            "base_vocab_size",
-            "vocab_size",
-        }
-        or value["format_version"] != 1
-    ):
+    if set(value) != {
+        "format_version",
+        "episode_id",
+        "base_vocabulary_sha256",
+        "base_vocab_size",
+        "vocab_size",
+    } or value["format_version"] not in (1, 2):
         raise CourseError("Invalid adaptation metadata.")
     if (
         not isinstance(value["episode_id"], str)
@@ -119,10 +131,12 @@ def scope(root, split):
 
 
 class Images:
-    def __init__(self, folder, shape, grid):
+    def __init__(self, folder, shape, grid, index=None):
         self.folder, self.shape, self.grid = Path(folder), tuple(shape), tuple(grid)
-        self.index = rows(
-            self.folder / "images.csv", ["image_id", "sheet", "row", "column"]
+        self.index = (
+            index
+            if index is not None
+            else rows(self.folder / "images.csv", ["image_id", "sheet", "row", "column"])
         )
         self.positions = []
         ids, positions = set(), set()
@@ -187,6 +201,8 @@ class Images:
 def load_split(root, split):
     root = Path(root)
     meta, size = metadata(root), scope(root, split)
+    if meta["format_version"] == 2:
+        return text_split(root, split)
     folder = root / safe_path(split)
     images = Images(folder, meta["image_shape"], meta["sheet_grid"])
     image_ids = {r["image_id"]: i for i, r in enumerate(images.index)}
@@ -250,6 +266,8 @@ def batch(data, indices):
 
 
 def load_glyphs(root):
+    if metadata(root)["format_version"] == 2:
+        return text_glyphs(Path(root))
     folder = Path(root) / "glyphs"
     meta = json.loads((folder / "metadata.json").read_text())
     images = Images(folder, meta["image_shape"], meta["sheet_grid"])
@@ -267,6 +285,8 @@ def public_members(root):
     root = Path(root)
     meta = metadata(root)
     vocabulary(root)
+    if meta["format_version"] == 2:
+        return text_members(root)
     members = {"dataset.json", "vocabulary.csv", "SOURCES.md", "index.html"}
     for split in meta["splits"]:
         images, _, _, answers = load_split(root, split)
@@ -284,4 +304,124 @@ def public_members(root):
         f"glyphs/{name}" for name in ("metadata.json", "images.csv", "labels.csv")
     )
     members.update(f"glyphs/{row['sheet']}" for row in glyphs.index)
+    return members
+
+
+EXAMPLE_FIELDS = ["sheet", "row", "column", "question", "answer"]
+
+
+def tokenize(text):
+    """The published alphabet is ASCII words/digits and explicit punctuation."""
+    if (
+        not isinstance(text, str)
+        or not text.strip()
+        or re.search(r"[^A-Za-z0-9?., ]", text)
+    ):
+        raise CourseError("Invalid question text or unsupported punctuation.")
+    return re.findall(r"[A-Za-z]+|[0-9]|[?.,]", text)
+
+
+def sheet_path(number):
+    return f"images/{number:06d}.png"
+
+
+def tile_index(table, grid):
+    coordinates = []
+    for row in table:
+        values = []
+        for key, limit in zip(("sheet", "row", "column"), (10**6 - 1, *grid)):
+            try:
+                value = int(row[key])
+            except (ValueError, TypeError) as exc:
+                raise CourseError("Expected one-based PNG coordinates.") from exc
+            if str(value) != row[key]:
+                raise CourseError("Noncanonical PNG coordinate.")
+            values.append(integer(value, 1, limit))
+        position = tuple(values)
+        coordinates.append(position)
+    positions = {position: i for i, position in enumerate(sorted(set(coordinates)))}
+    image_index = [positions[position] for position in coordinates]
+    index = [
+        dict(image_id=str(i), sheet=sheet_path(s), row=str(y), column=str(x))
+        for (s, y, x), i in positions.items()
+    ]
+    return index, np.asarray(image_index, dtype=np.int64)
+
+
+def text_split(root, split):
+    meta = metadata(root)
+    words = (
+        vocabulary(root, split.split("/")[1])
+        if split.startswith("adaptation/")
+        else vocabulary(root)
+    )
+    # A sealed host adaptation view stores the extended dictionary beside support.
+    if split == "support":
+        extended = read_vocabulary(root / "support/vocabulary.csv", scope(root, split))
+        if extended[: len(words)] != words:
+            raise CourseError("Support changes old token meanings.")
+        words = extended
+    dictionary = {word: i for i, word in enumerate(words)}
+    table = rows(root / split / "examples.csv", EXAMPLE_FIELDS)
+    if not table:
+        raise CourseError("An example table must not be empty.")
+    index, mapping = tile_index(table, meta["sheet_grid"])
+    questions, answers = [], []
+    for row in table:
+        try:
+            ids = [dictionary[t] for t in tokenize(row["question"])]
+            answer = dictionary[row["answer"]] if row["answer"] else None
+        except KeyError as exc:
+            raise CourseError(f"Word outside the declared vocabulary: {exc}") from exc
+        if not 1 <= len(ids) <= meta["max_question_tokens"] or 0 in ids or answer == 0:
+            raise CourseError("Invalid question length or padding in text.")
+        questions.append(np.asarray(ids, dtype=np.int64))
+        answers.append(answer)
+    if any(a is None for a in answers) and not all(a is None for a in answers):
+        raise CourseError("Labels must be present for every row or no rows.")
+    images = Images(root / split, meta["image_shape"], meta["sheet_grid"], index)
+    return (
+        images,
+        mapping,
+        questions,
+        None if answers[0] is None else np.asarray(answers, dtype=np.int64),
+    )
+
+
+def text_glyphs(root):
+    folder = root / "glyphs"
+    meta = json.loads((folder / "metadata.json").read_text())
+    table = rows(folder / "examples.csv", ["sheet", "row", "column", "symbol"])
+    index, mapping = tile_index(table, meta["sheet_grid"])
+    if len(set(mapping)) != len(mapping):
+        raise CourseError("Repeated glyph tile.")
+    dictionary = {word: i for i, word in enumerate(vocabulary(root))}
+    try:
+        labels = np.asarray([dictionary[r["symbol"]] for r in table], dtype=np.int64)
+    except KeyError as exc:
+        raise CourseError("Unknown glyph label.") from exc
+    if not len(labels) or np.any(labels == 0):
+        raise CourseError("Invalid glyph labels.")
+    aligned = np.empty_like(labels)
+    aligned[mapping] = labels
+    return Images(folder, meta["image_shape"], meta["sheet_grid"], index), aligned
+
+
+def text_members(root):
+    meta = metadata(root)
+    members = {"dataset.json", "vocabulary.csv", "SOURCES.md", "index.html"}
+    for split in meta["splits"]:
+        images, _, _, answers = load_split(root, split)
+        if answers is None:
+            raise CourseError("Public examples need answers.")
+        members.add(f"{split}/examples.csv")
+        members.update(f"{split}/{r['sheet']}" for r in images.index)
+    for name in meta["episodes"]:
+        words = vocabulary(root, name)
+        if words[: meta["base_vocab_size"]] != vocabulary(root):
+            raise CourseError("An episode changes old token meanings.")
+        members.update(f"adaptation/{name}/{f}" for f in ("episode.json", "vocabulary.csv"))
+    images, _ = load_glyphs(root)
+    members.update(("glyphs/metadata.json", "glyphs/examples.csv"))
+    members.update(f"glyphs/{r['sheet']}" for r in images.index)
     return members
