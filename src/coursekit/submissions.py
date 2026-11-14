@@ -60,6 +60,8 @@ def metadata(raw: bytes) -> dict:
         return value
     if not isinstance(value.get("training", {}), dict):
         raise CourseError("training must be a table.")
+    if type(value.get("training", {}).get("supports_adapt", False)) is not bool:
+        raise CourseError("training.supports_adapt must be Boolean.")
     stages = value.get("training", {}).get("stages", [])
     if (
         not isinstance(stages, list)

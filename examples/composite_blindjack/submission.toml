@@ -4,6 +4,7 @@ api_version = 2
 variant = "composite-example"
 
 [training]
+supports_adapt = true
 stages = ["encoder", "member"]
 
 [ai_usage]

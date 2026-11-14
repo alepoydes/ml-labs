@@ -16,11 +16,15 @@ Optional named stages are declared as follows:
 ```toml
 [training]
 stages = ["encoder", "member"]
+supports_adapt = true # Only when train.py implements adapt.
 ```
 
 `all` is reserved: it always produces a complete solution. Names use lowercase
 letters, digits, underscores and hyphens, start with a letter, and have at most
-64 characters. Without this table only `all` is available.
+64 characters. Without this table only `all` is available. `supports_adapt` is an
+optional Boolean (default false) declaring that `train.py` implements `adapt`.
+It enables instructor fine-tuning of a separate copy. Ordinary task evaluation
+for the current two labs is unchanged.
 
 ```python
 def train(

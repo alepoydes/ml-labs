@@ -92,3 +92,32 @@ def train(
         )
         torch.save(predictor.state_dict(), output_dir / f"{name}.pt")
     return history
+
+
+def adapt(data_dir, input_dir, output_dir, config, seed, *, device, limits, report=None):
+    """Fine-tune both heads against the saved encoder; write a complete new snapshot."""
+    torch.manual_seed(seed)
+    images, labels = load_split(data_dir, "train")
+    x = features(images[np.arange(len(images))], config["resolution"], device)
+    y = torch.as_tensor(labels, dtype=torch.long, device=device)
+    representation = encoder(config).to(device)
+    load(representation, input_dir / "encoder.pt", device)
+    with torch.no_grad():
+        encoded = representation(x)
+    shutil.copy2(input_dir / "encoder.pt", output_dir / "encoder.pt")
+    history = {}
+    for name in ("member_1", "member_2"):
+        predictor = head(config).to(device)
+        load(predictor, input_dir / f"{name}.pt", device)
+        history[name] = fit(
+            predictor,
+            encoded,
+            y,
+            nn.CrossEntropyLoss(),
+            config["member_steps"],
+            config["learning_rate"],
+            name,
+            report,
+        )
+        torch.save(predictor.state_dict(), output_dir / f"{name}.pt")
+    return history

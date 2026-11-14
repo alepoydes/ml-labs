@@ -17,6 +17,10 @@ recommended architecture or a score benchmark.
 - `all` with `encoder`, `member_1` and `member_2` inputs checks encoder identity and
   assembles a complete solution without retraining its components.
 
+`adapt` reloads the encoder and both heads, keeps the encoder fixed, fine-tunes
+each head, and saves a complete new artifact set. Its input snapshot remains
+unchanged. The metadata declares `supports_adapt = true`.
+
 See the linked API guide for executable CLI and Python workflows, CPU/CUDA
 selection, histories, packaging and failure recovery. The old lab baselines remain
 API v1 examples and are not replaced by this example.
