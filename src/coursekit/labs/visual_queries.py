@@ -3,6 +3,7 @@
 import json
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -75,7 +76,9 @@ def data_fingerprint(root):
     )
 
 
-def evaluate(solution, data, split="base/validation", *, progress=None, batch_size=16):
+def evaluate(
+    solution, data, split="base/validation", *, progress=None, batch_size=16, on_batch=None
+):
     data = Path(data)
     meta, size = metadata(data), scope(data, split)
     loaded = load_split(data, split)
@@ -112,6 +115,8 @@ def evaluate(solution, data, split="base/validation", *, progress=None, batch_si
         )
         predicted = solution.predict(*arguments)
         validate_answers(predicted, len(selected), size)
+        if on_batch is not None:
+            on_batch(dict(rows=selected.copy() + 1, answers=predicted.copy()))
         right = predicted == answers[selected]
         correct += int(right.sum())
         # New answer concepts count too, even with an otherwise familiar question.
@@ -251,11 +256,16 @@ def run_benchmark(data, run_phase, *, progress=None):
 
 
 def evaluate_solution(solution, data, *, seed=0, device="cpu", run_dir=None, progress=None):
+    from coursekit import recording
+    from coursekit.labs.visual_queries_inspection import model_identity, new_record
     from coursekit.training import adapt_local, load_solution
 
     solution, data = Path(solution), Path(data)
     meta = metadata(data)
     run_dir = Path(run_dir) if run_dir else solution.parent / "adaptation-runs"
+    path = run_dir.resolve() / f"predictions-{uuid.uuid4().hex}.npz"
+    saved = new_record(diagnostic=False)
+    resource_hash = data_fingerprint(data)
 
     def run(split, name, report):
         artifacts = solution / "artifacts"
@@ -278,7 +288,31 @@ def evaluate_solution(solution, data, *, seed=0, device="cpu", run_dir=None, pro
                     if progress
                     else None,
                 )
-        instance = load_solution(solution, seed, artifact_dir=artifacts, device=device)
-        return evaluate(instance, data, split, progress=report)
+        identity = model_identity(solution, artifacts, device, seed)
+        current = dict(
+            data=str(data.resolve()),
+            data_hash=resource_hash,
+            split=split,
+            model=identity,
+            batches=[],
+            complete=False,
+        )
+        saved["runs"].append(current)
+        try:
+            instance = load_solution(solution, seed, artifact_dir=artifacts, device=device)
+            if model_identity(solution, artifacts, device, seed) != identity:
+                raise CourseError("Solution changed while loading; restart evaluation.")
+            result = evaluate(
+                instance, data, split, progress=report, on_batch=current["batches"].append
+            )
+            current["complete"] = True
+            return result
+        finally:
+            recording.save(path, saved)
 
-    return run_benchmark(data, run, progress=progress)
+    try:
+        result = run_benchmark(data, run, progress=progress)
+        saved["complete"] = True
+        return result | dict(recording=str(path))
+    finally:
+        recording.save(path, saved)

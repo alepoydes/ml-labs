@@ -17,6 +17,9 @@ class Window(QMainWindow):
         self.window_actions = window_actions(self)
         self.page = page
         self.closing = False
+        self.close_timer = QTimer(self)
+        self.close_timer.setSingleShot(True)
+        self.close_timer.timeout.connect(self.close)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setCentralWidget(page)
         if hasattr(page, "diagnostics"):
@@ -55,6 +58,7 @@ class Window(QMainWindow):
             self.page.job,
             getattr(self.page, "preparation", None),
             getattr(self.page, "warmup", None),
+            getattr(self.page, "image_job", None),
         ]
         if any(job is not None and job.isRunning() for job in jobs):
             if hasattr(self.page, "stop"):
@@ -65,7 +69,7 @@ class Window(QMainWindow):
                 else "Finishing preparation before closing…"
             )
             event.ignore()
-            QTimer.singleShot(50, self.close)
+            self.close_timer.start(50)
         else:
             self.settings.setValue("geometry", self.saveGeometry())
             self.settings.setValue(
@@ -95,20 +99,13 @@ def main(argv=None):
     )
     parser.add_argument("--project", type=Path, default=Path.cwd())
     parser.add_argument("--solution", type=Path)
+    parser.add_argument("--data", type=Path, help="Visual Queries corpus directory")
+    parser.add_argument("--recording", type=Path, help="Open a saved Visual Queries run")
+    parser.add_argument(
+        "--artifacts", type=Path, help="Saved Visual Queries model artifacts"
+    )
+    parser.add_argument("--device", default="cpu")
     args = parser.parse_args(argv)
-    if args.lab == "visual_queries":
-        import webbrowser
-
-        from coursekit import resources
-
-        data = args.project / "data/visual_queries"
-        resources.sync(
-            data, resources.manifest(args.project / "labs/visual_queries/resources.toml")
-        )
-        path = (data / "index.html").resolve()
-        if not webbrowser.open(path.as_uri()):
-            print(f"Open this file in a browser: {path}")
-        return 0
     surface = QSurfaceFormat()
     surface.setVersion(3, 3)
     surface.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
@@ -119,10 +116,17 @@ def main(argv=None):
         from coursekit.gui.blindjack import BlindjackPage
 
         page = BlindjackPage(args.project)
-    else:
+    elif args.lab == "line_following":
         from coursekit.gui.line_following import LineFollowingPage
 
         page = LineFollowingPage(args.project)
+    else:
+        from coursekit.gui.visual_queries import VisualQueriesPage
+
+        page = VisualQueriesPage(args.project, data=args.data, record_path=args.recording)
+        page.device.setCurrentText(args.device)
+        if args.artifacts:
+            page.artifacts.setText(str(args.artifacts))
     if args.solution is not None:
         page.chooser.path.setText(str(args.solution))
         if args.lab == "line_following":

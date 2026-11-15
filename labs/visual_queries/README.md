@@ -264,13 +264,46 @@ numeric training histories describe training/internal validation, while
 
 ## 7. Inspecting examples
 
-Open `data/visual_queries/index.html` in a browser, or run:
+From the project directory containing `view_lab` and `step_0_update_resources`, run:
 
 ```sh
 ./view_lab visual_queries
 ```
 
-The offline browser shows canonical PNG images, questions, optional answers and
+The Qt inspector opens without a trained solution. It shows an image and its
+question, optional expected answers, and a searchable table. Select a prepared
+working solution to predict complete batches. **New run** loads a fresh model and
+predicts the first batch; **Next batch** advances once, while **Run remaining**
+continues until paused or finished. Every row can be selected, including rows
+of a shorter final batch. Selection never invokes the model again.
+
+```sh
+./view_lab visual_queries --solution work/visual_queries/baseline --device cpu
+./view_lab visual_queries --recording runs/visual_queries/predictions.npz
+```
+
+Use **Weights…** or `--artifacts PATH` for a specific saved component bundle,
+including an adapted model, and choose its matching episode split. This viewer
+does not train or adapt a model automatically. The loaded code/weight identities
+remain visible independently of the next selected solution. **Save recording…**
+retains answers, batch boundaries and exported diagnostics. Reopening needs the
+same verified corpus but no model execution; `--data PATH` selects another corpus
+for a new run. Errors-only and same-image filters help examine failures.
+
+`step_3_evaluate` also saves a uniquely named `predictions-*.npz` beside its
+adaptation runs and includes the path in its result. These records contain the
+actual evaluated answers for every phase, without requesting model diagnostics.
+Open them with **Open recording…** to inspect errors without another evaluation.
+
+Models may export an optional `debug(index=0)` snapshot for any row of their last
+`predict` batch. The baseline demonstrates `answer_probabilities`, indexed by
+active token ID. The viewer displays the most likely answers or the full
+distribution. Other scalars, vectors and matrices appear in the shared **Model
+debug** panel; choose **Value** to plot a vector or a matrix heatmap. An absent
+distribution is reported as unavailable. See the [diagnostic contract](../../docs/api-v3.md#prediction-diagnostics).
+Inference should use evaluation mode for dropout and batch normalization.
+
+Alternatively, open `data/visual_queries/index.html`. The offline browser shows canonical PNG images, questions, optional answers and
 support/query navigation. Practice questions and answers are shown as readable text.
 It does not need a trained solution or an internet connection after preparation.
 The image path and one-based sheet position are shown for independent inspection.

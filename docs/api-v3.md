@@ -81,3 +81,37 @@ with `data.load_split(name)`, `metadata(data_dir)` with `data.metadata`, and
 Update the declared API, retrain or explicitly assemble compatible components,
 then pack a new archive with matching provenance. Old snapshots and reports remain
 historical evidence; they are not silently relabeled as newly trained solutions.
+
+## Prediction diagnostics
+
+`predict(images, question_tokens, question_mask)` still returns only the answer
+ID vector. Optional `debug(index=0)` reads the **last successful batch**, with
+`0 <= index < B`. The inspector calls it for every row before another prediction,
+then retains detached copies. Do not run inference again, change weights, or update
+BatchNorm statistics in `debug`. Call `model.eval()` when preparing inference.
+The selected row is a view of a recorded batch, never a single-row prediction.
+
+Return a dictionary with at most 64 short field names. Values are finite numeric
+scalars, vectors/matrices of at most 4,096 elements, or strings up to 4,096
+characters. NumPy arrays and detached CPU/CUDA tensors are accepted locally;
+isolated execution uses the same validated numeric transport.
+
+`answer_probabilities`, when supplied, is a vector of length `vocab_size`, indexed
+by token ID (up to 4,352 entries, including appended tokens). Values lie in [0,1], sum to one (tolerance 1e-5), and entry zero is
+zero. Convert your private class indices to token IDs before exporting. The
+returned prediction remains authoritative; a probability plot does not replace it.
+For the supplied baseline, which already excludes padding from its logits:
+
+```python
+def debug(self, index=0):
+    return {
+        "answer_probabilities": self.last_logits[index].float().softmax(-1),
+    }
+```
+
+Retain `last_logits` from the actual batched `predict` call, detached from autograd.
+The host translates token IDs to readable labels. Vocabulary tables, corpus files
+and reference answers remain on the host; debug does not receive them. Additional exported
+fields may describe features or small attention matrices; choose `Value` in the
+shared diagnostic plot to display the current vector or matrix.
+Ordinary grading does not call `debug` and does not require probabilities.

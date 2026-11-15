@@ -33,10 +33,11 @@ def copy_debug(values):
         if isinstance(value, torch.Tensor):
             value = value.detach().cpu().numpy()
         value = np.asarray(value)
+        limit = 4352 if name == "answer_probabilities" and value.ndim == 1 else 4096
         if (
             value.dtype.kind not in "biuf"
             or value.ndim > 2
-            or value.size > 4096
+            or value.size > limit
             or not np.isfinite(value).all()
         ):
             raise CourseError(
@@ -63,12 +64,19 @@ def decode_debug(values):
     for name, value in values.items():
         if isinstance(value, dict):
             shape = value.get("shape")
+            limit = (
+                4352
+                if name == "answer_probabilities"
+                and isinstance(shape, list)
+                and len(shape) == 1
+                else 4096
+            )
             if (
                 set(value) != {"array", "shape"}
                 or not isinstance(shape, list)
                 or not 1 <= len(shape) <= 2
-                or any(type(n) is not int or not 0 <= n <= 4096 for n in shape)
-                or np.prod(shape) > 4096
+                or any(type(n) is not int or not 0 <= n <= limit for n in shape)
+                or np.prod(shape) > limit
             ):
                 raise CourseError("Invalid diagnostic array shape.")
             array = copy_debug({name: value["array"]})[name]

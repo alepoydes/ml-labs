@@ -176,6 +176,13 @@ def test_support_sealing_and_complete_independent_lifecycle(queries, tmp_path):
     before = digest(solution / "artifacts/state.json")
     result = evaluate_solution(solution, queries, run_dir=tmp_path / "episodes")
     assert result["questions"] == 5 and result["correct"] == 2 and result["score"] == 40
+    from coursekit.labs.visual_queries_inspection import read_record
+
+    saved, _ = read_record(result["recording"])
+    assert saved["complete"] and len(saved["runs"]) == 3
+    assert sum(len(b["rows"]) for r in saved["runs"] for b in r["batches"]) == 5
+    assert len({r["model"]["artifacts_hash"] for r in saved["runs"]}) == 3
+    assert all("debug" not in b for r in saved["runs"] for b in r["batches"])
     assert digest(solution / "artifacts/state.json") == before
     states = [
         json.loads(p.read_text())
