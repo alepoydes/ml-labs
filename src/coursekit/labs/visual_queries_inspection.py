@@ -128,13 +128,38 @@ def read_record(path, *, data_override=None):
     """Verify all sources before a GUI swaps its current session."""
     value = recording.load(path)
     if (
-        value.get("lab") != "visual_queries"
-        or value.get("version") != 1
+        not isinstance(value, dict)
+        or value.get("lab") != "visual_queries"
+        or type(value.get("version")) is not int
+        or value["version"] != 1
+        or type(value.get("complete")) is not bool
+        or type(value.get("diagnostic", False)) is not bool
         or not isinstance(value.get("runs"), list)
     ):
         raise CourseError("Unsupported Visual Queries recording.")
     datasets, hashes = [], {}
     for run in value["runs"]:
+        if (
+            not isinstance(run, dict)
+            or any(
+                not isinstance(run.get(k), str) or not run[k]
+                for k in ("data", "data_hash", "split")
+            )
+            or type(run.get("complete")) is not bool
+            or not isinstance(run.get("batches"), list)
+            or not isinstance(run.get("model"), dict)
+            or not isinstance(run.get("dataset", ""), str)
+            or run.get("error") is not None
+            and not isinstance(run["error"], str)
+        ):
+            raise CourseError("Invalid recorded run metadata.")
+        # These optional identity fields are displayed by both student and teacher
+        # viewers. Validate them before either viewer replaces its current session.
+        if any(
+            key in run["model"] and not isinstance(run["model"][key], str)
+            for key in ("name", "version", "artifacts_hash", "archive_sha256", "source")
+        ):
+            raise CourseError("Invalid recorded model identity.")
         root = Path(data_override or run["data"]).resolve()
         if root not in hashes:
             hashes[root] = data_fingerprint(root)
@@ -143,7 +168,10 @@ def read_record(path, *, data_override=None):
                 "The recorded dataset is missing or changed. Select the original corpus."
             )
         data = Dataset(root, run["split"], fingerprint=hashes[root])
+        seen = set()
         for item in run["batches"]:
+            if not isinstance(item, dict) or not {"rows", "answers"} <= item.keys():
+                raise CourseError("Invalid recorded batch.")
             numbers = item["rows"]
             if (
                 not isinstance(numbers, np.ndarray)
@@ -154,6 +182,9 @@ def read_record(path, *, data_override=None):
                 or np.any(numbers > len(data.examples))
             ):
                 raise CourseError("Invalid recorded question rows.")
+            if len(set(numbers)) != len(numbers) or seen.intersection(numbers):
+                raise CourseError("Repeated recorded question rows.")
+            seen.update(numbers)
             validate_answers(item["answers"], len(numbers), data.settings["vocab_size"])
             if "debug" in item:
                 if not isinstance(item["debug"], list) or len(item["debug"]) != len(

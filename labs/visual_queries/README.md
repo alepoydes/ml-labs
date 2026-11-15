@@ -237,11 +237,24 @@ On Windows use the corresponding `.cmd` launchers.
 ```
 
 Use the actual ZIP path printed by the packaging command; its name includes the
-submission identity. `--device cuda:0` selects a CUDA device for training, evaluation
-or archive checking when the CUDA environment is installed. See the shared
-[environment guide](../../docs/environment.md). Evaluation and archive checking always execute
+submission identity. The numbered scripts use CPU PyTorch. For CUDA, select its
+dependency profile on every command, as well as the model's execution device:
+
+```sh
+uv run --locked --no-group cpu --extra cuda python -m coursekit.cli train work/visual_queries/my_model --device cuda:0
+uv run --locked --no-group cpu --extra cuda python -m coursekit.cli evaluate work/visual_queries/my_model --device cuda:0
+uv run --locked --no-group cpu --extra cuda python -m coursekit.cli check dist/<archive-name-printed-by-step-4>.zip --device cuda:0
+```
+
+Adding `--device cuda:0` to a numbered script does not select CUDA dependencies.
+See the shared [environment guide](../../docs/environment.md). Evaluation and archive checking always execute
 the complete base-plus-adaptation protocol. Adaptation snapshots are retained
 separately; evaluation does not replace the submitted base artifacts.
+Both commands retain predictions, adaptation artifacts and learning histories
+under `runs/visual_queries/<variant>/evaluate/` or `check/`. Each adaptation has
+its own snapshot and each prediction recording has a unique filename; the latest
+summary is `evaluate.json` or `check.json` beside those directories. Unpacking a
+submission for checking does not make these outputs temporary.
 
 The score is `100 * correct_answers / total_questions`. Every question has equal
 weight. Across the complete benchmark, the five difficulty levels have exactly
@@ -282,6 +295,12 @@ of a shorter final batch. Selection never invokes the model again.
 ./view_lab visual_queries --recording runs/visual_queries/predictions.npz
 ```
 
+For CUDA inference in the inspector, select both extras explicitly:
+
+```sh
+uv run --locked --no-group cpu --extra cuda --extra gui python -m coursekit.gui visual_queries --solution work/visual_queries/my_model --device cuda:0
+```
+
 Use **Weights…** or `--artifacts PATH` for a specific saved component bundle,
 including an adapted model, and choose its matching episode split. This viewer
 does not train or adapt a model automatically. The loaded code/weight identities
@@ -290,8 +309,9 @@ retains answers, batch boundaries and exported diagnostics. Reopening needs the
 same verified corpus but no model execution; `--data PATH` selects another corpus
 for a new run. Errors-only and same-image filters help examine failures.
 
-`step_3_evaluate` also saves a uniquely named `predictions-*.npz` beside its
-adaptation runs and includes the path in its result. These records contain the
+`step_3_evaluate` and `step_5_check_submission` save uniquely named
+`predictions-*.npz` files beside their adaptation runs and include the path in
+their results. These records contain the
 actual evaluated answers for every phase, without requesting model diagnostics.
 Open them with **Open recording…** to inspect errors without another evaluation.
 

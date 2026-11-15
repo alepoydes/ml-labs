@@ -220,6 +220,65 @@ def test_prediction_boundary_rejects_coercion(queries):
         validate_inputs(*args, vocab_size=7, image_shape=[16, 16, 3])
 
 
+def test_cli_archive_check_retains_predictions_and_adaptation(
+    queries, tmp_path, monkeypatch
+):
+    from coursekit import resources, submissions
+    from coursekit.cli import main
+    from coursekit.labs.visual_queries_inspection import read_record
+
+    project = tmp_path / "student"
+    data = project / "data/visual_queries"
+    shutil.copytree(queries, data)
+    entries = [
+        dict(
+            path=p.relative_to(data).as_posix(),
+            size=p.stat().st_size,
+            sha256=digest(p),
+            url=p.as_uri(),
+        )
+        for p in sorted(data.rglob("*"))
+        if p.is_file()
+    ]
+    lab = project / "labs/visual_queries"
+    lab.mkdir(parents=True)
+    (lab / "resources.toml").write_text(
+        "schema_version = 1\n"
+        + "".join(
+            "\n[[files]]\n" + "".join(f"{k} = {json.dumps(v)}\n" for k, v in entry.items())
+            for entry in entries
+        )
+    )
+    resources.sync(data, resources.manifest(lab / "resources.toml"))
+    solution = project / "work/model"
+    shutil.copytree(Path(__file__).parents[1] / "labs/visual_queries/starter", solution)
+    (solution / "config.toml").write_text("example_batch_size=2\nconstant_answer_id=1\n")
+    run(solution, data, "fixture", 0, run_dir=project / "training")
+    archive = submissions.pack(solution, project / "dist")
+    monkeypatch.chdir(project)
+    previous = None
+    for _ in range(2):
+        monkeypatch.setattr("sys.argv", ["coursekit", "check", str(archive)])
+        main()
+        saved = project / "runs/visual_queries/template"
+        result = json.loads((saved / "check.json").read_text())
+        path = Path(result["recording"])
+        assert path.is_relative_to(saved / "check")
+        record, _ = read_record(path)
+        assert record["complete"] and result["correct"] == 2
+        assert result["questions"] == 5
+        if previous is not None:
+            assert path != previous and previous.is_file()
+        previous = path
+    # Both checks retain one independent model/history snapshot per adaptation.
+    snapshots = list((saved / "check").glob("*/training.json"))
+    assert len(snapshots) == 4
+    for snapshot in snapshots:
+        assert json.loads(snapshot.read_text())["status"] == "complete"
+        assert (snapshot.parent / "artifacts/state.json").is_file()
+        assert (snapshot.parent / "history/adapt.npz").is_file()
+
+
 def test_learned_baseline_growth_reload_and_adaptation(queries, tmp_path):
     import torch
 

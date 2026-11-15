@@ -6,7 +6,7 @@ Run commands with `uv run --locked` from the
 run prepares the environment automatically.
 The environment includes NumPy, Numba, SciPy, scikit-learn, joblib, Pillow, Matplotlib,
 CPU PyTorch, and marimo. An explicit [CUDA profile for API v2](api-v2.md#cuda-environment)
-is available through the locked `cuda` extra. Both labs use the same selected environment; the supplied
+is available through the locked `cuda` extra. All labs use the same selected environment; the supplied
 [development notebook](notebook.md) belongs to the Blindjack baseline.
 
 Training, notebooks, evaluation, and ZIP checks run directly in your Python

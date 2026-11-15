@@ -36,6 +36,18 @@ def small_robot_cases():
     ]
 
 
+@pytest.fixture(scope="session")
+def prepared_robot_engine():
+    """Compile once before timing GUI actions; workers reuse the real disk cache."""
+    import torch
+
+    from coursekit.labs.line_following_env import Environment
+
+    env = Environment(small_robot_cases()[:1])
+    env.step(torch.zeros((1, 2)), on_step=lambda _: None)
+    assert env.info()["time"][0] > 0
+
+
 def test_student_window_restores_geometry_mode_and_native_actions(app, tmp_path):
     from PySide6.QtWidgets import QWidget
 
@@ -884,6 +896,7 @@ def test_blindjack_model_error_is_visible_without_committing(app, student_projec
     app.processEvents()
 
 
+@pytest.mark.usefixtures("prepared_robot_engine")
 def test_robot_pause_steps_history_recording_and_shutdown(app, tmp_path):
     from coursekit import recording
     from coursekit.gui import line_run
@@ -981,6 +994,7 @@ class Solution:
         worker.close()
 
 
+@pytest.mark.usefixtures("prepared_robot_engine")
 def test_robot_window_live_rewind_saved_playback_and_close(app, tmp_path, monkeypatch):
     import json
     import shutil
@@ -1305,6 +1319,7 @@ class Solution:
 
 
 @pytest.mark.parametrize("cancel", [False, True])
+@pytest.mark.usefixtures("prepared_robot_engine")
 def test_robot_start_queues_latest_selection_behind_preparation(
     app, tmp_path, monkeypatch, cancel
 ):
@@ -1478,6 +1493,7 @@ class Solution:
             app.processEvents()
 
 
+@pytest.mark.usefixtures("prepared_robot_engine")
 def test_robot_builtin_identity_working_copy_and_restored_selection(
     app, tmp_path, monkeypatch
 ):

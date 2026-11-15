@@ -10,7 +10,10 @@ no question parser or object detector. Copy it from the directory containing
 ./step_3_evaluate work/visual_queries/baseline
 ```
 
-Add `--device cuda:0` to training and evaluation when using the CUDA environment.
+For CUDA, use the [explicit CUDA commands](../README.md#6-training-checking-and-submission)
+with `--no-group cpu --extra cuda` and `--device cuda:0`, replacing `my_model`
+with `baseline`. The numbered scripts select CPU dependencies even when passed
+`--device cuda:0`.
 CPU uses the same source and artifacts. Training can take substantially longer
 than the constant-answer starter. Progress is printed after each epoch; numeric
 histories and provenance are saved by the shared runner. Packaging and checking

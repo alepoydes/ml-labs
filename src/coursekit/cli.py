@@ -126,7 +126,11 @@ def main():
                     lab = get_lab(info["lab"])
                     if info["lab"] == "visual_queries":
                         result = lab.evaluate_solution(
-                            solution, data, seed=args.seed, device=args.device
+                            solution,
+                            data,
+                            seed=args.seed,
+                            device=args.device,
+                            run_dir=run_dir / args.step,
                         )
                     else:
                         instance = training.load_solution(

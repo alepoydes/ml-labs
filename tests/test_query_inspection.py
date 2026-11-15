@@ -1,5 +1,6 @@
 # Imported pytest fixtures are intentionally rebound by injection below.
 # ruff: noqa: F811
+import copy
 import shutil
 from pathlib import Path
 
@@ -126,6 +127,31 @@ class Solution:
         page.load_record(invalid)
         wait_for(app, lambda: page.preparation.error is not None and page.start.isEnabled())
         assert page.diagnostics.snapshot["row"] == 1 and page.model.rowCount() == 2
+        # Valid arrays do not make malformed model/run metadata safe to install.
+        previous = page.record
+        for target, key, value in (
+            ("run", "model", []),
+            ("model", "version", 7),
+            ("run", "complete", "yes"),
+            ("record", "complete", 1),
+        ):
+            bad = copy.deepcopy(previous)
+            container = (
+                bad
+                if target == "record"
+                else bad["runs"][0]["model"]
+                if target == "model"
+                else bad["runs"][0]
+            )
+            container[key] = value
+            recording.save(invalid, bad)
+            page.load_record(invalid)
+            wait_for(app, lambda: not page.preparation.isRunning())
+            app.processEvents()
+            assert page.preparation.error is not None
+            assert page.record is previous
+            assert page.diagnostics.snapshot["row"] == 1
+            assert page.model.rowCount() == 2
         # A blocked prediction must remain cancellable, without losing completed runs.
         (solution / "solution.py").write_text("""
 import time
