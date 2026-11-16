@@ -1,4 +1,5 @@
 import json
+import os
 import stat
 import zipfile
 
@@ -28,6 +29,28 @@ def test_stale_training_is_not_relabelled(solution, tmp_path):
     (solution / "config.toml").write_text("selected_cards = 4\n")
     with pytest.raises(CourseError, match="changed"):
         pack(solution, tmp_path / "dist")
+
+
+@pytest.mark.parametrize("change", ["modified", "missing", "additional"])
+def test_pack_requires_the_completed_training_artifacts(solution, tmp_path, change):
+    from coursekit.training import train
+
+    model = solution / "artifacts/model.bin"
+    model.write_bytes(b"abc")
+    train(solution, tmp_path, "resources", 0)
+    archive = pack(solution, tmp_path / "dist")
+    saved = archive.read_bytes()
+    if change == "modified":
+        previous = model.stat()
+        model.write_bytes(b"abd")
+        os.utime(model, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+    elif change == "missing":
+        model.unlink()
+    else:
+        (solution / "artifacts/extra.bin").write_bytes(b"extra")
+    with pytest.raises(CourseError, match="Saved parameters changed"):
+        pack(solution, tmp_path / "dist")
+    assert archive.read_bytes() == saved
 
 
 @pytest.mark.parametrize(

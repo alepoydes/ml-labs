@@ -326,7 +326,7 @@ Document your method and [AI assistance](../../docs/ai-use.md). The runner write
 
 | Value | CPU NumPy representation |
 | --- | --- |
-| `images` | `uint8`, `(B,256,256,3)`, RGB |
+| `images` | `uint8`, `(B,512,512,3)`, RGB |
 | `question_tokens` | `int64`, `(B,L)` |
 | `question_mask` | `bool`, `(B,L)`, nonempty true prefix |
 | Return value | `int64`, `(B,)`, one non-padding active token ID per row |

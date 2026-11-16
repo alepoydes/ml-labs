@@ -21,6 +21,9 @@ and saved-model reloads on tiny fixtures; full accuracy pilots stay out of pytes
 During model pilots, compare real images with erased images; a score improvement
 from answer/question priors alone does not establish visual learning.
 All local commands and notebooks run directly in Python without isolation.
+Packaging requires the exact artifact files recorded by completed training;
+prepare again after changing them. Check documented batch shapes and constant
+answer IDs against the current resource metadata and vocabulary.
 Keep solution code in ordinary source files shared by training, evaluation, and
 the notebook. Use plain assignments and commented training calls in notebooks,
 without mode-selection widgets. See `docs/development.md` for direct entry points.

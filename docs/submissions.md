@@ -32,8 +32,10 @@ adaptation. Public episode-specific models remain under `runs/`; the instructor
 creates fresh adaptations from the submitted base for the assessment episodes.
 Student identity comes from the instructor's submission
 directory, not this file. The packer preserves the resource fingerprint of actual
-training even if newer data have been downloaded. It verifies source and config
-hashes against training provenance, and includes hashes of every packaged file.
+training even if newer data have been downloaded. It verifies source, config and
+saved-artifact hashes against training provenance, and includes hashes of every
+packaged file. Changed, missing or additional artifact files require a new completed
+training run before packaging.
 
 Training provenance records lab, API, source/configuration/resource hashes, seed,
 Python and relevant library versions, and completion status. Failed training does

@@ -245,7 +245,7 @@ def _pack(solution: Path, output: Path) -> Path:
     from coursekit.training import check_provenance
 
     info = metadata((solution / "submission.toml").read_bytes())
-    check_provenance(solution)
+    check_provenance(solution, artifacts=True)
     paths = {}
     candidates = [solution / name for name in REQUIRED if "/" not in name]
     for directory in (solution / "lib", solution / "artifacts"):
