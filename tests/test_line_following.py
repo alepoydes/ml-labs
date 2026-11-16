@@ -1,3 +1,5 @@
+import os
+
 import pytest
 import torch
 from torch.func import jacfwd, jacrev, vmap
@@ -273,6 +275,10 @@ def test_smooth_conservative_trajectory_has_second_order_accuracy():
     assert 0.2 < fine / coarse < 0.3
 
 
+@pytest.mark.skipif(
+    os.environ.get("COURSE_TEST_COMPILERS") != "1",
+    reason="Set COURSE_TEST_COMPILERS=1 for the optional PyTorch compiler pilot",
+)
 def test_compiler_reuses_kernels_and_matches_eager():
     batched, model_batched = True, True
     model = physics.robot()

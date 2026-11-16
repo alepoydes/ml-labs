@@ -136,3 +136,13 @@ the compiled function alive. CPU Inductor specializes on tensor shapes and may
 compile again for another batch size. These requirements concern the optional
 PyTorch example, not the Numba engine. Submitted controllers must remain runnable
 in the supplied inference environment without installing external build tools.
+
+The optional compiler regression is an explicit pilot:
+
+```sh
+COURSE_TEST_COMPILERS=1 uv run --locked pytest tests/test_line_following.py::test_compiler_reuses_kernels_and_matches_eager
+```
+
+Ordinary tests retain the production Numba checks and the autodiff mechanical
+invariants. The separate pilot checks repeated graph capture with changed values
+and batch lengths; it does not certify native C++ code generation.

@@ -12,10 +12,10 @@ from coursekit.common import CourseError, fingerprint
 
 
 def resolve_device(device):
-    import torch
-
     if device == "cpu":
         return device
+    import torch
+
     if not isinstance(device, str) or not device.startswith("cuda"):
         raise CourseError("Choose cpu or cuda[:index].")
     try:

@@ -8,7 +8,7 @@ import pytest
 
 from coursekit.common import CourseError, file_hashes
 from coursekit.submissions import extract, pack
-from coursekit.training import load_module, load_training, train_local
+from coursekit.training import load_module, load_training, new_solution, train_local
 
 
 def command(project, *args):
@@ -24,18 +24,7 @@ def command(project, *args):
 
 @pytest.fixture
 def baseline(student_project):
-    result = command(
-        student_project,
-        "-m",
-        "coursekit.cli",
-        "new",
-        "blindjack",
-        "experiment",
-        "--template",
-        "baseline",
-    )
-    assert result.returncode == 0, result.stderr
-    solution = student_project / "work/blindjack/experiment"
+    solution = new_solution(student_project, "blindjack", "baseline", "experiment")
     (solution / "config.toml").write_text(
         "resolution = 4\nhidden_units = 4\nmax_iter = 3\nlearning_rate = 0.001\n"
         'patience = 5\nactivation = "tanh"\n'

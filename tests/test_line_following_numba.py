@@ -274,7 +274,6 @@ def test_imported_colour_change_invalidates_native_cache(tmp_path):
     }
     script = """
 import json
-from coursekit.labs.line_following_cases import sample_case
 
 import numpy as np
 from coursekit.labs import line_following_geometry as g
