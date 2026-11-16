@@ -77,6 +77,7 @@ def fit(
     validation=None,
     rehearsal=None,
     deadline=float("inf"),
+    checkpoint=None,
 ):
     adapting = validation is None
     stage = "adapt" if adapting else "train"
@@ -90,6 +91,15 @@ def fit(
     if validation is not None:
         history["validation_accuracy"] = []
     best, best_accuracy, stale = None, -1, 0
+
+    def snapshot():
+        return {
+            stage: {
+                key: np.asarray(value, dtype=np.int64 if key == "step" else float)
+                for key, value in history.items()
+            }
+        }
+
     for epoch_index in range(epochs):
         model.train()
         loss_sum, correct, count = 0.0, 0, 0
@@ -133,16 +143,13 @@ def fit(
         print(f"{stage} epoch {epoch_index + 1}/{epochs}: {metrics}", flush=True)
         if report:
             report(dict(stage=stage, step=epoch_index + 1, total=epochs, metrics=metrics))
+        if checkpoint:
+            checkpoint(snapshot())
         if validation is not None and stale >= config["patience"]:
             break
     if best is not None:
         model.load_state_dict(best)
-    return {
-        stage: {
-            key: np.asarray(value, dtype=np.int64 if key == "step" else float)
-            for key, value in history.items()
-        }
-    }
+    return snapshot()
 
 
 def train(
@@ -168,7 +175,18 @@ def train(
     return history
 
 
-def adapt(datasets, input_dir, output_dir, config, seed, *, device, limits, report=None):
+def adapt(
+    datasets,
+    input_dir,
+    output_dir,
+    config,
+    seed,
+    *,
+    device,
+    limits,
+    checkpoint=None,
+    report=None,
+):
     started = time.monotonic()
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
@@ -176,6 +194,14 @@ def adapt(datasets, input_dir, output_dir, config, seed, *, device, limits, repo
     adapting = datasets.episode["episode_id"] is not None
     task = datasets.episode
     model = expand(model, task["vocab_size"])
+
+    # Publish a loadable expanded model before spending time on learning.
+    def commit(history=None):
+        save(model, output_dir, task["episode_id"])
+        if checkpoint:
+            checkpoint(history)
+
+    commit()
     data = datasets.load_split("support" if adapting else "base/train")
     rehearsal = None
     if adapting and config["rehearsal_examples"] and config["rehearsal_fraction"]:
@@ -196,6 +222,7 @@ def adapt(datasets, input_dir, output_dir, config, seed, *, device, limits, repo
         report,
         rehearsal=rehearsal,
         deadline=deadline,
+        checkpoint=commit if checkpoint else None,
     )
     save(model, output_dir, task["episode_id"])
     return history

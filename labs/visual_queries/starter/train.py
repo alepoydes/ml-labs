@@ -32,7 +32,18 @@ def train(
     return {"prepare": {"step": np.array([1]), "examples": np.array([count])}}
 
 
-def adapt(datasets, input_dir, output_dir, config, seed, *, device, limits, report=None):
+def adapt(
+    datasets,
+    input_dir,
+    output_dir,
+    config,
+    seed,
+    *,
+    device,
+    limits,
+    checkpoint=None,
+    report=None,
+):
     state = json.loads((input_dir / "state.json").read_text())
     # Manual fine-tuning may use the public root; assessment provides one support view.
     adapting = datasets.episode["episode_id"] is not None
@@ -40,6 +51,10 @@ def adapt(datasets, input_dir, output_dir, config, seed, *, device, limits, repo
     support = datasets.load_split("support" if adapting else "base/train")
     state.update(vocab_size=task["vocab_size"], episode_id=task["episode_id"])
     write_json(output_dir / "state.json", state)
+    history = {"adapt": {"step": np.array([1]), "examples": np.array([len(support[2])])}}
+    # Acknowledgement means this complete state also survives a later time limit.
+    if checkpoint:
+        checkpoint(history)
     if report:
         report(dict(stage="adapt", step=1, total=1, metrics={"examples": len(support[2])}))
-    return {"adapt": {"step": np.array([1]), "examples": np.array([len(support[2])])}}
+    return history

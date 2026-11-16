@@ -256,6 +256,29 @@ def run_benchmark(data, run_phase, *, progress=None):
     )
 
 
+def adaptation_display(value):
+    if not value:
+        return dict(time="-", stop="-", model="-")
+    saved = value.get("checkpoint")
+    return dict(
+        time=f"{value['seconds']:.2f} / {value['budget_seconds']:.2f}",
+        stop=value["stop_reason"].replace("_", " "),
+        model=f"Checkpoint {saved['index']} at {saved['seconds']:.2f} s"
+        if saved
+        else "Final",
+    )
+
+
+def adaptation_rows(result):
+    return [
+        dict(episode=f"Adaptation {index:02d}", **adaptation_display(phase["adaptation"]))
+        for index, phase in enumerate(
+            (p for p in result.get("phases", []) if p.get("episode") is not None), 1
+        )
+        if phase.get("adaptation")
+    ]
+
+
 def result_table(result, meta):
     """Summarize a complete benchmark without averaging episode percentages."""
 
@@ -264,6 +287,9 @@ def result_table(result, meta):
         return f"{value['correct']}/{n} ({100 * value['correct'] / n:.1f}%)" if n else "-"
 
     table = [["Part", "Correct / total", "Accuracy", "Known language", "New language"]]
+    timed = any(p.get("adaptation") for p in result["phases"])
+    if timed:
+        table[0] += ["Adaptation s / budget", "Stop", "Evaluated model"]
     phases = [(episode_label(meta["episodes"], p["episode"]), p) for p in result["phases"]]
     for label, row in [*phases, ("Total", result)]:
         groups = row.get("language", {})
@@ -276,6 +302,8 @@ def result_table(result, meta):
                 language(groups.get("new", {})),
             ]
         )
+        if timed:
+            table[-1] += list(adaptation_display(row.get("adaptation")).values())
     widths = [max(map(len, values)) for values in zip(*table)]
     return "\n".join(" | ".join(v.ljust(w) for v, w in zip(row, widths)) for row in table)
 
@@ -294,6 +322,7 @@ def evaluate_solution(solution, data, *, seed=0, device="cpu", run_dir=None, pro
 
     def run(split, name, report):
         artifacts = solution / "artifacts"
+        adaptation = None
         if name is not None:
             with tempfile.TemporaryDirectory(prefix="course-support-") as temporary:
                 view = adaptation_view(data, name, Path(temporary) / "data")
@@ -313,6 +342,9 @@ def evaluate_solution(solution, data, *, seed=0, device="cpu", run_dir=None, pro
                     if progress
                     else None,
                 )
+                adaptation = json.loads(
+                    (artifacts.parent / "training.json").read_text()
+                ).get("adaptation")
         identity = model_identity(solution, artifacts, device, seed)
         current = dict(
             data=str(data.resolve()),
@@ -330,6 +362,8 @@ def evaluate_solution(solution, data, *, seed=0, device="cpu", run_dir=None, pro
             result = evaluate(
                 instance, data, split, progress=report, on_batch=current["batches"].append
             )
+            if adaptation is not None:
+                result["adaptation"] = adaptation
             current["complete"] = True
             return result
         finally:

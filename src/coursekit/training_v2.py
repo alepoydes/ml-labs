@@ -230,11 +230,52 @@ def run(
         module = load_module(solution, "train")
         kwargs = dict(device=device, report=reporter(report))
         if operation == "adapt":
+            from coursekit.training_checkpoints import (
+                AdaptationTimeout,
+                Checkpoints,
+                call_adapt,
+                checkpoint_writer,
+            )
+
             if set(pinned) != {"base"}:
                 raise CourseError("Adaptation requires one complete base snapshot.")
-            history = module.adapt(
-                data, pinned["base"], output, config, seed, limits=limits, **kwargs
+            checkpoints = Checkpoints(run_dir / "checkpoints", limits)
+            checkpoint = checkpoint_writer(
+                output, histories, info["api_version"], limits, checkpoints
             )
+            try:
+                history = call_adapt(
+                    module.adapt,
+                    data,
+                    pinned["base"],
+                    output,
+                    config,
+                    seed,
+                    limits=copy.deepcopy(limits),
+                    checkpoint=checkpoint,
+                    **kwargs,
+                )
+            except AdaptationTimeout:
+                if time.monotonic() < checkpoints.deadline:
+                    raise
+            reason = (
+                "time_limit" if time.monotonic() >= checkpoints.deadline else "completed"
+            )
+            record["adaptation"] = checkpoints.result(reason=reason) | dict(
+                configured_seconds=limits["wall_seconds"]
+            )
+            if reason == "time_limit":
+                if checkpoints.last is None:
+                    raise AdaptationTimeout(
+                        "Time limit expired without a committed checkpoint."
+                    )
+                for target in (output, histories):
+                    shutil.rmtree(target)
+                    shutil.copytree(checkpoints.last / target.name, target)
+                history = {}
+                for path in histories.glob("*.npz"):
+                    with np.load(path, allow_pickle=False) as arrays:
+                        history[path.stem] = dict(arrays)
         else:
             history = module.train(
                 data, output, config, seed, inputs=pinned or None, stage=stage, **kwargs

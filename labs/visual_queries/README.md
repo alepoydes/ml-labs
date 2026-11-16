@@ -140,6 +140,12 @@ training diagnostics do not contribute to the score. A wrong answer earns zero
 for that question. A runtime failure, protocol violation or cancellation leaves
 an incomplete attempt with no score for its completed prefix.
 
+Reaching the adaptation time limit has a separate outcome: if your code has
+committed a complete checkpoint, the runner stops learning and evaluates that
+model on the full query set. Its answers receive ordinary credit. Without a
+committed checkpoint, time expiry is an adaptation failure. See the
+[checkpoint API](../../docs/api-v3.md#adaptation-time-and-checkpoints).
+
 The instructor uses separate assessment examples and vocabulary additions.
 Assessment includes adaptation for every submission. The execution device and
 resource profile are announced for that assessment. The public adaptation budget
@@ -252,7 +258,10 @@ def train(
 ): ...
 
 
-def adapt(data, input_dir, output_dir, config, seed, *, device, limits, report=None): ...
+def adapt(
+    data, input_dir, output_dir, config, seed, *, device, limits,
+    checkpoint=None, report=None,
+): ...
 
 
 class Solution:
@@ -279,6 +288,12 @@ can report progress and return histories grouped by stage. The starter also
 supports manual continuation on base-training data. See the
 [development guide](../../docs/development.md) and [component-training API](../../docs/api-v2.md)
 for these shared conventions.
+
+Use the supplied `checkpoint()` callback after saving a complete state to retain
+it if adaptation reaches its time limit. `checkpoint(history)` also retains the
+current numeric histories. The starter demonstrates this call; the baseline saves
+an initial expanded model and each completed adaptation epoch. Track the remaining
+time from `limits["wall_seconds"]` and leave time for saving and transfer.
 
 Keep `api_version = 3` and `training.supports_adapt = true` in `submission.toml`.
 Document your method and [AI assistance](../../docs/ai-use.md). The runner writes
@@ -342,6 +357,8 @@ and **Total**. It also separates questions using known and new language. New inp
 words, new answer concepts and new episode constructions count as new language;
 this distinction concerns language coverage, not whether an exact question or image
 has appeared before. A dash indicates a group with no questions.
+Adaptation rows also show elapsed seconds against the available budget, the stop
+reason and the evaluated model: final output or a numbered committed checkpoint.
 
 The latest summary is saved as `evaluate.json` or `check.json` under
 `runs/visual_queries/<variant>/`. Predictions, independent adaptation snapshots

@@ -60,7 +60,10 @@ embedding and output-layer rows, and retains every old weight. It trains all
 parameters for up to 12 epochs at a smaller learning rate. Up to 128 public
 base-training examples are cached for rehearsal; one rehearsal example is added
 per four support examples. The soft time budget leaves room for saving before
-the executor's hard deadline. Manual fine-tuning on the full public root uses
+the executor's hard deadline. The initial expanded model is saved and committed
+before learning, and every completed adaptation epoch commits another full model
+with its numeric history using `checkpoint(history)`. At a hard timeout the runner
+evaluates the last committed model, including all its component files. Manual fine-tuning on the full public root uses
 `base/train` without vocabulary growth. Both paths save complete reloadable states.
 
 `config.toml` contains the training settings. `lib/model.py` defines construction,

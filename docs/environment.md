@@ -10,8 +10,8 @@ is available through the locked `cuda` extra. All labs use the same selected env
 [development notebook](notebook.md) belongs to the Blindjack baseline.
 
 Training, notebooks, evaluation, and ZIP checks run directly in your Python
-environment. You do not need Docker or Podman. There are no course-imposed network,
-filesystem, time, or memory restrictions on these local runs. Prints and exceptions
+environment. You do not need Docker or Podman. These local processes have no
+operating-system isolation or enforced network, filesystem or memory limits. Prints and exceptions
 behave as in any Python program, and you can use an ordinary editor debugger.
 Choose this project's `.venv/bin/python` as its interpreter (`.venv\Scripts\python.exe`
 on Windows). See [developing a solution](development.md) for direct Python examples.
@@ -91,6 +91,10 @@ episode adaptation have separate roles and budgets. The local commands use the
 same entry points, with no operating-system enforcement of learning time or
 memory limits. For CUDA training, evaluation and inspection, select the
 [CUDA dependency extra](api-v2.md#cuda-environment) as well as `--device cuda:0`.
+Local adaptation checks elapsed time when publishing a checkpoint or returning;
+it cannot interrupt a blocked update. Instructor execution enforces the hard
+deadline and evaluates the last committed checkpoint after time expiry. Without
+one, the adaptation fails. See [checkpoint handling](api-v3.md#adaptation-time-and-checkpoints).
 
 See the [task statement](../labs/visual_queries/README.md) for the full protocol
 and [result interpretation](../labs/visual_queries/README.md#reading-evaluation-results).

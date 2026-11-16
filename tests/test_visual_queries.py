@@ -176,6 +176,14 @@ def test_support_sealing_and_complete_independent_lifecycle(queries, tmp_path):
     before = digest(solution / "artifacts/state.json")
     result = evaluate_solution(solution, queries, run_dir=tmp_path / "episodes")
     assert result["questions"] == 5 and result["correct"] == 2 and result["score"] == 40
+    for record_path in (tmp_path / "episodes").glob("*/training.json"):
+        record = json.loads(record_path.read_text())
+        assert record["adaptation"]["stop_reason"] == "completed"
+        checkpoints = list(
+            (record_path.parent / "checkpoints").glob("*/artifacts/state.json")
+        )
+        assert len(checkpoints) == 1
+        assert json.loads(checkpoints[0].read_text())["vocab_size"] == 8
     from coursekit.labs.visual_queries_inspection import read_record
 
     saved, _ = read_record(result["recording"])
@@ -363,6 +371,14 @@ def test_learned_baseline_growth_reload_and_adaptation(queries, tmp_path):
         config = read_toml(solution / "config.toml") | dict(
             adapt_epochs=12, adapt_learning_rate=0.01, rehearsal_examples=0
         )
+        published = []
+
+        def checkpoint(history=None):
+            if not published:
+                initial, episode_id = model_code.load(target, "cpu")
+                assert initial.vocab_size == 8 and episode_id == "a"
+            published.append((history, digest(target / "model.pt")))
+
         history = module.adapt(
             open_data(view),
             source,
@@ -371,7 +387,11 @@ def test_learned_baseline_growth_reload_and_adaptation(queries, tmp_path):
             0,
             device="cpu",
             limits={"wall_seconds": 30},
+            checkpoint=checkpoint,
         )
+        assert len(published) == 1 + len(history["adapt"]["step"])
+        assert published[0][0] is None
+        assert published[-1][1] == digest(target / "model.pt")
         assert history["adapt"]["loss"][-1] < history["adapt"]["loss"][0]
         assert digest(source / "model.pt") == original
         predictor = load_module(solution, "solution").Solution(

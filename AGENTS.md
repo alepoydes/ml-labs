@@ -77,3 +77,7 @@ manoeuvres and restored route progress on both legs, with and without sensor noi
 
 Visual Queries keeps readable CSV text outside submitted code. Learning receives
 only numeric tables and image batches; instructor containers never mount the corpus.
+Adaptation examples must demonstrate the optional checkpoint callback: save every
+component before publishing, including expanded input/output vocabularies. A time
+limit may select only a committed complete snapshot. Code errors and cancellation
+remain failures; local direct calls cannot preempt blocked learning code.

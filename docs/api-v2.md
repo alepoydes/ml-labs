@@ -173,7 +173,10 @@ lab faster, particularly the CPU robot simulator.
 An adaptive solution may additionally define this function in `train.py`:
 
 ```python
-def adapt(data_dir, input_dir, output_dir, config, seed, *, device, limits, report=None):
+def adapt(
+    data_dir, input_dir, output_dir, config, seed, *, device, limits,
+    checkpoint=None, report=None,
+):
     # Read the complete base from input_dir; save a complete adapted state in output_dir.
     return None
 ```
@@ -186,6 +189,13 @@ learning tools.
 progress follow `train`. It retains a new independently loadable snapshot without
 installing it over the submitted base. Load it with
 `load_solution(solution, artifact_dir=adapted, device="cpu")`.
+
+After saving every component to `output_dir`, call the optional `checkpoint()`
+callback to commit a complete snapshot, or `checkpoint(history)` to include numeric
+histories. A time-limited adaptation can use its last committed snapshot. Code
+errors and cancellation still fail the operation. Existing functions without this
+keyword remain supported. See the shared
+[time and checkpoint contract](api-v3.md#adaptation-time-and-checkpoints).
 
 `limits` contains positive `wall_seconds`, `memory_mb`, `artifact_bytes`, and a
 nonnegative integer `gpu_memory_mb` (zero for CPU). Local execution validates this

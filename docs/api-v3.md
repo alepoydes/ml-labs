@@ -20,7 +20,10 @@ def train(
 ): ...
 
 
-def adapt(data, input_dir, output_dir, config, seed, *, device, limits, report=None): ...
+def adapt(
+    data, input_dir, output_dir, config, seed, *, device, limits,
+    checkpoint=None, report=None,
+): ...
 ```
 
 `output_dir`, `input_dir` and named `inputs` are paths to model artifacts. Load
@@ -29,6 +32,48 @@ Every adaptation starts from the submitted base state in `input_dir` and saves a
 complete, independently loadable state in `output_dir`. Leave input artifacts
 unchanged. The [task statement](../labs/visual_queries/README.md#3-adaptation-and-scoring)
 defines the evaluation sequence and adaptation budget.
+
+## Adaptation time and checkpoints
+
+`limits["wall_seconds"]` is the remaining wall-clock budget when `adapt` is
+called. Initialization and imports already consume part of the configured
+assessment budget. Loading models and data, validation, saving and checkpoint
+transfer all count towards the remaining time. Use `time.monotonic()` to plan
+updates and leave room for saving. There is no asynchronous warning callback.
+
+After writing a complete model to `output_dir`, call `checkpoint()` to retain an
+independent snapshot. Every file needed to load all components must be present;
+finish writing them before calling and leave them unchanged until it returns.
+The function returns an acknowledgement with `index` and elapsed `seconds`.
+You can then overwrite the working files and continue learning. Optionally pass
+your grouped numeric history as `checkpoint(history)` to retain its current
+training curves with the snapshot.
+
+The runner verifies the complete file manifest, sizes and hashes before committing
+a snapshot. A new transfer leaves the previous committed snapshot available until
+it succeeds. At the time limit, the instructor stops the learner and evaluates the
+last committed snapshot in a fresh worker on **all** query questions. No checkpoint
+means adaptation failure; the runner does not substitute the base model. Normal
+completion uses the final output. Cancellation and code/protocol errors remain
+failures even when an earlier checkpoint exists.
+
+The [starter](../labs/visual_queries/starter/train.py) demonstrates one complete
+checkpoint. The [baseline](../labs/visual_queries/baseline/train.py) saves an
+expanded-vocabulary initial model, then checkpoints after each adaptation epoch.
+Both use the same callback in local and instructor execution. Existing API 2/3
+functions without a `checkpoint` parameter still run normally, but cannot recover
+unsent model files after a hard timeout.
+
+Local calls run directly in Python. They check the budget on checkpoint publication
+and return, restoring a committed snapshot after time expiry, but cannot preempt
+code blocked inside an update. Use the same cooperative time checks locally.
+
+Each phase's saved `adaptation` record includes `seconds`, `budget_seconds`
+(available after initialization), `configured_seconds`, `stop_reason` (`completed`
+or `time_limit`) and `checkpoint`. The latter is the chosen snapshot's `index` and
+elapsed `seconds`, or `null` for final output. Overall operation time is recorded
+separately and includes setup, cleanup, output transfer and a fresh loading check.
+CLI tables, instructor statistics and PDF reports show the time and selected model.
 
 ## Available data
 
