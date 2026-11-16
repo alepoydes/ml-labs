@@ -29,6 +29,10 @@ and provide visual entry points before requiring training.
 Lab statements introduce the task and rules before data, APIs, workflow and graphical
 tools. Define the project directory by its launchers and configuration files. Keep
 data formats independently readable, and verify examples and cross-document links.
+Write for a first-time reader: define task terms before using them and describe
+model choices positively. Keep migration notes and historical measurements in
+clearly scoped sections; do not assume access to design discussions or instructor
+documentation. Check shared guides against every available lab.
 
 Images are stored once in lossless PNG sheets. Labels use CSV with the PNG filename
 and one-based row/column. Hands use CSV with hand/card numbers and PNG coordinates,

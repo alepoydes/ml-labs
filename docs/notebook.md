@@ -4,7 +4,9 @@ This guide describes the notebook supplied with the **Blindjack** baseline.
 Line Following has no supplied notebook; use its [course preview and robot
 viewer](../labs/line_following/README.md#visualisation-and-debugging), or the
 [Python environment example](development.md#call-the-same-functions-from-python)
-to build your own analysis. The same marimo environment is available for both labs.
+to build your own analysis. Visual Queries provides a
+[prediction inspector](../labs/visual_queries/README.md#7-inspecting-examples-and-predictions).
+The shared marimo environment can be used for analysis in any lab.
 
 Create a working copy of the Blindjack baseline and open its notebook
 from the [project directory](../README.md#start-here), using the same locked

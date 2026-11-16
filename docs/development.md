@@ -2,14 +2,14 @@
 
 The workflow is shared by [Blindjack](../labs/blindjack/README.md),
 [Line Following](../labs/line_following/README.md), and
-[Visual Queries](../labs/visual_queries/README.md). Visual Queries supplies a
-constant-answer starter, requires [API 3](api-v3.md), and always evaluates independent adaptation
-episodes; use its statement for prediction and data examples. Choose `baseline` for a runnable
-reference or `starter` for the smallest API example. Create the copy for your lab:
+[Visual Queries](../labs/visual_queries/README.md). Choose `baseline` for a runnable
+reference or `starter` for the smallest API example. Create a working copy for
+your lab from the [project directory](../README.md#start-here):
 
 ```sh
 ./step_1_new_solution blindjack my-model --template baseline
 ./step_1_new_solution line_following my-controller --template baseline
+./step_1_new_solution visual_queries my-answers --template baseline
 ```
 
 Edit the files under `work/<lab>/<variant>/`. Leave the templates in `labs/` unchanged.
@@ -17,7 +17,7 @@ Edit the files under `work/<lab>/<variant>/`. Leave the templates in `labs/` unc
 | File | What to change |
 | --- | --- |
 | `config.toml` | Hyperparameters passed to training and inference. |
-| `train.py` | Implement reproducible learning or fitting and save inference artifacts. |
+| `train.py` | Implement reproducible learning, save model artifacts and, for Visual Queries, implement episode adaptation. |
 | `solution.py` | Load artifacts in `Solution.__init__`; implement the lab's acting method. |
 | `lib/` (optional) | Helpers shared by training, inference and analysis. |
 | `submission.toml` | Variant metadata and an accurate AI-use declaration. |
@@ -26,6 +26,7 @@ Edit the files under `work/<lab>/<variant>/`. Leave the templates in `labs/` unc
 | --- | --- | --- |
 | Blindjack | `select(images)` returns a Boolean mask for seven cards. | A trained MLP; `lib/features.py`, `lib/model.py` and a marimo notebook. |
 | Line Following | `act(observation, reset)` returns batched left/right motor commands. | A hand-tuned line follower; preparation saves `controller.json`. No supplied notebook. |
+| Visual Queries | `predict(images, question_tokens, question_mask)` returns one answer ID per row. | A trainable CNN/MLP with independent vocabulary adaptation. |
 
 Replace the baseline as needed while keeping the documented `train` and `Solution`
 interfaces. The robot baseline does not perform learning; implement your own training
@@ -36,7 +37,8 @@ code in source files and import it into analysis scripts or notebooks.
 
 The numbered scripts are conveniences around ordinary functions. After resource
 preparation and a completed `step_2_train` run, start `uv run --locked python` from
-the [project directory](../README.md#start-here). These calls work for either lab:
+the [project directory](../README.md#start-here). The following example uses the
+API 1 templates for Blindjack and Line Following:
 
 ```python
 from pathlib import Path
@@ -114,6 +116,36 @@ persists through the turnaround. Use `info` to analyse training, but the evaluat
 controller receives only observations and the reset mask. See the lab statement for
 the [complete robot API](../labs/line_following/README.md#controller-and-environment-api).
 
+For Visual Queries, training and prediction use [API 3](api-v3.md). The complete
+evaluation function runs base validation followed by every independent adaptation:
+
+```python
+from pathlib import Path
+
+from coursekit.labs.visual_queries import evaluate_solution, result_table
+from coursekit.labs.visual_queries_data import metadata
+from coursekit.training import train_local
+
+project = Path.cwd()
+solution_dir = project / "work/visual_queries/my-answers"
+data_dir = project / "data/visual_queries"
+run_dir = project / "runs/visual_queries/my-answers"
+
+# Train explicitly when ready:
+# train_local(solution_dir, project, device="cpu")
+
+# Run the complete public benchmark explicitly when ready:
+# result = evaluate_solution(
+#     solution_dir, data_dir, device="cpu", run_dir=run_dir / "evaluate"
+# )
+# print(result_table(result, metadata(data_dir)))
+```
+
+The numbered evaluation and archive-check commands also save a JSON summary.
+Both retain prediction recordings and each episode's adapted artifacts. See the
+lab statement for [loading image/question batches](../labs/visual_queries/README.md#loading-examples)
+and [reading evaluation results](../labs/visual_queries/README.md#reading-evaluation-results).
+
 You can also call functions from your own modules directly during an experiment.
 Use `train_local` or `step_2_train` for the completed run you intend to package,
 so its artifacts have matching provenance. Changed source or configuration
@@ -131,13 +163,15 @@ Blindjack includes a [marimo notebook](notebook.md) with opt-in training and sav
 learning curves. After editing imported modules, rerun the loading cells or restart
 the notebook. For the robot, start with the graphical simulator's sensor plots and
 recordings, or use the batched environment from Python. You can write your own
-notebooks for either lab; none is required in a submission.
+notebooks for any lab. Visual Queries also provides the image/question inspector
+described below. Notebooks are optional development tools.
 Create a new variant to retain a separate experiment. When ready, run
 `step_4_pack` and `step_5_check_submission`, then submit the ZIP.
 
 ## Graphical inspection and manual play
 
-Run `./view_lab blindjack` or `./view_lab line_following` (Windows: `view_lab.cmd`).
+Run `./view_lab <lab>` with `blindjack`, `line_following` or `visual_queries`
+(Windows: `view_lab.cmd`).
 The launcher installs the locked optional Qt and ModernGL dependencies. Select a
 working solution directory; the viewer uses its existing artifacts. It never trains
 implicitly. Blindjack calls the model in a computation thread. Line Following runs
@@ -245,6 +279,22 @@ Use **Top view**, **Follow** and the mouse wheel to
 inspect the 94×8 mm strip between the wheels. This strip also defines route
 coverage: the centreline must pass through it in route order.
 
+### Visual Queries
+
+Run `./view_lab visual_queries` to inspect images, questions and optionally
+revealed answers before training. Select a prepared working solution to predict
+complete batches. **New run** loads a model, **Next batch** advances once and
+**Run remaining** continues until paused or finished. Selecting a question row
+displays its retained answer and diagnostics without rerunning prediction.
+
+For an adapted checkpoint, select its saved artifacts through **Weights…** and
+choose the corresponding episode split. Evaluation and archive checking save
+recordings of all phases; opening one shows its actual predictions without
+another model run. The inspector itself uses existing artifacts. See the lab's
+[inspection guide](../labs/visual_queries/README.md#7-inspecting-examples-and-predictions)
+for CUDA commands, filters, probability displays and recording paths. The offline
+`data/visual_queries/index.html` provides a separate data-browsing option.
+
 ### Diagnostics and recordings
 
 An optional `debug(index=0)` method may return a dictionary of text, finite scalars,
@@ -277,10 +327,11 @@ The student robot viewer retains plot settings, panel visibility and the selecte
 course across restarts. It opens in the large 3D view. The playback timeline sits
 beside **Speed**. **Save plot** exports the
 figure and legend as PNG or SVG. Empty snapshots have an explicit empty state.
-Debug methods must not change
-controller behavior.
-The judge never calls it. Keep each array at most two-dimensional and 4096 elements,
-with at most 64 fields. Debug failures are visible inspection errors.
+Debug methods must leave model and controller behavior unchanged. Ordinary grading
+does not call them. Keep each array at most two-dimensional and 4096 elements, with
+at most 64 fields. Visual Queries defines a separate size allowance for its
+[answer-probability vector](api-v3.md#prediction-diagnostics).
+Debug failures are visible inspection errors.
 
 For Line Following, the optional `coursekit.controller.Controller` base supplies
 sensor diagnostics. Initialise it with `super().__init__()` and call
@@ -292,17 +343,21 @@ your estimates and actions, as the baseline does. Controllers without this base
 remain valid. Explicit instructor diagnostic runs collect the same debug fields
 inside the isolated worker; ordinary grading does not call `debug()`.
 
-Both viewers save compressed NPZ recordings, including copied controller diagnostics.
+All three graphical tools save compressed NPZ recordings with available diagnostics.
 Opening a recording executes no solution code. Blindjack recordings refer to the
 verified public resource set and reuse its PNG sheets. Robot recordings include
 course geometry, physical parameters, poses, observations, actions and diagnostics;
 they are local inspection artifacts, not resumable simulator checkpoints or submissions.
+Visual Queries recordings retain image/question row identities, batch boundaries
+and predictions. A diagnostic run can also retain exported probabilities and
+model fields. Replaying a recording uses the same verified corpus.
 
 Robot recordings use version 4, including case identities, sensor-noise settings,
-sensor/paint geometry and the case/coverage rule versions. Both viewers reject older recordings or incompatible settings before
+sensor/paint geometry and the case/coverage rule versions. Viewers reject incompatible recordings before
 replacing the open run. Use the original coursekit environment for historical
 recordings, or create new recordings with the current environment. Course archives
 remain in spline format version 2.
 
 For ensembles, reusable components, separate learning histories and explicit devices,
-see [API v2](api-v2.md). The current starter/baseline workflows above retain API v1.
+see [API 2](api-v2.md). Blindjack and Line Following templates use API 1;
+Visual Queries uses [API 3](api-v3.md).

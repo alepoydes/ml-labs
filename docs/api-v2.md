@@ -1,13 +1,15 @@
 # Training several components and selecting a device
 
 Blindjack and Line Following accept API v1 and v2.
-[Visual Queries](../labs/visual_queries/README.md) uses [API 3 numeric data](api-v3.md) and mandatory adaptation. The supplied starters and baselines retain
-v1; their existing commands and results do not change. Choose v2 when you need
+[Visual Queries](../labs/visual_queries/README.md) uses [API 3 numeric data](api-v3.md)
+with adaptation in every evaluation. The Blindjack and Line Following starters and
+baselines use API 1. Choose API 2 for these labs when you need
 explicit devices, separately trained components, reusable snapshots or independent
-learning histories. The task's observations, acting method and score are unchanged.
+learning histories. Each lab's statement defines its observations, acting method
+and score for both versions.
 
 Run the commands below from the directory containing `pyproject.toml`,
-`step_2_train`, `labs/` and `examples/`. In an instructor checkout this is `public/`.
+`step_2_train`, `labs/` and `examples/`.
 
 ## Entry points
 
@@ -24,8 +26,8 @@ supports_adapt = true # Only when train.py implements adapt.
 letters, digits, underscores and hyphens, start with a letter, and have at most
 64 characters. Without this table only `all` is available. `supports_adapt` is an
 optional Boolean (default false) declaring that `train.py` implements `adapt`.
-It enables instructor fine-tuning of a separate copy. Ordinary task evaluation
-for the current two labs is unchanged.
+It enables fine-tuning of a separate copy. Blindjack and Line Following evaluation
+uses the saved model directly; adaptation is a separate development operation.
 
 ```python
 def train(
@@ -47,8 +49,8 @@ move neural modules and their inputs to that device, and save state dictionaries
 Do not serialize a live model as the training return value. Several weights files,
 fitted preprocessing and an ensemble combiner may share one artifact directory.
 
-Blindjack still returns a Boolean NumPy array from `select(images)`. Line Following
-still receives CPU observation tensors and returns CPU float32 commands from
+Blindjack returns a Boolean NumPy array from `select(images)`. Line Following
+receives CPU observation tensors and returns CPU float32 commands from
 `act(observation, reset)`. Move inputs internally when useful; robot physics stays
 on the CPU. Gradients remain available in a controller call.
 
@@ -59,8 +61,8 @@ explicit: an exception inside a v2 constructor is not retried as a v1 call.
 
 [The composite Blindjack example](../examples/composite_blindjack/README.md) learns
 one small encoder, two predictors and combines their logits. It demonstrates both
-a single complete training call and independent stages. Its architecture and
-policy are intentionally simple; it is not a competitive reference solution.
+a single complete training call and independent stages. Its small architecture
+illustrates component ownership, checkpoint loading and prediction combination.
 
 ```sh
 cp -R examples/composite_blindjack work/blindjack/composite-example
@@ -176,7 +178,9 @@ def adapt(data_dir, input_dir, output_dir, config, seed, *, device, limits, repo
     return None
 ```
 
-The existing two labs do not require `adapt` and their graders never call it.
+Blindjack and Line Following evaluate saved controllers without calling `adapt`.
+You can implement it to fine-tune a copy locally or through the instructor's
+learning tools.
 `coursekit.training.adapt_local(solution, data, base, run_dir=..., limits=...,
  device="cpu", seed=0)` is available for local development. Its histories and
 progress follow `train`. It retains a new independently loadable snapshot without
@@ -192,5 +196,6 @@ VRAM through operating-system isolation. Save these keys in a TOML file to use:
 uv run --locked python -m coursekit.cli adapt work/blindjack/my-adaptive-model --data data/practice --base work/blindjack/my-adaptive-model/artifacts --runs runs/adaptation --limits practice-limits.toml
 ```
 
-Only invoke local helpers on your own trusted code. Instructor adaptation,
-episode scheduling and adaptive-lab grading are not yet implemented.
+Only invoke local helpers on your own trusted code. Visual Queries has a separate
+[numeric adaptation contract](api-v3.md); its evaluator runs independent episodes
+automatically as part of every complete assessment.

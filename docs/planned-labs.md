@@ -1,7 +1,7 @@
 # Planned laboratories
 
 [Blindjack](../labs/blindjack/README.md), [Line Following](../labs/line_following/README.md)
-and [Visual Queries](../labs/visual_queries/README.md) have runnable pilot foundations.
+and [Visual Queries](../labs/visual_queries/README.md) are available in this project.
 Visual Queries supplies data, an interface example, a small CNN/MLP baseline and
 adaptive evaluation. The instructor announces the assessed labs and execution settings.
 

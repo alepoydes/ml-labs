@@ -5,7 +5,7 @@ Run commands with `uv run --locked` from the
 [project directory](../README.md#start-here), or use the numbered wrappers. The first
 run prepares the environment automatically.
 The environment includes NumPy, Numba, SciPy, scikit-learn, joblib, Pillow, Matplotlib,
-CPU PyTorch, and marimo. An explicit [CUDA profile for API v2](api-v2.md#cuda-environment)
+CPU PyTorch, and marimo. An explicit [CUDA profile for APIs 2 and 3](api-v2.md#cuda-environment)
 is available through the locked `cuda` extra. All labs use the same selected environment; the supplied
 [development notebook](notebook.md) belongs to the Blindjack baseline.
 
@@ -24,14 +24,15 @@ Run local commands only on code and models you trust.
 
 ## Requirements for submitted inference
 
-The instructor evaluates submissions separately with protections. Final inference
-must use the locked libraries and the instructor's explicit CPU or CUDA profile,
-without network services, and read model
-files relative to `artifact_dir`. The shipped assessment profile and API v1 remain CPU. The submission directory is read-only; temporary
-files may be written under `/tmp`. Only submitted files and the installed environment
-are available. Dependencies cannot be installed during grading.
+Assessment runs use an isolated environment with an announced CPU or CUDA profile.
+Load model files relative to `artifact_dir` and use the locked libraries. API 1
+uses CPU; APIs 2 and 3 receive an explicit device. The supplied default assessment
+profile is CPU. The submission directory is read-only; temporary files can be
+written under `/tmp`. Execution has access to submitted files, installed libraries
+and the lab's allowed input data. Network services and dependency installation are
+unavailable during grading.
 
-Shared **pilot** limits: 2 CPU quota, 2048 MiB memory, 128 processes, one BLAS/OpenMP/Numba
+Default inference limits: 2 CPU quota, 2048 MiB memory, 128 processes, one BLAS/OpenMP/Numba
 thread, 60 seconds initialization, 64 KiB logs, and 256 MiB temporary storage.
 ZIPs are limited to 256 MiB compressed,
 512 MiB expanded, and 4096 files. These grading limits do not constrain your local
@@ -74,6 +75,25 @@ in `torch.inference_mode()`: its kinematics needs forward differentiation.
 `view_lab` adds the optional locked PySide6 Essentials and ModernGL packages.
 The robot viewer requires a desktop display and OpenGL 3.3 or newer. The simulator,
 training, evaluation and Blindjack's HTML viewer do not require an OpenGL context.
+
+## Visual Queries learning and prediction
+
+Visual Queries uses [API 3](api-v3.md). Evaluation first checks the saved base
+model, then learns and checks each independent adaptation episode. Each prediction
+request contains up to 16 question rows with up to 96 tokens per question. The
+model returns one CPU int64 answer ID per row. Images and numeric questions are
+supplied to prediction; labeled numeric tables are supplied to learning.
+
+The public adaptation profile allows 300 seconds, 4096 MiB RAM and 64 MiB saved
+artifacts per episode. The assessment profile specifies the device and available
+GPU memory; `limits["gpu_memory_mb"]` is zero for CPU. Base-model training and
+episode adaptation have separate roles and budgets. The local commands use the
+same entry points, with no operating-system enforcement of learning time or
+memory limits. For CUDA training, evaluation and inspection, select the
+[CUDA dependency extra](api-v2.md#cuda-environment) as well as `--device cuda:0`.
+
+See the [task statement](../labs/visual_queries/README.md) for the full protocol
+and [result interpretation](../labs/visual_queries/README.md#reading-evaluation-results).
 
 ## Optional acceleration of the PyTorch mechanics example
 

@@ -64,6 +64,9 @@ instructor's designated channel.
 
 ## Interface
 
+The supplied templates use API 1, with the following entry points. [API 2](../../docs/api-v2.md)
+adds explicit device selection and training of separate components.
+
 ```python
 class Solution:
     def __init__(
@@ -83,7 +86,8 @@ learners, neural networks, learned analytic features, calibration, and discovery
 an exact rule are all acceptable. Save the trained model and any learned
 preprocessing parameters in `work/blindjack/<name>/artifacts/`. Keep helper code in
 that working copy's `lib/` directory. Libraries are provided by the shared course
-environment. Final inference runs on CPU without external services.
+environment. API 1 inference uses CPU; API 2 receives the assessment device
+explicitly. Assessment runs without external services.
 
 ## Data
 
@@ -147,8 +151,11 @@ in the browser; only small navigation and answer metadata are embedded in HTML.
 ### Load data for training
 
 ```python
+from pathlib import Path
+
 from coursekit.labs.blindjack import load_split
 
+data_dir = Path("data/blindjack")
 images, labels = load_split(data_dir, "train")
 batch = images[[0, 1, 2]]
 ```

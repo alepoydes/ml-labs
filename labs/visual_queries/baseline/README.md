@@ -1,7 +1,8 @@
 # CNN/MLP baseline
 
-This model learns directly from labeled image/question/answer examples. It contains
-no question parser or object detector. Copy it from the directory containing
+This baseline combines a convolutional image encoder with a multilayer perceptron
+for question encoding and answer prediction. All components learn from labeled
+image/question/answer examples. Copy it from the directory containing
 `pyproject.toml`, `labs/` and the `step_*` launchers:
 
 ```sh
@@ -14,8 +15,8 @@ For CUDA, use the [explicit CUDA commands](../README.md#6-training-checking-and-
 with `--no-group cpu --extra cuda` and `--device cuda:0`, replacing `my_model`
 with `baseline`. The numbered scripts select CPU dependencies even when passed
 `--device cuda:0`.
-CPU uses the same source and artifacts. Training can take substantially longer
-than the constant-answer starter. Progress is printed after each epoch; numeric
+CPU uses the same source and artifacts. Training optimizes the model weights over
+several epochs. Progress is printed after each epoch; numeric
 histories and provenance are saved by the shared runner. Packaging and checking
 use the ordinary `step_4_pack` and `step_5_check_submission` commands.
 
@@ -30,11 +31,11 @@ Each word ID has a learned 32-dimensional embedding. Questions are zero-padded t
 the dataset's maximum length. Their ordered embeddings are flattened and passed
 through two 128-unit layers. Different token positions have different weights,
 so exchanging the subject and object can change the prediction. Padding has a
-fixed zero embedding. This is a fixed-length MLP, without attention or recurrence.
+fixed zero embedding. This is an ordered, fixed-length MLP.
 
 The concatenated image/question features pass through a 256-unit layer and an
 output layer with one logit per active vocabulary token. ReLU and small dropout
-layers are used; there are no residual blocks. Layer normalization of the image
+layers are used. Layer normalization of the image
 and question vectors balances their scales before fusion, without sharing
 statistics between examples. Training uses AdamW and cross
 entropy directly on logits. Prediction takes the largest logit, equivalent to
@@ -56,7 +57,7 @@ therefore contain related examples; this is a simple memory/decoding tradeoff.
 
 Each adaptation loads the given base state, appends randomly initialized input
 embedding and output-layer rows, and retains every old weight. It trains all
-parameters for up to 12 epochs at a smaller learning rate. Up to 128 authorized
+parameters for up to 12 epochs at a smaller learning rate. Up to 128 public
 base-training examples are cached for rehearsal; one rehearsal example is added
 per four support examples. The soft time budget leaves room for saving before
 the executor's hard deadline. Manual fine-tuning on the full public root uses
@@ -71,9 +72,9 @@ This is an introductory architecture. Flattening the whole scene and question
 does not provide explicit object selection, relation reasoning or reference
 binding. Measure its errors and adaptation results before choosing improvements.
 
-## Measured example
+## Historical measurement
 
-An earlier API 2 seed-0 run of this architecture on resource format 1 obtained
+A seed-0 run using API 2 and resource format 1 obtained
 1,142/2,850 correct answers, or **40.07 points**, including all eight independent
 adaptations. Training took 252 seconds and the complete evaluation 69 seconds on
 an RTX 5060 Ti with PyTorch 2.14.1+cu130. Early stopping selected epoch 9 and
@@ -83,5 +84,7 @@ this excludes driver/runtime memory and is not a certified VRAM budget.
 Replacing query images with white images reduced the score to 28.32. This is an
 input ablation of the trained model, not a separately trained question-only model.
 It confirms that images affect useful predictions, without establishing reliable
-symbol recognition or reasoning. Results are one pilot measurement, not a promised
-score, CPU training-time estimate or GPU-container assessment certification.
+symbol recognition or reasoning. These measurements describe that earlier run;
+measure the current API 3 implementation on your own hardware when choosing a
+training budget. Driver memory and assessment-process overhead require separate
+measurement.

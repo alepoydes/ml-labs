@@ -1,9 +1,16 @@
 # Visual Queries data format
 
-Resource format 2 uses UTF-8 CSV with headers and standard quoting. Questions and
-answers are ordinary English text. The launcher tokenizes them before calling a
-solution; submitted code receives numeric arrays through [API 3](../../docs/api-v3.md).
-The original text and vocabulary files are for people and the trusted loader.
+This reference describes the files prepared under `data/visual_queries/` by
+`step_0_update_resources`. It complements the [task statement](README.md).
+Resource format 2 stores images in lossless PNG sheets and questions and answers
+in UTF-8 CSV tables with headers and standard quoting.
+
+The files are readable independently of coursekit. During training, adaptation
+and prediction, the runner converts text to token IDs and supplies numeric arrays
+through [API 3](../../docs/api-v3.md). Dictionaries and readable questions remain
+with the loader.
+
+## Directory layout
 
 ```text
 dataset.json
@@ -18,7 +25,21 @@ adaptation/<episode_id>/query/{examples.csv,images/*.png}
 glyphs/{metadata.json,examples.csv,images/*.png}
 ```
 
-Each question table has exactly these columns:
+`base/train` supplies base-model training examples; `base/validation` supplies
+base-model evaluation questions. Each adaptation directory contains a labeled
+**support** set for learning its additions and a separate **query** set for
+checking the adapted model. Every episode starts from the same submitted base
+state. The optional `glyphs` directory contains labeled images of individual
+handwritten symbols for visual pretraining. `index.html` is an offline data
+browser, and `SOURCES.md` records source attribution.
+
+The displayed labels **Adaptation 01**, **Adaptation 02**, and so on follow
+`dataset.json["episodes"]` order. Use the corresponding episode ID in file paths.
+These labels identify independent tasks, not successive stages of one training run.
+
+## Questions and PNG coordinates
+
+Each `examples.csv` question table has exactly these columns:
 
 ```csv
 sheet,row,column,question,answer
@@ -27,71 +48,102 @@ sheet,row,column,question,answer
 2,1,4,Is the image empty?,no
 ```
 
-`sheet`, `row`, and `column` are one-based integers. Sheet 1 is
+`sheet`, `row` and `column` are one-based integers. Sheet 1 is
 `images/000001.png`, relative to that split. Scene sheets contain a 4 × 4 grid of
-256 × 256 RGB tiles. The pixel origin of a tile is
-`((column-1)*width, (row-1)*height)`. Several questions may reference the same tile;
-the image is stored once. Unused cells on the last sheet are ignored. Support and
-query are packed separately, so support sheets contain no query images.
+256 × 256 RGB tiles. For tile width `width` and height `height`, the tile's
+upper-left pixel is
 
-There are no separate image or question IDs and no answer join. A question's
-human-readable reference is its split and one-based CSV record number, excluding
-the header. Saved results also identify the immutable resource version/hash;
-reordering a table changes that identity. All public tables have answers. A table
-used for independent unlabeled inspection may leave every answer cell empty;
-partially labeled tables are invalid. During assessment, the inference worker
-receives no answer column.
+```text
+x = (column - 1) * width
+y = (row - 1) * height
+```
+
+Several questions can reference one tile; its image is stored once. Unused cells
+on the last sheet are ignored. Support and query images are packed separately.
+
+Every CSV record contains the complete question and answer, so a separate join
+is unnecessary. Identify an example for debugging by its split and one-based CSV
+record number, excluding the header. Saved results also retain the immutable
+resource version and hash; reordering a table changes that identity.
+
+All public question tables include answers. A custom table for unlabeled
+inspection can leave every answer cell empty; partially labeled tables are
+invalid. The prediction call receives only images, question tokens and masks.
+Reference answers are used by the evaluator.
+
+## Labeled glyphs
 
 `glyphs/examples.csv` has columns `sheet,row,column,symbol`, with one label per
-referenced tile. Glyph sheets use a 16 × 16 grid of 28 × 28 RGB tiles. Their exact
-shape/grid are in `glyphs/metadata.json`. The optional glyph pool contains only
-base-training exemplars. Scene partitions use distinct source groups; this is not
-a claim of independent writers or exhaustive removal of similar handwriting.
+referenced tile. Glyph sheets use a 16 × 16 grid of 28 × 28 RGB tiles. The exact
+shape and grid are recorded in `glyphs/metadata.json`.
 
-`vocabulary.csv` has `token_id,spelling`, consecutive IDs starting with `[PAD]` at
-0. Question and answer IDs share this vocabulary. Each episode's table contains
-the complete vocabulary: the unchanged base prefix followed by new entries.
-Public practice spellings are readable. Future instructor spellings and their
-ID assignments remain private and are never sent to solution code.
+The glyph pool contains base-training source exemplars. Scene partitions use
+distinct source groups; writer identities and similarity between handwriting
+samples are not guaranteed to be disjoint. Glyph labels use the base vocabulary's
+symbol IDs when loaded into numeric arrays.
 
-Human-facing **Adaptation 01**, **Adaptation 02**, and subsequent labels follow
-the order in `dataset.json["episodes"]`. They identify independent support/query
-tasks, not stages of one cumulative adaptation. Actual directory names, episode
-IDs and recorded split paths remain unchanged for loading and replay.
+## Vocabulary and tokenization
 
-Tokenization preserves case, separates each digit, and recognizes maximal ASCII
-letter sequences plus the individual punctuation tokens `?`, `.` and `,`.
-Spaces separate words. Other characters are rejected. Every token must be
-in the relevant dictionary. An answer is exactly one non-padding dictionary entry;
-`A` and `a` are different entries. There is no external tokenizer.
+`vocabulary.csv` has columns `token_id,spelling`, with consecutive IDs starting
+at 0 for `[PAD]`. Questions and answers share this vocabulary. Each episode's
+vocabulary contains the unchanged base prefix followed by its new entries.
+Public spellings are readable for inspection. Assessment additions have private
+word-to-ID mappings; these are withheld from solution code.
 
-`dataset.json` contains:
+Tokenization preserves case and recognizes:
 
-- `format_version` (2), `lab` (`visual_queries`), `resource_version`;
-- `pad_token_id` (0), `base_vocab_size`, `max_added_tokens`;
-- `image_shape` `[256,256,3]`, `sheet_grid` `[4,4]`;
-- `max_question_tokens` (96), `max_batch_size` (16);
-- `splits` and opaque `episodes`;
-- `scored_questions_per_level`, equal across the five levels;
-- `adaptation_limits`: time, RAM, GPU memory, artifact and transport budgets;
-- `observable_rules`: alphabet, background, sizes, rotations, spacing, ink
-  threshold, positional guards and base color representatives.
+- maximal sequences of ASCII letters;
+- each digit as an individual token;
+- each punctuation character `?`, `.` or `,` as an individual token.
 
-`episode.json` has exactly `format_version`, `episode_id`,
-`base_vocabulary_sha256`, `base_vocab_size`, and `vocab_size`. The hash refers to
-the actual base dictionary bytes. If the sizes are V and V+K, the new IDs are
-V through V+K−1. IDs have meaning only within the current episode.
+Spaces separate words. Other characters are rejected, and every token must occur
+in the relevant vocabulary. An answer is exactly one non-padding entry.
+For example, `Is the image empty?` is tokenized as `Is`, `the`, `image`, `empty`,
+`?`. `A` and `a` are distinct spellings. The loader uses these rules directly,
+without an external tokenizer.
 
-For independent human inspection, [read_data.py](read_data.py) reads a numbered
-record with CSV/JSON/Pillow. The built-in `load_split(root, split)` returns
-`images, image_index, questions, answers`: lazy RGB tiles, an int64 question-to-image
-index, variable-length int64 token arrays, and an aligned int64 answer vector (or
-`None` for an unlabeled table). `batch(loaded, indices)` returns uint8 RGB images,
-zero-padded int64 questions and Boolean masks. Normalization belongs to the model.
-The loader validates coordinates, dictionary membership, dimensions and paths.
+## Metadata
 
-These filesystem helpers are for launchers and inspection scripts. In `train`
-and `adapt`, use `data.load_split(...)` and `data.glyphs()` instead. The same
-numeric batch helper works with those tables. The instructor supplies only the
-current support, public base training and glyph pool, through a bounded data
-channel. The corpus directory is not mounted in the solution's container.
+`dataset.json` describes the collection:
+
+| Fields | Meaning |
+| --- | --- |
+| `format_version`, `lab`, `resource_version` | Format version 2, lab name `visual_queries` and resource version. |
+| `pad_token_id`, `base_vocab_size`, `max_added_tokens` | Padding ID 0, base vocabulary size and maximum additions per episode. |
+| `image_shape`, `sheet_grid` | Scene tile shape `[256,256,3]` and sheet grid `[4,4]`. |
+| `max_question_tokens`, `max_batch_size` | Limits of 96 tokens and 16 question rows. |
+| `splits`, `episodes` | Available split paths and ordered episode IDs. |
+| `scored_questions_per_level` | Equal question count at each of the five difficulty levels. |
+| `adaptation_limits` | Time, RAM, GPU memory, saved-artifact and data-transport budgets. |
+| `observable_rules` | Alphabet, background, size ranges, rotations, spacing, ink threshold, positional guards and base color representatives. |
+
+`episode.json` has exactly five fields: `format_version`, `episode_id`,
+`base_vocabulary_sha256`, `base_vocab_size` and `vocab_size`. The hash identifies
+the actual base vocabulary file bytes. If the vocabulary grows from V to V+K,
+the appended IDs are V through V+K−1. An appended ID's meaning is specific to
+its episode.
+
+## Built-in and independent readers
+
+[read_data.py](read_data.py) demonstrates reading one record using CSV, JSON and
+Pillow. The [loading example](README.md#loading-examples) uses the built-in helpers:
+
+- `load_split(root, split)` returns `images, image_index, questions, answers`.
+  These are lazy RGB tiles, an int64 question-to-image index, variable-length
+  int64 question-token arrays and an aligned int64 answer vector (`None` for an
+  unlabeled table).
+- `batch(loaded, indices)` returns uint8 RGB images, zero-padded int64 questions
+  and Boolean masks. `indices` selects question rows. Pixel normalization is
+  the model's responsibility.
+- `load_glyphs(root)` returns a lazy image collection and aligned numeric symbol
+  labels.
+
+In memory, `image_index` is zero-based. The loader validates sheet coordinates,
+dimensions, paths and dictionary membership.
+
+These filesystem helpers are for inspection and launcher code. Inside `train`
+and `adapt`, use `data.load_split(...)` and `data.glyphs()`; the same `batch`
+helper works with their numeric tables. The learning interface supplies only
+base training and glyphs, plus the current support set during adaptation. An
+isolated assessment process receives bounded numeric batches without access to
+the corpus directory.

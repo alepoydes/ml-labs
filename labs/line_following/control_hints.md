@@ -7,10 +7,10 @@ robot and simulator. The reduced models below explain control principles; their
 approximations need to be checked against that simulator.
 
 A useful sequence of experiments is supported driving, balancing near the upright
-position, slow line following, and then speed selection and adaptation. These are
-possible components of a solution, not required implementation stages. You may
-learn a complete policy instead. In either case, distinguish the true physical
-state, the measurements available to the controller, and its internal estimates.
+position, slow line following, and then speed selection and adaptation. You can
+develop these components separately or learn a complete policy. In either case,
+distinguish the true physical state, the measurements available to the controller,
+and its internal estimates.
 
 ## Why moving the wheels can prevent a fall
 

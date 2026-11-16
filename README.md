@@ -1,8 +1,8 @@
 # Machine learning course
 
-Five substantial labs connect machine learning methods with complete working
-solutions. Three labs have runnable pilot foundations; [two more](docs/planned-labs.md)
-are planned. Choose the lab assigned by your instructor:
+This course develops machine-learning methods through complete working solutions.
+Three labs are available, with [two further topics](docs/planned-labs.md) planned.
+Choose the lab assigned by your instructor:
 
 | Lab | Task and API | Inspect before training |
 | --- | --- | --- |
@@ -38,10 +38,11 @@ not conflict with your work.
 # Choose the copy for your lab:
 ./step_1_new_solution blindjack my-model --template baseline
 ./step_1_new_solution line_following my-controller --template baseline
+./step_1_new_solution visual_queries my-answers --template baseline
 ```
 
 Read your lab's statement and inspect `train.py`, `solution.py`, and `config.toml`
-in the working copy. Continue with the same commands for either lab. For the robot:
+in the working copy. The same command sequence applies to all three labs. For the robot:
 
 ```sh
 ./step_2_train work/line_following/my-controller
@@ -50,10 +51,12 @@ in the working copy. Continue with the same commands for either lab. For the rob
 ./step_5_check_submission dist/line_following-my-controller-<hash>.zip
 ```
 
-For Blindjack, use `work/blindjack/my-model` and the ZIP printed by its pack command.
-Replace `<hash>` with the actual filename. `step_3_evaluate` tests the working
-directory on public validation hands or episodes; `step_5_check_submission` tests
-the packaged ZIP. Edit and repeat training and evaluation as needed. Both commands
+For another lab, substitute its working directory and the ZIP path printed by
+its packaging command. Replace `<hash>` with the actual filename.
+`step_3_evaluate` tests the working directory on the lab's public benchmark;
+`step_5_check_submission` tests the packaged ZIP. Visual Queries evaluation includes
+base validation and all independent adaptation episodes. Edit and repeat training
+and evaluation as needed. Both commands
 run directly in your Python environment, with ordinary output and tracebacks.
 The ZIP check validates and extracts a fresh copy; it imposes no isolation or
 resource limits. No container tools are needed. See [environment](docs/environment.md)
@@ -71,6 +74,7 @@ their own directory even when called from somewhere else.
 ```sh
 ./view_lab blindjack
 ./view_lab line_following --solution work/line_following/my-controller
+./view_lab visual_queries
 ```
 
 Blindjack provides manual play, solution inspection and human/model comparison.
@@ -84,7 +88,10 @@ validation courses cover the same stages. On a fresh checkout, **Built-in baseli
 is selected; **Start** prepares it in managed storage and begins driving.
 The engine prepares in the background as the viewer opens. Course selection stays
 visible during a run; **Restart** and course changes do not ask to save recordings.
-Both viewers save and open recordings with diagnostics. The launcher installs the
+Visual Queries displays image/question pairs, expected answers, batched model
+predictions and optional answer distributions. Its offline
+`data/visual_queries/index.html` also provides support/query browsing.
+All three graphical tools save and open recordings with diagnostics. The launcher installs the
 optional Qt and ModernGL dependencies. See
 [graphical inspection](docs/development.md#graphical-inspection-and-manual-play).
 
@@ -95,8 +102,8 @@ uv run --locked marimo edit work/blindjack/my-model/notebook.py
 ```
 
 It reads saved training results; training is opt-in. For Line Following, use the
-viewer or the [batched Python example](docs/development.md#call-the-same-functions-from-python).
-There is no supplied robot notebook.
+graphical simulator or the [batched Python example](docs/development.md#call-the-same-functions-from-python).
+For Visual Queries, use its [data and prediction inspector](labs/visual_queries/README.md#7-inspecting-examples-and-predictions).
 
 ## Copy a template
 
@@ -125,11 +132,12 @@ git pull --ff-only
 The resource updater does not pull Git changes. It validates SHA-256 hashes, replaces
 changed resources, and removes obsolete course-managed files. Interrupted updates
 must be rerun before training or evaluation.
-Blindjack's dataset is available from the
-[ML Labs pilot release](https://github.com/alepoydes/ml-labs/releases/tag/ml-labs-pilot-5).
-The updater downloads its ZIP, verifies the archive and each
-extracted file, then removes the downloaded ZIP. Unchanged data are not downloaded
-again. PNG sheets remain directly viewable under `data/blindjack/`. The smaller robot
+Blindjack and Visual Queries use downloadable data archives, with release locations
+recorded in their `labs/<lab>/resources.toml` manifests. The current course release is
+[ML Labs pilot 5](https://github.com/alepoydes/ml-labs/releases/tag/ml-labs-pilot-5).
+The updater downloads each required ZIP, verifies the archive and every extracted
+file, then removes the downloaded ZIP. Unchanged data are not downloaded again.
+PNG sheets remain directly viewable under each lab's `data/` directory. The smaller robot
 course collection is bundled in `labs/line_following/resources/` and copied to
 `data/line_following/` with the same size and hash checks.
 
@@ -139,5 +147,5 @@ for your work. `data/` is managed course storage. Updating a template never chan
 an existing variant. A new-solution command refuses to overwrite it.
 
 See [submission format](docs/submissions.md), [environment](docs/environment.md), and
-[AI use](docs/ai-use.md). The release link becomes usable after the instructor
-publishes the assets; until then, ask the instructor for the dataset.
+[AI use](docs/ai-use.md). If a required resource is unavailable at its configured
+location, ask the instructor for the corresponding course release.
