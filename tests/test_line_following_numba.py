@@ -9,7 +9,7 @@ from coursekit.labs import line_following as reference
 from coursekit.labs import line_following_geometry as geometry
 from coursekit.labs import line_following_numba as native
 from coursekit.labs.line_following_cases import sample_case, sample_robot
-from coursekit.labs.line_following_course import advance, load_courses, optical
+from coursekit.labs.line_following_course import Course, advance, optical
 from coursekit.labs.line_following_env import Environment
 
 
@@ -180,16 +180,23 @@ def test_native_step_rejects_invalid_time_and_nonconvergence():
 
 
 def test_spline_optics_and_ordered_coverage_match_certified_reference():
-    from pathlib import Path
-
-    courses = load_courses(
-        Path(__file__).parents[1] / "labs/line_following/resources/courses.npz"
-    )
+    # A curved span, endpoints, corners, close branches and a crossing suffice;
+    # agreement with the reference does not require loading the whole curriculum.
+    courses = [
+        Course.polyline("line", [[0, 0], [0.3, 0]]),
+        Course(
+            "parabola",
+            0.3 * np.array([[[0, 0], [1 / 3, 0], [2 / 3, 1 / 3], [1, 1]]]),
+        ),
+        Course.polyline(
+            "folded-crossing",
+            [[0, 0], [0.3, 0], [0.3, 0.04], [0, 0.04], [0.3, -0.1], [0, 0.1]],
+        ),
+    ]
     rng = np.random.default_rng(321)
-    for course in courses[::5]:
+    for course in courses:
         g = geometry.prepare(course)
-        for _ in range(6):
-            distance = rng.uniform(0, course.length)
+        for distance in np.linspace(0, course.length, 5):
             q = np.zeros(8)
             q[:2] = course.at(distance) + rng.normal(0, 0.004, 2)
             q[3:6] = rng.normal(0, 0.3, 3)

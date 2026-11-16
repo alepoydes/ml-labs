@@ -187,7 +187,9 @@ class Solution:
         (self.artifacts / "entered").touch()
         time.sleep(60)
 """)
+        previous_identity = page.identity.text()
         page.start.click()
+        assert page.identity.text() != previous_identity
         wait_for(app, lambda: (solution / "artifacts/entered").exists())
         page.stop_button.click()
         wait_for(app, lambda: not page.job.isRunning() and page.start.isEnabled())

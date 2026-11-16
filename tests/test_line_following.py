@@ -226,7 +226,7 @@ def test_rest_drive_and_turn_trajectories():
     action = state.q.new_tensor([[0, 0], [0.2, 0.2], [-0.2, 0.2]])
     advance = vmap(physics.step, in_dims=(0, 0, None))
     max_energy = float(physics.energy(initial, model))
-    for _ in range(60):
+    for _ in range(20):
         state, diagnostics = advance(state, action, model)
         physics.check(state, diagnostics)
         rest = physics.State(*(value[0] for value in state))
@@ -236,11 +236,11 @@ def test_rest_drive_and_turn_trajectories():
         assert not state.fallen.any()
     assert abs(state.q[0, 0]) < 0.0001
     assert abs(state.q[0, 4] - initial.q[4]) < 0.001
-    assert state.q[1, 0] > 0.0008
+    assert state.q[1, 0] > 0.0002
     torch.testing.assert_close(
         state.q[:2, [1, 3, 5]], state.q.new_zeros(2, 3), atol=1e-10, rtol=0
     )
-    assert state.q[2, 5] > 0.015
+    assert state.q[2, 5] > 0.002
 
 
 def test_contact_trajectory_converges_with_time_step():

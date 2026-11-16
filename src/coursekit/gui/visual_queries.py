@@ -577,6 +577,7 @@ class VisualQueriesPage(QWidget):
         self.record = new_record(diagnostic=True)
         self.record_path = None
         self.datasets = []
+        self.identity.setText("No model loaded.")
         self.set_data_splits(self.dataset)
         self.active_run = self.dataset.new_run()
         self.record["runs"].append(self.active_run)

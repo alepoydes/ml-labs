@@ -53,6 +53,8 @@ Keep one QApplication alive throughout GUI tests and finish workers before
 destroying their windows.
 Preserve dataset labels, selection identifiers and tooltips after completed or
 stopped model runs and when returning from recording replay.
+Clear the previous model identity when a new run starts; failed loading must not
+display an earlier model or recording as the current run.
 Check course changes and consecutive robot runs, including fresh controller state,
 warm compiler reuse and cancellation. Measure simulation throughput separately
 from compilation and include sensor, coverage, recording and GUI overhead.
