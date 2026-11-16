@@ -38,6 +38,11 @@ downwards. The following conventions apply to questions about position:
   symbol can satisfy two relations. These relations do not imply nearest-neighbour
   selection, and a symbol is never spatially related to itself.
 
+`Above` and `below` depend only on the centres' vertical coordinates; horizontal
+alignment is not required. A symbol can be above another even when their ink
+bounding boxes overlap in height. Likewise, `left of` and `right of` compare only
+the horizontal coordinates.
+
 Questions avoid ambiguous positional comparisons: relevant centres are separated
 from equality and region boundaries by at least 0.035 of the image width or height.
 The image itself has no grid.
