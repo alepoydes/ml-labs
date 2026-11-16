@@ -87,7 +87,7 @@ print('Notebook analysis passed')
     result = command(student_project, "-m", "coursekit.cli", "check", str(archive))
     assert result.returncode == 0, result.stderr
     assert json.loads((run_dir / "check.json").read_text()) == expected
-    assert expected["hands"] == 330
+    assert expected["hands"] == 3
 
 
 def test_untrained_notebook_gives_instructions(student_project, baseline):

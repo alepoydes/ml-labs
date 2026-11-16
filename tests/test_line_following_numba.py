@@ -14,7 +14,8 @@ from coursekit.labs.line_following_env import Environment
 
 
 def arrays(model):
-    return reference.Robot(*(v.numpy() for v in model))
+    # Match model_row's scalars; zero-dimensional arrays compile another engine.
+    return reference.Robot(*(v.numpy() if v.ndim else v.item() for v in model))
 
 
 def test_analytic_derivatives_and_material_contact_velocities():
@@ -69,7 +70,9 @@ def test_steps_match_autodiff_with_contacts_airborne_motion_and_changed_paramete
         m = arrays(model)
         for _ in range(12):
             action = torch.from_numpy(rng.uniform(-0.3, 0.3, 2))
-            q, p, spin, fell, residual, impulse = native.step(q, p, spin, action.numpy(), m)
+            q, p, spin, fell, residual, impulse = native.step(
+                q, p, spin, action.numpy(), m, 0.001
+            )
             state, diagnostics = reference.step(state, action, model)
             reference.check(state, diagnostics)
             for a, b in zip((q, p, spin), state[:3]):
@@ -172,7 +175,7 @@ def test_native_step_rejects_invalid_time_and_nonconvergence():
     model = reference.robot()
     state = reference.initial_state(model)
     args = [v.numpy() for v in state[:3]] + [np.zeros(2), arrays(model)]
-    for dt in (0, -0.001, float("nan"), float("inf")):
+    for dt in (0.0, -0.001, float("nan"), float("inf")):
         with pytest.raises(ValueError, match="positive"):
             native.step(*args, dt)
     with pytest.raises(FloatingPointError, match="converge"):

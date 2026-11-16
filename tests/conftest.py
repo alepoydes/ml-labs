@@ -62,6 +62,11 @@ def student_project(tmp_path, data):
     write_images(data / "train", images)
     write_labels(data / "train", labels)
     (data / "train/hands.csv").unlink()
+    # Workflow checks need a few complete hands, not the full benchmark.
+    write_hands(
+        data / "validation",
+        make_hands(np.arange(11, dtype=np.uint8), 1, np.random.default_rng(7))[:3],
+    )
     write_json(
         data / "dataset.json",
         {

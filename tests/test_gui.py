@@ -37,7 +37,7 @@ def small_robot_cases():
 
 
 @pytest.fixture(scope="session")
-def prepared_robot_engine():
+def prepared_robot_engine(app):
     """Compile once before timing GUI actions; workers reuse the real disk cache."""
     import torch
 

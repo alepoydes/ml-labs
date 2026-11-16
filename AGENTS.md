@@ -47,6 +47,10 @@ Run `uv run --locked pytest` for public package tests.
 Keep routine workflow checks short: use minimal synthetic episodes instead of
 loading the full course collection or driving complete benchmark routes. Full
 controller sweeps belong in explicit pilots.
+Use the production scalar types and time-step type in native invariant tests;
+redundant JIT specializations add cold startup without extending the invariant.
+GUI preparation fixtures must depend on the GUI availability fixture, so skipped
+desktop checks never prepare native kernels.
 
 GUI worker completions must enter a queued QObject slot before updating widgets.
 Keep one QApplication alive throughout GUI tests and finish workers before
