@@ -54,6 +54,11 @@ the complete vocabulary: the unchanged base prefix followed by new entries.
 Public practice spellings are readable. Future instructor spellings and their
 ID assignments remain private and are never sent to solution code.
 
+Human-facing **Adaptation 01**, **Adaptation 02**, and subsequent labels follow
+the order in `dataset.json["episodes"]`. They identify independent support/query
+tasks, not stages of one cumulative adaptation. Actual directory names, episode
+IDs and recorded split paths remain unchanged for loading and replay.
+
 Tokenization preserves case, separates each digit, and recognizes maximal ASCII
 letter sequences plus the individual punctuation tokens `?`, `.` and `,`.
 Spaces separate words. Other characters are rejected. Every token must be

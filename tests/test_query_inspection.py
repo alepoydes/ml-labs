@@ -93,6 +93,23 @@ class Solution:
     page.show()
     try:
         wait_for(app, lambda: page.dataset is not None)
+        index = page.split.findData("adaptation/b/query")
+        assert page.split.itemText(index) == "Adaptation 02 · query"
+        page.split.setCurrentIndex(index)
+        wait_for(
+            app,
+            lambda: (
+                page.dataset.split == "adaptation/b/query"
+                and not page.preparation.isRunning()
+            ),
+        )
+        page.split.setCurrentIndex(page.split.findData("base/validation"))
+        wait_for(
+            app,
+            lambda: (
+                page.dataset.split == "base/validation" and not page.preparation.isRunning()
+            ),
+        )
         page.chooser.path.setText(str(solution))
         page.start.click()
         wait_for(
@@ -119,6 +136,7 @@ class Solution:
         recording.save(path, page.record)
         page.load_record(path)
         wait_for(app, lambda: bool(page.datasets))
+        assert page.split.currentText() == "Base · validation"
         assert page.model.rowCount() == 2
         page.table.selectRow(1)
         assert page.diagnostics.snapshot["row"] == 1

@@ -220,8 +220,47 @@ def test_prediction_boundary_rejects_coercion(queries):
         validate_inputs(*args, vocab_size=7, image_shape=[16, 16, 3])
 
 
+def test_browser_names_follow_schedule_without_changing_identities(queries):
+    from html.parser import HTMLParser
+
+    from coursekit.labs.visual_queries_browser import build
+
+    meta = metadata(queries)
+    meta["episodes"] = ["b", "a"]
+    write_json(queries / "dataset.json", meta)
+
+    class Payload(HTMLParser):
+        reading = False
+        text = ""
+
+        def handle_starttag(self, tag, attrs):
+            self.reading = tag == "script" and dict(attrs).get("id") == "dataset"
+
+        def handle_endtag(self, tag):
+            if tag == "script":
+                self.reading = False
+
+        def handle_data(self, value):
+            if self.reading:
+                self.text += value
+
+    parser = Payload()
+    parser.feed(build(queries).read_text())
+    data = json.loads(parser.text)
+    assert data["labels"]["adaptation/b/query"] == "Adaptation 01 · query"
+    assert data["labels"]["adaptation/a/query"] == "Adaptation 02 · query"
+    names = list(data["splits"])
+    assert names.index("adaptation/b/support") < names.index("adaptation/a/support")
+    assert data["splits"]["adaptation/b/query"][0][1][0].startswith(
+        "adaptation/b/query/images/"
+    )
+    assert (
+        json.loads((queries / "adaptation/b/episode.json").read_text())["episode_id"] == "b"
+    )
+
+
 def test_cli_archive_check_retains_predictions_and_adaptation(
-    queries, tmp_path, monkeypatch
+    queries, tmp_path, monkeypatch, capsys
 ):
     from coursekit import resources, submissions
     from coursekit.cli import main
@@ -262,6 +301,14 @@ def test_cli_archive_check_retains_predictions_and_adaptation(
         main()
         saved = project / "runs/visual_queries/template"
         result = json.loads((saved / "check.json").read_text())
+        output = capsys.readouterr().out
+        assert (
+            "Base validation" in output
+            and "Adaptation 01" in output
+            and "Adaptation 02" in output
+        )
+        assert "Known language" in output and "New language" in output
+        assert "Total" in output and "2/5" in output and "40.00%" in output
         path = Path(result["recording"])
         assert path.is_relative_to(saved / "check")
         record, _ = read_record(path)

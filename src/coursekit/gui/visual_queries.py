@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 from coursekit import recording, resources
 from coursekit.gui.common import Diagnostics, Job, Notice, SolutionPath, pixmap
 from coursekit.gui.query_run import Run
-from coursekit.labs.visual_queries_data import metadata
+from coursekit.labs.visual_queries_data import metadata, split_label
 from coursekit.labs.visual_queries_inspection import (
     Dataset,
     new_record,
@@ -323,8 +323,12 @@ class VisualQueriesPage(QWidget):
             self.data_path.setText(str(data.root))
             self.loading = True
             self.split.clear()
-            self.split.addItems(data.meta["splits"])
-            self.split.setCurrentText(data.split)
+            for name in data.meta["splits"]:
+                self.split.addItem(split_label(data.meta, name), name)
+                self.split.setItemData(
+                    self.split.count() - 1, name, Qt.ItemDataRole.ToolTipRole
+                )
+            self.split.setCurrentIndex(self.split.findData(data.split))
             self.loading = False
             self.install_dataset(data, None)
 
@@ -337,7 +341,11 @@ class VisualQueriesPage(QWidget):
             self.loading = True
             self.split.clear()
             for i, run in enumerate(self.record["runs"]):
-                self.split.addItem(f"{run.get('dataset', '')} · {run['split']}", i)
+                label = split_label(self.datasets[i].meta, run["split"])
+                self.split.addItem(
+                    f"{run.get('dataset', '')} · {label}".removeprefix(" · "), i
+                )
+                self.split.setItemData(i, run["split"], Qt.ItemDataRole.ToolTipRole)
             self.loading = False
             self.select_split(0)
 
@@ -382,7 +390,7 @@ class VisualQueriesPage(QWidget):
         if self.datasets:
             self.install_dataset(self.datasets[index], self.record["runs"][index])
         else:
-            root, split = Path(self.data_path.text()), self.split.currentText()
+            root, split = Path(self.data_path.text()), self.split.currentData()
             self.prepare(
                 lambda: Dataset(root, split), lambda data: self.install_dataset(data, None)
             )

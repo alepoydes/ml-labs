@@ -61,6 +61,26 @@ def metadata(root):
     return value
 
 
+def episode_label(episodes, name):
+    """Human labels follow the dataset schedule; model-facing IDs stay opaque."""
+    if name is None:
+        return "Base validation"
+    return (
+        f"Adaptation {episodes.index(name) + 1:02d}"
+        if name in episodes
+        else f"Adaptation {name}"
+    )
+
+
+def split_label(meta, split):
+    if split.startswith("base/"):
+        return f"Base · {split.split('/')[-1]}"
+    parts = split.split("/")
+    if len(parts) == 3 and parts[0] == "adaptation":
+        return f"{episode_label(meta['episodes'], parts[1])} · {parts[2]}"
+    return split
+
+
 def read_vocabulary(path, size):
     table = rows(path, ["token_id", "spelling"])
     if (

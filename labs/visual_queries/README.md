@@ -102,6 +102,30 @@ labeled **support** examples. New tokens can affect attributes, relations, logic
 expressions or references, and can also appear as answers. Some episodes introduce
 one new element, others combine several. Existing IDs keep their base meanings.
 
+The public resources separate these roles explicitly:
+
+| Partition | Questions | Purpose |
+| --- | ---: | --- |
+| `base/train` | 10,000 | Learn the base model and language. |
+| `base/validation` | 1,890 | Check the base model on held-out examples. |
+| Each episode's `support` | 300 | Learn that episode's added words and constructions. |
+| Each episode's `query` | 120 | Check the adapted model on separate examples. |
+
+Partitions use disjoint source-glyph groups. Questions about the same generated
+scene remain together in one partition.
+
+There are eight public episodes. They cover new colors, spatial expressions,
+logical constructions, references, and a combination of several additions.
+Instructor episodes use other examples and additions. Develop a procedure that
+learns from support, rather than a lookup for the public episode IDs. To check
+generalization of the adaptation procedure locally, reserve some entire public
+episodes while developing it on the others.
+
+The CLI and Qt inspector call these tasks **Adaptation 01** through **Adaptation 08**, in
+the order of `dataset.json["episodes"]`. Directory names and `episode_id` retain
+their opaque technical identities; the short labels do not reveal token meanings
+to a submitted model. The data split menu exposes the actual path in its tooltip.
+
 `data.episode["vocab_size"]` specifies the active vocabulary size. Use it rather than guessing
 from the largest ID in a minibatch. The same added ID can mean different things in
 different episodes. Expand both input and output representations when necessary.
@@ -116,6 +140,13 @@ Public query answers are available for local assessment. They must not be used a
 training labels for that episode's adaptation. Public episodes may be used to
 develop the adaptation algorithm. Keep a separate validation discipline when
 choosing models and hyperparameters.
+
+During base training, `data.load_split("base/train")` and `data.glyphs()` are
+available. During `adapt`, use `data.load_split("support")` for new examples and
+`data.load_split("base/train")` for optional rehearsal. Query data is supplied
+only to the evaluator. If you need an internal validation set during adaptation,
+split the support examples yourself, keeping questions about the same image
+together.
 
 ## 4. What to implement
 
@@ -255,6 +286,15 @@ under `runs/visual_queries/<variant>/evaluate/` or `check/`. Each adaptation has
 its own snapshot and each prediction recording has a unique filename; the latest
 summary is `evaluate.json` or `check.json` beside those directories. Unpacking a
 submission for checking does not make these outputs temporary.
+
+Both commands print a compact table for base validation, every numbered
+adaptation and the total. It includes correct/total counts, accuracy, and separate
+known/new-language counts. A dash means that a group contains no questions.
+The complete machine-readable result, including the original episode IDs,
+remains in the saved JSON. Only query results contribute adaptation points;
+the table does not score support or compare against an automatic zero-update
+control. The graphical inspector replays saved answers; it does not run the
+adaptation procedure itself.
 
 The score is `100 * correct_answers / total_questions`. Every question has equal
 weight. Across the complete benchmark, the five difficulty levels have exactly

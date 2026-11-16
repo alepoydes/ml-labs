@@ -12,6 +12,7 @@ from coursekit.common import CourseError, file_hashes, fingerprint, write_json
 from coursekit.labs.visual_queries_data import (
     batch,
     episode,
+    episode_label,
     load_split,
     metadata,
     rows,
@@ -253,6 +254,30 @@ def run_benchmark(data, run_phase, *, progress=None):
         levels=levels,
         language=language,
     )
+
+
+def result_table(result, meta):
+    """Summarize a complete benchmark without averaging episode percentages."""
+
+    def language(value):
+        n = value.get("questions", 0)
+        return f"{value['correct']}/{n} ({100 * value['correct'] / n:.1f}%)" if n else "-"
+
+    table = [["Part", "Correct / total", "Accuracy", "Known language", "New language"]]
+    phases = [(episode_label(meta["episodes"], p["episode"]), p) for p in result["phases"]]
+    for label, row in [*phases, ("Total", result)]:
+        groups = row.get("language", {})
+        table.append(
+            [
+                label,
+                f"{row['correct']}/{row['questions']}",
+                f"{100 * row['correct'] / row['questions']:.2f}%",
+                language(groups.get("known", {})),
+                language(groups.get("new", {})),
+            ]
+        )
+    widths = [max(map(len, values)) for values in zip(*table)]
+    return "\n".join(" | ".join(v.ljust(w) for v, w in zip(row, widths)) for row in table)
 
 
 def evaluate_solution(solution, data, *, seed=0, device="cpu", run_dir=None, progress=None):

@@ -167,7 +167,13 @@ def main():
                             )
                 result["resource_hash"] = resource_hash
                 write_json(result_path, result)
-                print(json.dumps(result, indent=2))
+                if info["lab"] == "visual_queries":
+                    print(lab.result_table(result, lab.metadata(data)))
+                    print(
+                        f"Full results: {result_path}\nPredictions: {result['recording']}"
+                    )
+                else:
+                    print(json.dumps(result, indent=2))
                 print(
                     "Local archive check passed in your Python environment."
                     if args.step == "check"
