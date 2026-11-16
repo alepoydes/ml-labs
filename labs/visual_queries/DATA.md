@@ -10,6 +10,12 @@ and prediction, the runner converts text to token IDs and supplies numeric array
 through [API 3](../../docs/api-v3.md). Dictionaries and readable questions remain
 with the loader.
 
+This dataset directory is created by resource preparation and is ignored by Git.
+Its `index.html` and PNG sheets arrive with the data archive; look under
+`data/visual_queries/` after running the updater. The tracked `labs/visual_queries/`
+directory contains the task description, templates, reader example and resource
+manifest.
+
 ## Directory layout
 
 ```text

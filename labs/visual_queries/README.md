@@ -122,6 +122,12 @@ Every evaluation follows this sequence:
    query questions.
 
 Episodes are independent: learning in one episode is not carried into another.
+Submit the base state together with the code and configuration that perform
+adaptation and prediction. If the base system contains several models, include
+all their components. Each adapted state belongs to one episode. The eight public
+episodes let you develop and evaluate the adaptation procedure; assessment runs
+that same procedure on separate instructor episodes and scores their query answers.
+
 During adaptation, the learning interface provides the current support set,
 public base-training examples and the optional labeled glyph pool. Query data and
 other episodes are unavailable through that interface. Rehearsal on base-training
@@ -319,6 +325,13 @@ is permitted; learning from query statistics is excluded.
 
 ## 6. Training, checking and submission
 
+Training saves the base state in `work/visual_queries/<variant>/artifacts/`.
+Evaluation creates an independent adapted state for each public episode under
+`runs/visual_queries/<variant>/evaluate/`, leaving those base artifacts unchanged.
+Packaging includes the base artifacts, source and configuration. Episode snapshots
+remain local for analysis and inspection; they are not separate submissions and
+do not replace the base state.
+
 On Windows, use the corresponding `.cmd` launchers. These commands create a
 working copy of the starter, prepare its artifacts, evaluate it and package it:
 
@@ -376,7 +389,9 @@ it does not automatically run a second, unadapted model for comparison.
 
 ## 7. Inspecting examples and predictions
 
-Run the graphical inspector from the project directory:
+The graphical inspector is included in this project and runs on a student's own
+computer. Run it from the project directory containing `view_lab` and
+`pyproject.toml`:
 
 ```sh
 ./view_lab visual_queries
@@ -431,8 +446,20 @@ vector or a matrix heatmap. See the [diagnostic contract](../../docs/api-v3.md#p
 
 ### Offline data browser
 
-Open `data/visual_queries/index.html` to browse canonical PNG images, questions and
-answers, with support/query navigation. It works without a model or internet access
+After `./step_0_update_resources`, open `data/visual_queries/index.html` to browse
+canonical PNG images, questions and answers, with support/query navigation.
+It works without a model or internet access
 after resource preparation. Each example shows its PNG path and one-based sheet
 position for independent inspection. Source attribution is included in
 `data/visual_queries/SOURCES.md`.
+
+The browser and its PNG sheets belong to the downloaded dataset. They are prepared
+under `data/`, separately from the statement and templates under `labs/`:
+
+```text
+project directory/
+    pyproject.toml
+    view_lab
+    labs/visual_queries/README.md
+    data/visual_queries/index.html     created by step_0_update_resources
+```

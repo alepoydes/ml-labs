@@ -27,6 +27,9 @@ standalone NPY files; image resources use PNG and other numeric arrays compresse
 `line_following` or `visual_queries`), an API version, a variant name and
 [AI usage](ai-use.md). Blindjack and Line Following accept API 1 or 2;
 Visual Queries requires API 3 and `training.supports_adapt = true`.
+Its archive contains the base models in `artifacts/` and the code implementing
+adaptation. Public episode-specific models remain under `runs/`; the instructor
+creates fresh adaptations from the submitted base for the assessment episodes.
 Student identity comes from the instructor's submission
 directory, not this file. The packer preserves the resource fingerprint of actual
 training even if newer data have been downloaded. It verifies source and config
