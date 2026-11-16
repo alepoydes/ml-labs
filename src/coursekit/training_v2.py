@@ -223,12 +223,6 @@ def run(
                 raise CourseError("Input artifacts changed while snapshotting.")
             record["inputs"][name] = before
             pinned[name] = target.resolve()
-        if info["api_version"] == 3:
-            from coursekit.labs.visual_queries_learning import open_data
-
-            data = open_data(data)
-        module = load_module(solution, "train")
-        kwargs = dict(device=device, report=reporter(report))
         if operation == "adapt":
             from coursekit.training_checkpoints import (
                 AdaptationTimeout,
@@ -239,11 +233,24 @@ def run(
 
             if set(pinned) != {"base"}:
                 raise CourseError("Adaptation requires one complete base snapshot.")
+            # Trusted input copying is setup; numeric access and student imports are timed.
             checkpoints = Checkpoints(run_dir / "checkpoints", limits)
+        if info["api_version"] == 3:
+            from coursekit.labs.visual_queries_learning import open_data
+
+            data = open_data(data)
+        module = load_module(solution, "train")
+        kwargs = dict(device=device, report=reporter(report))
+        if operation == "adapt":
             checkpoint = checkpoint_writer(
                 output, histories, info["api_version"], limits, checkpoints
             )
             try:
+                effective = copy.deepcopy(limits)
+                effective["wall_seconds"] = max(
+                    0.0, checkpoints.deadline - time.monotonic()
+                )
+                checkpoints.check_time()
                 history = call_adapt(
                     module.adapt,
                     data,
@@ -251,7 +258,7 @@ def run(
                     output,
                     config,
                     seed,
-                    limits=copy.deepcopy(limits),
+                    limits=effective,
                     checkpoint=checkpoint,
                     **kwargs,
                 )

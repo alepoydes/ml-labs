@@ -1,3 +1,5 @@
+# Imported pytest fixtures are intentionally rebound by injection below.
+# ruff: noqa: F811
 import base64
 import json
 import shutil
@@ -6,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from test_visual_queries import queries  # noqa: F401
 
 from coursekit.common import CourseError, digest
 from coursekit.training_checkpoints import (
@@ -102,3 +105,57 @@ def adapt(data, initial, output, config, seed, *, device, limits, checkpoint, re
         adapt(solution, data, base, run_dir=tmp_path / "runs", limits=limits, seed=1)
     with pytest.raises(AdaptationTimeout, match="without a committed"):
         adapt(solution, data, base, run_dir=tmp_path / "runs", limits=limits, seed=2)
+
+
+@pytest.mark.parametrize("import_seconds", [2, 10])
+def test_local_adaptation_charges_numeric_setup_and_imports(
+    queries, tmp_path, monkeypatch, import_seconds
+):
+    from coursekit import training
+    from coursekit.labs import visual_queries_learning
+
+    solution = tmp_path / "solution"
+    shutil.copytree(Path(__file__).parents[1] / "labs/visual_queries/starter", solution)
+    (solution / "train.py").write_text("""
+import json
+
+def adapt(data, initial, output, config, seed, *, device, limits, checkpoint, report):
+    state = {"answer": 1, "vocab_size": 7, "episode_id": None,
+             "remaining": limits["wall_seconds"]}
+    (output / "state.json").write_text(json.dumps(state))
+    checkpoint()
+""")
+    initial = tmp_path / "initial"
+    initial.mkdir()
+    clock = [0.0]
+    open_data, load_module = visual_queries_learning.open_data, training.load_module
+
+    def timed_data(root):
+        clock[0] += 1
+        return open_data(root)
+
+    def timed_import(*args):
+        clock[0] += import_seconds
+        return load_module(*args)
+
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(visual_queries_learning, "open_data", timed_data)
+    monkeypatch.setattr(training, "load_module", timed_import)
+    limits = dict(wall_seconds=10, memory_mb=128, artifact_bytes=100000, gpu_memory_mb=0)
+    if import_seconds == 2:
+        saved = adapt(solution, queries, initial, run_dir=tmp_path / "runs", limits=limits)
+        assert json.loads((saved / "state.json").read_text())["remaining"] == 7
+    else:
+        with pytest.raises(AdaptationTimeout, match="without a committed"):
+            adapt(solution, queries, initial, run_dir=tmp_path / "runs", limits=limits)
+    record_path = next((tmp_path / "runs").glob("*/training.json"))
+    record = json.loads(record_path.read_text())
+    assert record["adaptation"]["seconds"] == 1 + import_seconds
+    assert record["adaptation"]["configured_seconds"] == 10
+    assert record["adaptation"]["budget_seconds"] == 10
+    assert record["adaptation"]["stop_reason"] == (
+        "completed" if import_seconds == 2 else "time_limit"
+    )
+    assert limits["wall_seconds"] == 10
+    if import_seconds == 10:
+        assert not (record_path.parent / "artifacts/state.json").exists()

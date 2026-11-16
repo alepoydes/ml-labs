@@ -86,3 +86,6 @@ Adaptation examples must demonstrate the optional checkpoint callback: save ever
 component before publishing, including expanded input/output vocabularies. A time
 limit may select only a committed complete snapshot. Code errors and cancellation
 remain failures; local direct calls cannot preempt blocked learning code.
+Charge numeric setup and student imports to one adaptation deadline locally and
+in isolated execution; pass only the remaining time to adapt and never reset it
+after initialization. Verify expiry before the first checkpoint.
