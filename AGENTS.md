@@ -50,6 +50,8 @@ controller sweeps belong in explicit pilots.
 GUI worker completions must enter a queued QObject slot before updating widgets.
 Keep one QApplication alive throughout GUI tests and finish workers before
 destroying their windows.
+Preserve dataset labels, selection identifiers and tooltips after completed or
+stopped model runs and when returning from recording replay.
 Check course changes and consecutive robot runs, including fresh controller state,
 warm compiler reuse and cancellation. Measure simulation throughput separately
 from compilation and include sensor, coverage, recording and GUI overhead.

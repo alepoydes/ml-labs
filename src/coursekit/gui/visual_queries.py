@@ -305,6 +305,17 @@ class VisualQueriesPage(QWidget):
                 self.message.setText(str(exc))
         self.update_buttons()
 
+    def set_data_splits(self, data):
+        self.loading = True
+        self.split.clear()
+        for name in data.meta["splits"]:
+            self.split.addItem(split_label(data.meta, name), name)
+            self.split.setItemData(
+                self.split.count() - 1, name, Qt.ItemDataRole.ToolTipRole
+            )
+        self.split.setCurrentIndex(self.split.findData(data.split))
+        self.loading = False
+
     def load_data(self, root, *, sync=False):
         def load():
             if sync:
@@ -324,15 +335,7 @@ class VisualQueriesPage(QWidget):
             self.record, self.datasets = new_record(), []
             self.record_path = None
             self.data_path.setText(str(data.root))
-            self.loading = True
-            self.split.clear()
-            for name in data.meta["splits"]:
-                self.split.addItem(split_label(data.meta, name), name)
-                self.split.setItemData(
-                    self.split.count() - 1, name, Qt.ItemDataRole.ToolTipRole
-                )
-            self.split.setCurrentIndex(self.split.findData(data.split))
-            self.loading = False
+            self.set_data_splits(data)
             self.install_dataset(data, None)
 
         self.prepare(load, install)
@@ -574,11 +577,7 @@ class VisualQueriesPage(QWidget):
         self.record = new_record(diagnostic=True)
         self.record_path = None
         self.datasets = []
-        self.loading = True
-        self.split.clear()
-        self.split.addItems(self.dataset.meta["splits"])
-        self.split.setCurrentText(self.dataset.split)
-        self.loading = False
+        self.set_data_splits(self.dataset)
         self.active_run = self.dataset.new_run()
         self.record["runs"].append(self.active_run)
         self.predictions = {}

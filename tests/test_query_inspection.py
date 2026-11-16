@@ -69,6 +69,8 @@ def test_batch_snapshots_replay_and_plain_grading(queries, tmp_path):
 def test_viewer_selects_every_batch_row_without_inference_and_preserves_replay(
     app, queries, tmp_path
 ):
+    from PySide6.QtCore import Qt
+
     from coursekit.gui.visual_queries import VisualQueriesPage
 
     solution = tmp_path / "solution"
@@ -91,25 +93,25 @@ class Solution:
     page = VisualQueriesPage(tmp_path, data=queries)
     page.resize(1100, 750)
     page.show()
+
+    def select_split(name):
+        index = page.split.findData(name)
+        assert index >= 0
+        assert page.split.itemData(index, Qt.ItemDataRole.ToolTipRole) == name
+        page.split.setCurrentIndex(index)
+        wait_for(
+            app,
+            lambda: page.dataset.split == name and not page.preparation.isRunning(),
+        )
+        assert page.preparation.error is None
+        assert page.split.currentData() == name
+
     try:
         wait_for(app, lambda: page.dataset is not None)
         index = page.split.findData("adaptation/b/query")
         assert page.split.itemText(index) == "Adaptation 02 · query"
-        page.split.setCurrentIndex(index)
-        wait_for(
-            app,
-            lambda: (
-                page.dataset.split == "adaptation/b/query"
-                and not page.preparation.isRunning()
-            ),
-        )
-        page.split.setCurrentIndex(page.split.findData("base/validation"))
-        wait_for(
-            app,
-            lambda: (
-                page.dataset.split == "base/validation" and not page.preparation.isRunning()
-            ),
-        )
+        select_split("adaptation/b/query")
+        select_split("base/validation")
         page.chooser.path.setText(str(solution))
         page.start.click()
         wait_for(
@@ -134,6 +136,11 @@ class Solution:
         assert page.diagnostics.snapshot["calls"] == 1
         path = tmp_path / "saved.npz"
         recording.save(path, page.record)
+        assert page.job.complete
+        select_split("base/train")
+        select_split("adaptation/b/query")
+        assert page.split.currentText() == "Adaptation 02 · query"
+        assert not page.predictions
         page.load_record(path)
         wait_for(app, lambda: bool(page.datasets))
         assert page.split.currentText() == "Base · validation"
@@ -183,8 +190,11 @@ class Solution:
         page.start.click()
         wait_for(app, lambda: (solution / "artifacts/entered").exists())
         page.stop_button.click()
-        wait_for(app, lambda: not page.job.isRunning())
+        wait_for(app, lambda: not page.job.isRunning() and page.start.isEnabled())
         assert not page.job.complete and page.job.error is None
+        select_split("base/train")
+        select_split("adaptation/a/support")
+        assert page.split.currentText() == "Adaptation 01 · support"
     finally:
         page.shutdown()
         page.close()
