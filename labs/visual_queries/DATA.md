@@ -56,7 +56,7 @@ sheet,row,column,question,answer
 
 `sheet`, `row` and `column` are one-based integers. Sheet 1 is
 `images/000001.png`, relative to that split. Scene sheets contain a 4 × 4 grid of
-256 × 256 RGB tiles. For tile width `width` and height `height`, the tile's
+512 × 512 RGB tiles. For tile width `width` and height `height`, the tile's
 upper-left pixel is
 
 ```text
@@ -82,6 +82,10 @@ Reference answers are used by the evaluator.
 `glyphs/examples.csv` has columns `sheet,row,column,symbol`, with one label per
 referenced tile. Glyph sheets use a 16 × 16 grid of 28 × 28 RGB tiles. The exact
 shape and grid are recorded in `glyphs/metadata.json`.
+Each glyph has opaque black ink on white, with a 24-pixel maximum ink-box dimension
+centered in its tile. Scene glyphs use colored ink and the size bands in the task
+statement. Keep these scale and margin conventions in mind when reusing an encoder
+trained on the glyph pool.
 
 The glyph pool contains base-training source exemplars. Scene partitions use
 distinct source groups; writer identities and similarity between handwriting
@@ -116,12 +120,12 @@ without an external tokenizer.
 | --- | --- |
 | `format_version`, `lab`, `resource_version` | Format version 2, lab name `visual_queries` and resource version. |
 | `pad_token_id`, `base_vocab_size`, `max_added_tokens` | Padding ID 0, base vocabulary size and maximum additions per episode. |
-| `image_shape`, `sheet_grid` | Scene tile shape `[256,256,3]` and sheet grid `[4,4]`. |
+| `image_shape`, `sheet_grid` | Scene tile shape `[512,512,3]` and sheet grid `[4,4]`. |
 | `max_question_tokens`, `max_batch_size` | Limits of 96 tokens and 16 question rows. |
 | `splits`, `episodes` | Available split paths and ordered episode IDs. |
 | `scored_questions_per_level` | Equal question count at each of the five difficulty levels. |
 | `adaptation_limits` | Time, RAM, GPU memory, saved-artifact and data-transport budgets. |
-| `observable_rules` | Alphabet, background, size ranges, rotations, spacing, ink threshold, positional guards and base color representatives. |
+| `observable_rules` | Alphabet, background, size ranges, rotations, spacing, opaque ink style, positional guards and base color representatives. |
 
 `episode.json` has exactly five fields: `format_version`, `episode_id`,
 `base_vocabulary_sha256`, `base_vocab_size` and `vocab_size`. The hash identifies

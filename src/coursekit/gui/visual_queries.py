@@ -134,6 +134,8 @@ class VisualQueriesPage(QWidget):
         self.picture.setMinimumSize(250, 250)
         self.picture.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         self.picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.size_reference = QLabel()
+        self.size_reference.setWordWrap(True)
         self.question, self.answer = QLabel(), QLabel()
         for widget in (self.question, self.answer):
             widget.setWordWrap(True)
@@ -175,6 +177,7 @@ class VisualQueriesPage(QWidget):
         left, right = QWidget(), QWidget()
         ll, rr = QVBoxLayout(left), QVBoxLayout(right)
         ll.addWidget(self.picture, 1)
+        ll.addWidget(self.size_reference)
         ll.addWidget(self.question)
         ll.addWidget(self.answer)
         rr.addWidget(self.table, 1)
@@ -356,6 +359,16 @@ class VisualQueriesPage(QWidget):
         self.number = 1
         self.data_path.setText(str(data.root))
         self.batch_size.setMaximum(data.settings["max_batch"])
+        sizes = sorted(
+            data.meta.get("observable_rules", {}).get("size_pixels", {}).items(),
+            key=lambda item: item[1][0],
+        )
+        self.size_reference.setText(
+            "Size (maximum ink dimension): "
+            + " · ".join(f"{name} {lo}–{hi} px" for name, (lo, hi) in sizes)
+            if sizes
+            else ""
+        )
         self.predictions = {}
         if run:
             for b, item in enumerate(run["batches"]):
@@ -530,7 +543,7 @@ class VisualQueriesPage(QWidget):
                 self.current_picture.scaled(
                     self.picture.size(),
                     Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
+                    Qt.TransformationMode.FastTransformation,
                 )
             )
 

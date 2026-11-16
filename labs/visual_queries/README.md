@@ -20,7 +20,7 @@ local development.
 
 ## 1. Images and spatial conventions
 
-Images are RGB, 256 × 256 pixels, on a white background. An image contains zero
+Images are RGB, 512 × 512 pixels, on a white background. An image contains zero
 to nine nonoverlapping handwritten symbols from the alphabet
 `0123456789ABCDEFGHJKLMNPQRSTUVWXYZ`: digits and uppercase letters, with `I` and
 `O` omitted. Symbols have varied handwriting, positions and sizes, with rotations
@@ -46,20 +46,24 @@ Size is the larger dimension of the final ink bounding box:
 
 | Word | Size in pixels |
 | --- | ---: |
-| tiny | 16–20 |
-| small | 26–30 |
-| normal | 36–40 |
-| big | 46–50 |
-| huge | 56–60 |
+| tiny | 24–26 |
+| small | 36–39 |
+| normal | 54–58 |
+| big | 81–86 |
+| huge | 122–128 |
 
 Relative-size questions compare these categories. Selecting “the largest” requires
-a unique largest category among the relevant objects. Visible ink is defined
-before blending with the background, at opacity at least 16/255; lower-opacity
-pixels are removed. Antialiased edges belong to the same symbol.
+a unique largest category among the relevant objects. Each symbol has a sharp
+binary outline: its pixels are either opaque ink or white background. Size and
+position are measured from the final colored pixels. The data browser includes
+a size reference, shown at the same display scale as the image.
 
 The base color categories have RGB representatives red (175,30,45), green
 (25,125,55), blue (30,65,180) and yellow (170,140,10). Actual ink varies slightly
 around these representatives while remaining within distinct color categories.
+Introducing a new color during adaptation does not change earlier color labels.
+Questions about a named size or color refer to that category, rather than the
+smallest object or the nearest available color in the current image.
 
 ## 2. Questions, vocabulary and answers
 
@@ -265,8 +269,16 @@ def train(
 
 
 def adapt(
-    data, input_dir, output_dir, config, seed, *, device, limits,
-    checkpoint=None, report=None,
+    data,
+    input_dir,
+    output_dir,
+    config,
+    seed,
+    *,
+    device,
+    limits,
+    checkpoint=None,
+    report=None,
 ): ...
 
 

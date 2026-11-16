@@ -134,7 +134,7 @@ changed resources, and removes obsolete course-managed files. Interrupted update
 must be rerun before training or evaluation.
 Blindjack and Visual Queries use downloadable data archives, with release locations
 recorded in their `labs/<lab>/resources.toml` manifests. The current course release is
-[ML Labs pilot 5](https://github.com/alepoydes/ml-labs/releases/tag/ml-labs-pilot-5).
+[ML Labs pilot 6](https://github.com/alepoydes/ml-labs/releases/tag/ml-labs-pilot-6).
 The updater downloads each required ZIP, verifies the archive and every extracted
 file, then removes the downloaded ZIP. Unchanged data are not downloaded again.
 PNG sheets remain directly viewable under each lab's `data/` directory. The smaller robot

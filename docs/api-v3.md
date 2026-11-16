@@ -21,8 +21,16 @@ def train(
 
 
 def adapt(
-    data, input_dir, output_dir, config, seed, *, device, limits,
-    checkpoint=None, report=None,
+    data,
+    input_dir,
+    output_dir,
+    config,
+    seed,
+    *,
+    device,
+    limits,
+    checkpoint=None,
+    report=None,
 ): ...
 ```
 

@@ -2,7 +2,7 @@ schema_version = 1
 revision = "pilot-2"
 
 [archive]
-url = "https://github.com/alepoydes/ml-labs/releases/download/ml-labs-pilot-5/ml-labs-pilot-5-data.zip"
+url = "https://github.com/alepoydes/ml-labs/releases/download/ml-labs-pilot-6/ml-labs-pilot-6-data.zip"
 sha256 = "66273f84ae4c54a77d637f58b8f4a0e429171c535da17f9a4eb7bf2f3811df66"
 size = 20512750
 

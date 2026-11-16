@@ -174,8 +174,16 @@ An adaptive solution may additionally define this function in `train.py`:
 
 ```python
 def adapt(
-    data_dir, input_dir, output_dir, config, seed, *, device, limits,
-    checkpoint=None, report=None,
+    data_dir,
+    input_dir,
+    output_dir,
+    config,
+    seed,
+    *,
+    device,
+    limits,
+    checkpoint=None,
+    report=None,
 ):
     # Read the complete base from input_dir; save a complete adapted state in output_dir.
     return None

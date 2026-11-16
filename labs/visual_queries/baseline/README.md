@@ -23,7 +23,7 @@ use the ordinary `step_4_pack` and `step_5_check_submission` commands.
 ## Model
 
 Four `Conv2d(3×3) → ReLU → MaxPool2d(2)` blocks use 16, 32, 64 and 64 channels.
-For a 256×256 input they produce a 16×16 feature map. Pooling to 8×8, flattening
+For a 512×512 input they produce a 32×32 feature map. Pooling to 8×8, flattening
 and a linear layer produce 256 image features. Spatial cells remain distinct;
 RGB channels preserve color information. White background is shifted to zero.
 
