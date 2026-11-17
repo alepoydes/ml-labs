@@ -494,11 +494,18 @@ project directory/
 
 ## Resource and assessment versions
 
-Resource `visual-queries-pilot-5` uses assessment schedule 2, described above.
+Resource `visual-queries-pilot-6` uses assessment schedule 2, described above.
+It preserves the base data and single-addition episodes from resource pilot 5.
+Mixed episodes now include guaranteed combinations of their additions in both
+support and query sets. Their support examples teach the additions individually
+and together. Recompute mixed-episode adaptations and evaluation on this resource.
+
+Resource pilot 5 introduced assessment schedule 2 and rebuilt adaptation examples.
 Base training, the base dictionary, base-validation examples and labeled glyphs
 are preserved from resource pilot 4. Existing base weights and API 3 solutions
 can be reused; rerun evaluation to obtain fresh independent adaptations. Support
-and query examples have changed. Old adaptation snapshots belong to their original
-resource and must not be reused. Earlier resources use schedule 1, which scored
+and query examples changed in pilot 5. Adaptation snapshots belong to their original
+resource and must not be reused after its examples change. Resources before pilot 5
+use schedule 1, which scored
 the initial base model; their scores are not directly comparable. Recordings retain
 the original resource fingerprint and require their matching corpus.

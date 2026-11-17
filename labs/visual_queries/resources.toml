@@ -1,10 +1,10 @@
 schema_version = 1
-revision = "visual-queries-pilot-5"
+revision = "visual-queries-pilot-6"
 
 [archive]
 url = "https://github.com/alepoydes/ml-labs/releases/download/ml-labs-pilot-7/visual-queries-data.zip"
-sha256 = "739350add6a40e77882657955c2f20ec74bb0e9bad613c7c0753ba720e416ae3"
-size = 33534752
+sha256 = "e83ca387ab47a8648b442d1a10cbb8936f34f81bb05d041d028525010281d5e4"
+size = 33516412
 
 [[files]]
 path = "SOURCES.md"
@@ -948,148 +948,148 @@ size = 211
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/query/examples.csv"
-sha256 = "904e57493b220c7bebfa8f55181191665f3a7c6f1ba140ce31b808c32ab81176"
-size = 6635
+sha256 = "b217213928706d2579b0757aed55f5f263464c660df0c94113ea88ceb2b6668c"
+size = 6691
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/query/images/000001.png"
-sha256 = "7856714ceb0ff9b07edb414d8da4f8533c9e327aca120bc0d15ddab3694ac570"
-size = 26110
+sha256 = "f452074d19c4a1ebb5fe52a3b45c6cb7197b6f48bc4e610b2c7dcdfbe2facd75"
+size = 26278
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/query/images/000002.png"
-sha256 = "0e5d4b8d24b8cfd2778229f6c963252230149f2e18a61e727cc6845a536fed0e"
-size = 22454
+sha256 = "b2f60ac8803e89fae61fdecee10663a76369787673e1893affd0187788e12660"
+size = 25264
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/query/images/000003.png"
-sha256 = "661d12f23b988a9cb0c132cfa8250906d19de17bb83f41b7c944a99b8b6a4cfa"
-size = 42866
+sha256 = "70ecba274df0da11a133398d29930b2b8a9de4450b1a79b5f68d17ae79333cea"
+size = 35474
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/query/images/000004.png"
-sha256 = "938b40cce2196014f862492e64d42ffb688909af743c0468ce226840e65f9ef8"
-size = 44321
+sha256 = "32e1c860e97400422518910730672cf1922b6788bc42322b9c3a74d68ca5064c"
+size = 44338
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/query/images/000005.png"
-sha256 = "ca38cc1d4e428d84164b908bf506a51dcc8fdbef3506bc53214f0600c7638ee7"
-size = 35376
+sha256 = "18599dad7c8819f4e6f35256d8b5b1a5d13becb77dcc57cb3b52a9c325b9c44f"
+size = 31084
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/query/images/000006.png"
-sha256 = "9d47ec9cf8afc161c8e6691686041bcc2fbdf5baf52f844c58c8934614455154"
-size = 40032
+sha256 = "a4937b6c18bd483bb9c775010a58cad8ae8b8c0bff3c6026b583d55036aa1322"
+size = 39103
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/query/images/000007.png"
-sha256 = "e6d842855e8def1bce3e950eaa768a546fb3db781cebc0a7dba4e79e4569b7cf"
-size = 35675
+sha256 = "2e35f68c8a90751c8483a4873327d59ce214f4e70bf3016e69b0f35b2a4f5fbb"
+size = 35632
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/query/images/000008.png"
-sha256 = "92f8b5a5e335b4ac0675995ccb2a42f94fb08aa4c395def8b009ef9ebb337966"
-size = 22414
+sha256 = "6fcc1a3abcef11516e21db35286e6613f96ee738702bfc49228e14af543359c9"
+size = 24230
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/examples.csv"
-sha256 = "60efafed5283e0f52874af351501017721998c0523b02523ed5d1a2e5d85d9e0"
-size = 18018
+sha256 = "7c8d08fcfce69a5abf79e3dd6b94ecde5e9a06ef5794694c38d248f6045903bd"
+size = 18598
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000001.png"
-sha256 = "0f71c3ce3d3cc1efc3e0b95e67cf57e70fd72de1ecfc191127439d9fa6970615"
-size = 27465
+sha256 = "b697f49b42a872846184fa6cb46a813a86d4c85ef945d42fd4a1dacb0806c0dc"
+size = 25648
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000002.png"
-sha256 = "c37f952402c4d58695173c7c0f42136a4d087e31f37a70ced1e3ddaa9372bf0b"
-size = 27060
+sha256 = "507be95872d76321a28ffeb7fdd680e42ba4dce65bdcb1f4e5666e580f6569e2"
+size = 28036
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000003.png"
-sha256 = "e4a4d0ab5c587d6e9cf28aa2084f082ce7984faf095de80b5712bf6947fd1794"
-size = 26721
+sha256 = "6bc47a52eb02224353bbbb510ee63977278bd8b36a4c4744b91016abd61ce7b0"
+size = 23518
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000004.png"
-sha256 = "d6b3393ed7d40340fd925da9348ddb2ec1a61058d7d8634a1de142b808d4944a"
-size = 27699
+sha256 = "7faf469585dcc5f49ccd5719ad4f57fbe052249ffce3bdfd4af9493104b05b3b"
+size = 25031
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000005.png"
-sha256 = "ffd1652a1331b41488871c594f144b2c01aaba0c7e8fbe9698959d203bc7ba15"
-size = 26152
+sha256 = "1fad26eac275aba467cfbf7593d1142fd78a3a523849a566dabc64934e41da0c"
+size = 29914
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000006.png"
-sha256 = "56b1c393985de23d65041d2d6c31faa5ba7fd72dc12e187a97c9546216e4ba84"
-size = 27418
+sha256 = "69b4180a8d54830e76b53b939851e33a6acb8117e0e8f1652e7c5d2e33e5cbac"
+size = 27557
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000007.png"
-sha256 = "108453d601b73a335657b55e0177998de525de9bc033942984c82f2fb9f80301"
-size = 32525
+sha256 = "6078912e4008fcd55d5ff9c51ff8300c606985fea0991592f8c11a0ab81a66a5"
+size = 32356
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000008.png"
-sha256 = "0b7cc61e6bca7cefbe75b5a0a884194b52bbeba504a4ed9a5f1f58dec988dfcc"
-size = 42713
+sha256 = "84a36fed18aca3832a9c54318f14def1f2b1d881adc69b180b2730a61db6626f"
+size = 47661
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000009.png"
-sha256 = "d633a84d8012238d1170576bd4c4dbac5091a491b508e8fff2aa46b971c48ef7"
-size = 38963
+sha256 = "546bd05664a477138367974f39d40861a0ac76f0d9489d99e3ea1217a8ddc8ea"
+size = 40678
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000010.png"
-sha256 = "72a4ffc86164e96f45fbb013d8d3cbfea9e8124de2d8e6b44aa05ff5baeff0a1"
-size = 35669
+sha256 = "54774d565926a8d5de0542409f70803705828eae1e47cdd901914509a3d0270f"
+size = 43477
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000011.png"
-sha256 = "224c1adfeaa56fcda5a51639f4146880a0584716581851624f0d5b114ccb56b4"
-size = 46989
+sha256 = "603ad5f25258f7c6b3c2a07800d0d4c24e59245459c5bf859a82688137a99154"
+size = 45179
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000012.png"
-sha256 = "db2340fa321cf60481809423eb84249888a5f818ef71889d63ddbc93d21eb4d5"
-size = 39050
+sha256 = "1f99d8aa5173fad1aa566d6f7fb1a32e5194bffa4e817ccc9af11a664a70e05b"
+size = 36981
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000013.png"
-sha256 = "6b9ba9394f2c185aa67ecfc2a968a38d3f1784881458a057f8cca2f4dc8a1e40"
-size = 44204
+sha256 = "33b57907cb80d5cc4a3104ab77c3989e0734505ef270d2e7dd099a397f9145e6"
+size = 29252
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000014.png"
-sha256 = "8dc4c902e361673bea2b717d21b12f651de36459d8ae1a172611b13023b65ad9"
-size = 42508
+sha256 = "b7736f30971b43d2d784ce7b2e06cc762f0479d1d9d8ce2877415e1f5ba7fb6d"
+size = 34487
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000015.png"
-sha256 = "45d6ce79c3c9e61b59bf2637f243455ff56b14a2f95c92d4350c7353e7fb3f74"
-size = 40020
+sha256 = "bf78fd01378f98ecd566e20abe97aac41b573250f17987b9b9acc93f9eacb7b3"
+size = 30874
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000016.png"
-sha256 = "b0e363d84eca1cef3825c79c20850eb04155dd4562e22087851c5273d3bbadc6"
-size = 27680
+sha256 = "a790f1875eb3dfadae44a9190708047475128f8c1b2ce956af8761d0b171649c"
+size = 40026
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000017.png"
-sha256 = "275a09e481e87d8693c39eefc1b78b5298847a4140c073096bd6826ef9db82a4"
-size = 41521
+sha256 = "9bd988327feb81109993ae891bfe9117515d13a51b0900e8ea2337a46727ec4d"
+size = 38307
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000018.png"
-sha256 = "ef4e4d4f46b88f6e3ee1b33737abcb676ffdb270a8785f9a9ab7c7dc4e987be2"
-size = 37737
+sha256 = "113d18644717876a86bd9b19b85dd7078a2102d63946b608f7fe31cbd12cdaf4"
+size = 40319
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/support/images/000019.png"
-sha256 = "d22c7561b124a509081ee7a29a0d186a62e1813d46981deada9975b8101aa546"
-size = 31805
+sha256 = "7c6ab779244fb67970df30b9ebe4ac0dec34052de3ee9f060a46bf14acb7a04b"
+size = 34351
 
 [[files]]
 path = "adaptation/e13b0ea0b3538c138a65df77/vocabulary.csv"
@@ -4768,7 +4768,7 @@ size = 43395
 
 [[files]]
 path = "dataset.json"
-sha256 = "e5a28803bc05e4543c19fcfcd54e880e55f40156d721823e85b9fa4f8c206465"
+sha256 = "6ffb4da0949bc2de4e04a18eef0f4a0f6bf5e359e1fd23e8d9496e8a1b3703bd"
 size = 24482
 
 [[files]]
@@ -4918,8 +4918,8 @@ size = 87
 
 [[files]]
 path = "index.html"
-sha256 = "e48da74afe3a9bf9a534830509c7b0720152b86ee820563d75011f1f3c975318"
-size = 1608769
+sha256 = "54d29520c5134161e1ed912370093ac0f6c05f03e6d283203174dfdcd31b5a74"
+size = 1609405
 
 [[files]]
 path = "vocabulary.csv"
