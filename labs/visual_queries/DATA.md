@@ -32,7 +32,7 @@ glyphs/{metadata.json,examples.csv,images/*.png}
 ```
 
 `base/train` supplies base-model training examples; `base/validation` supplies
-base-model evaluation questions. Each adaptation directory contains a labeled
+the initial diagnostic and old control questions assigned to episodes. Each adaptation directory contains a labeled
 **support** set for learning its additions and a separate **query** set for
 checking the adapted model. Every episode starts from the same submitted base
 state. The optional `glyphs` directory contains labeled images of individual
@@ -123,6 +123,7 @@ without an external tokenizer.
 | `image_shape`, `sheet_grid` | Scene tile shape `[512,512,3]` and sheet grid `[4,4]`. |
 | `max_question_tokens`, `max_batch_size` | Limits of 96 tokens and 16 question rows. |
 | `splits`, `episodes` | Available split paths and ordered episode IDs. |
+| `assessment_version`, `retention_rows` | Schedule 2; episode IDs mapped to one-based `base/validation` CSV record numbers. The lists partition every base-control row exactly once. Missing schedule metadata denotes legacy schedule 1. |
 | `scored_questions_per_level` | Equal question count at each of the five difficulty levels. |
 | `adaptation_limits` | Time, RAM, GPU memory, saved-artifact and data-transport budgets. |
 | `observable_rules` | Alphabet, background, size ranges, rotations, spacing, opaque ink style, positional guards and base color representatives. |

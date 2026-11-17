@@ -348,6 +348,10 @@ class VisualQueriesPage(QWidget):
             self.split.clear()
             for i, run in enumerate(self.record["runs"]):
                 label = split_label(self.datasets[i].meta, run["split"])
+                if run["split"] == "base/validation" and run.get("episode"):
+                    label = split_label(
+                        self.datasets[i].meta, f"adaptation/{run['episode']}/old controls"
+                    )
                 self.split.addItem(
                     f"{run.get('dataset', '')} · {label}".removeprefix(" · "), i
                 )
@@ -418,6 +422,13 @@ class VisualQueriesPage(QWidget):
         reference = self.dataset.examples[selected - 1]
         numbers = []
         for number, row in enumerate(self.dataset.examples, 1):
+            if (
+                self.active_run
+                and self.active_run.get("episode")
+                and self.dataset.split == "base/validation"
+                and number not in self.predictions
+            ):
+                continue
             if self.search.text().lower() not in row["question"].lower():
                 continue
             if self.same_image.isChecked() and any(

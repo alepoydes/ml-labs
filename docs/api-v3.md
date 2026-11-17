@@ -39,7 +39,9 @@ PyTorch checkpoints on the supplied `device` and transfer tensors to it explicit
 Every adaptation starts from the submitted base state in `input_dir` and saves a
 complete, independently loadable state in `output_dir`. Leave input artifacts
 unchanged. The [task statement](../labs/visual_queries/README.md#3-adaptation-and-scoring)
-defines the evaluation sequence and adaptation budget.
+defines the evaluation sequence and adaptation budget. In assessment schedule 2,
+the same adapted state answers episode queries and assigned old controls. Both
+use the expanded answer vocabulary; prediction receives no per-row novelty flag.
 
 ## Adaptation time and checkpoints
 

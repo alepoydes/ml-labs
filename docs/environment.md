@@ -79,7 +79,8 @@ training, evaluation and Blindjack's HTML viewer do not require an OpenGL contex
 ## Visual Queries learning and prediction
 
 Visual Queries uses [API 3](api-v3.md). Evaluation first checks the saved base
-model, then learns and checks each independent adaptation episode. Each prediction
+model diagnostically, then learns and checks each independent adaptation episode
+on episode queries and its assigned old controls (assessment schedule 2). Each prediction
 request contains up to 16 question rows with up to 96 tokens per question. The
 model returns one CPU int64 answer ID per row. Images and numeric questions are
 supplied to prediction; labeled numeric tables are supplied to learning.

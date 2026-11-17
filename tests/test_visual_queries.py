@@ -440,3 +440,57 @@ def test_numeric_learning_boundary(queries):
     ]:
         with pytest.raises((CourseError, ValueError)):
             transport(request)
+
+
+def test_post_adaptation_controls_score_forgetting_and_keep_expanded_answers(
+    queries, tmp_path
+):
+    from coursekit.labs.visual_queries import result_table, retention_rows
+    from coursekit.labs.visual_queries_inspection import read_record
+
+    meta = metadata(queries) | dict(
+        assessment_version=2, retention_rows={"a": [1], "b": [2]}
+    )
+    write_json(queries / "dataset.json", meta)
+    csv_file(
+        queries / "adaptation/a/query/examples.csv",
+        ["sheet", "row", "column", "question", "answer"],
+        [[1, 1, 2, "Is empty?", "novel"], [1, 1, 1, "empty?", "yes"]],
+    )
+    solution = tmp_path / "solution"
+    shutil.copytree(Path(__file__).parents[1] / "labs/visual_queries/starter", solution)
+    (solution / "config.toml").write_text("example_batch_size=2\nconstant_answer_id=1\n")
+    script = solution / "train.py"
+    script.write_text(
+        script.read_text().replace(
+            "    state.update(vocab_size=",
+            '    assert state["episode_id"] is None\n    state["answer"] = 7\n    state.update(vocab_size=',
+        )
+    )
+    run(solution, queries, "fixture", 0, run_dir=tmp_path / "train")
+    before = digest(solution / "artifacts/state.json")
+    events = []
+    result = evaluate_solution(
+        solution, queries, run_dir=tmp_path / "evaluate", progress=events.append
+    )
+    assert result["questions"] == 5 and result["correct"] == 1 and result["score"] == 20
+    assert result["phases"][0]["correct"] == 1 and not result["phases"][0]["scored"]
+    assert [p["retention"]["correct"] for p in result["phases"][1:]] == [0, 0]
+    assert digest(solution / "artifacts/state.json") == before
+    record, datasets = read_record(result["recording"])
+    controls = [
+        (r, d)
+        for r, d in zip(record["runs"], datasets)
+        if r["split"] == "base/validation" and r.get("episode")
+    ]
+    assert len(controls) == 2
+    assert [int(r["batches"][0]["rows"][0]) for r, d in controls] == [1, 2]
+    assert all(
+        d.words[7] == "novel" and r["batches"][0]["answers"][0] == 7 for r, d in controls
+    )
+    text = result_table(result, meta)
+    assert "(diagnostic)" in text and "old controls" in text and "episode queries" in text
+    meta["retention_rows"]["b"] = [1]
+    write_json(queries / "dataset.json", meta)
+    with pytest.raises(CourseError, match="exactly once"):
+        retention_rows(queries)

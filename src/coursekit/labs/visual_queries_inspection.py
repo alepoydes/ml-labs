@@ -19,7 +19,6 @@ from coursekit.labs.visual_queries_data import (
     load_split,
     metadata,
     rows,
-    scope,
     vocabulary,
 )
 
@@ -27,19 +26,25 @@ from coursekit.labs.visual_queries_data import (
 class Dataset:
     """Host-side text and tiles. Only arguments() output enters a model process."""
 
-    def __init__(self, root, split, *, fingerprint=None):
+    def __init__(self, root, split, *, fingerprint=None, episode=None):
         self.root, self.split = Path(root).resolve(), split
         self.meta = metadata(self.root)
         if self.meta["format_version"] != 2:
             raise CourseError("The inspector requires readable resource format 2.")
         self.loaded = load_split(self.root, split)
+        self.episode = episode
+        if episode is not None and (
+            not isinstance(episode, str) or episode not in self.meta["episodes"]
+        ):
+            raise CourseError("Unknown recorded adaptation episode.")
         self.examples = rows(self.root / split / "examples.csv", EXAMPLE_FIELDS)
         self.words = vocabulary(
-            self.root, split.split("/")[1] if split.startswith("adaptation/") else None
+            self.root,
+            episode or (split.split("/")[1] if split.startswith("adaptation/") else None),
         )
         self.fingerprint = fingerprint or data_fingerprint(self.root)
         self.settings = dict(
-            vocab_size=scope(self.root, split),
+            vocab_size=len(self.words),
             image_shape=self.meta["image_shape"],
             max_tokens=self.meta["max_question_tokens"],
             max_batch=self.meta["max_batch_size"],
@@ -56,6 +61,7 @@ class Dataset:
             data=str(self.root),
             data_hash=self.fingerprint,
             split=self.split,
+            episode=self.episode,
             model=identity or {},
             batches=[],
             complete=False,
@@ -167,7 +173,9 @@ def read_record(path, *, data_override=None):
             raise CourseError(
                 "The recorded dataset is missing or changed. Select the original corpus."
             )
-        data = Dataset(root, run["split"], fingerprint=hashes[root])
+        data = Dataset(
+            root, run["split"], fingerprint=hashes[root], episode=run.get("episode")
+        )
         seen = set()
         for item in run["batches"]:
             if not isinstance(item, dict) or not {"rows", "answers"} <= item.keys():

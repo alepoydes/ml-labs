@@ -103,14 +103,17 @@ The base vocabulary is listed in `vocabulary.csv`. Each entry has an integer
 **token ID**. Spelling is case-sensitive, punctuation has separate entries, and
 ID 0 is reserved for padding. The remaining IDs are consecutive. Questions and
 answers use the same vocabulary: a prediction is the ID of the answer token.
-The base training set contains examples of every question family.
+The base training set covers the base question families. Additional words and
+constructions are introduced by the support examples of their adaptation episode.
 
 ## 3. Adaptation and scoring
 
 An **adaptation episode** is a separate learning task with two sets of examples:
 
 - **Support** contains images, questions and correct answers for learning the
-  episode's new words or constructions.
+  episode's new words or constructions. Its examples and contrast groups focus
+  on the additions; a contrast can include a familiar word or answer. Base-training
+  data remains separately available for rehearsal.
 - **Query** contains separate examples on which the adapted model is evaluated.
   Their answers are withheld from the model.
 
@@ -124,11 +127,14 @@ different meanings in different episodes.
 Every evaluation follows this sequence:
 
 1. Load the submitted **base state**: the saved models and preprocessing state
-   produced by training. Answer the base-validation questions.
+   produced by training. Answer the base-validation questions as an initial
+   diagnostic; this measurement does not contribute points.
 2. For each episode, start again from that same base state and run `adapt` on its
    support set. Save a complete adapted state in a separate directory.
-3. Load the adapted state in a fresh solution instance and answer that episode's
-   query questions.
+3. Load the adapted state and answer its query questions and the assigned part
+   of the base-validation questions. Both parts contribute points. The model uses
+   the episode's expanded vocabulary for both parts; an incorrect new token on an
+   old question is an ordinary wrong answer.
 
 Episodes are independent: learning in one episode is not carried into another.
 Submit the base state together with the code and configuration that perform
@@ -149,7 +155,10 @@ The score is
 ```
 
 Every question has equal weight. The evaluator adds integer correct/total counts
-across base validation and all episode queries. The complete benchmark contains
+across post-adaptation base controls and all episode queries. Each base-control
+question is assigned to exactly one episode and counted once. The initial base
+diagnostic is excluded. Assignments are fixed in the dataset metadata and keep
+related nonempty images together. The complete benchmark contains
 equal numbers of questions at five difficulty levels. Support examples and
 training diagnostics do not contribute to the score. A wrong answer earns zero
 for that question. A runtime failure, protocol violation or cancellation leaves
@@ -186,7 +195,7 @@ archive. The supplied collection contains:
 | Partition | Examples | Use |
 | --- | ---: | --- |
 | `base/train` | 10,000 questions | Train the base model. |
-| `base/validation` | 1,890 questions | Evaluate the base model. |
+| `base/validation` | 1,890 questions | Initial diagnostic and assigned post-adaptation controls. |
 | Each episode's `support` | 300 questions | Learn that episode's additions. |
 | Each episode's `query` | 120 questions | Evaluate the adapted model. |
 | `glyphs` | 6,800 labeled symbol images | Optionally train a visual component. |
@@ -209,7 +218,8 @@ episodes to develop the adaptation procedure; reserving entire episodes for fina
 local testing helps assess how well the procedure generalizes to new additions.
 For internal validation during base training or adaptation, split the authorized
 training or support examples yourself, keeping questions about the same image
-together. See [modelling hints](HINTS.md) for further suggestions.
+together. Check that new answer classes remain represented in both parts whenever
+the available image groups permit it. See [modelling hints](HINTS.md) for further suggestions.
 
 ### Loading examples
 
@@ -382,8 +392,9 @@ dependencies. See the [environment guide](../../docs/environment.md).
 
 Evaluation and archive checking both run base validation and every independent
 adaptation. The base artifacts remain unchanged. Both commands print a table with
-correct/total counts and accuracy for **Base validation**, each numbered adaptation
-and **Total**. It also separates questions using known and new language. New input
+correct/total counts and accuracy for the initial **Base validation (diagnostic)**,
+each numbered adaptation and **Total**. Each adaptation also shows its old controls
+and episode queries separately; the combined row includes both and is counted once. It also separates questions using known and new language. New input
 words, new answer concepts and new episode constructions count as new language;
 this distinction concerns language coverage, not whether an exact question or image
 has appeared before. A dash indicates a group with no questions.
@@ -398,7 +409,7 @@ Checking an archive retains these outputs after its temporary extraction is
 removed. The complete JSON also preserves technical episode IDs.
 
 Training histories describe learning on training and internal-validation examples.
-The evaluation table describes the separate public benchmark. Only base validation
+The evaluation table describes the separate public benchmark. Only post-adaptation base controls
 and adaptation queries contribute points; support diagnostics are kept separate.
 The instructor's reports additionally distinguish published training, validation,
 support and query statistics. The evaluator reports each adapted model's result;
@@ -480,3 +491,14 @@ project directory/
     labs/visual_queries/README.md
     data/visual_queries/index.html     created by step_0_update_resources
 ```
+
+## Resource and assessment versions
+
+Resource `visual-queries-pilot-5` uses assessment schedule 2, described above.
+Base training, the base dictionary, base-validation examples and labeled glyphs
+are preserved from resource pilot 4. Existing base weights and API 3 solutions
+can be reused; rerun evaluation to obtain fresh independent adaptations. Support
+and query examples have changed. Old adaptation snapshots belong to their original
+resource and must not be reused. Earlier resources use schedule 1, which scored
+the initial base model; their scores are not directly comparable. Recordings retain
+the original resource fingerprint and require their matching corpus.

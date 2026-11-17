@@ -78,15 +78,33 @@ def data_fingerprint(root):
 
 
 def evaluate(
-    solution, data, split="base/validation", *, progress=None, batch_size=16, on_batch=None
+    solution,
+    data,
+    split="base/validation",
+    *,
+    progress=None,
+    batch_size=16,
+    on_batch=None,
+    indices=None,
+    vocab_size=None,
 ):
     data = Path(data)
-    meta, size = metadata(data), scope(data, split)
+    meta, size = metadata(data), vocab_size or scope(data, split)
     loaded = load_split(data, split)
     answers = loaded[3]
     if answers is None or not len(answers):
         raise CourseError("Evaluation needs a nonempty labeled question split.")
-    count = len(answers)
+    selection = np.arange(len(answers)) if indices is None else np.asarray(indices)
+    if (
+        selection.ndim != 1
+        or selection.dtype.kind not in "iu"
+        or not len(selection)
+        or np.any(selection < 0)
+        or np.any(selection >= len(answers))
+        or len(np.unique(selection)) != len(selection)
+    ):
+        raise CourseError("Choose distinct valid evaluation rows.")
+    count = len(selection)
     correct = 0
     levels = {}
     language = {name: dict(correct=0, questions=0) for name in ("known", "new")}
@@ -94,7 +112,7 @@ def evaluate(
     judge_path = data / "judge.json"
     judge = json.loads(judge_path.read_text()).get(split, {}) if judge_path.exists() else {}
     ids = (
-        [str(i + 1) for i in range(count)]
+        [str(i + 1) for i in range(len(answers))]
         if meta["format_version"] == 2
         else [
             r["question_id"]
@@ -105,7 +123,7 @@ def evaluate(
     )
     step = min(batch_size, meta["max_batch_size"])
     for start in range(0, count, step):
-        selected = np.arange(start, min(start + step, count))
+        selected = selection[start : start + step]
         arguments = batch(loaded, selected)
         validate_inputs(
             *arguments,
@@ -140,7 +158,7 @@ def evaluate(
                 record["correct"] += int(value)
                 record["questions"] += 1
         if progress:
-            progress(dict(completed=int(selected[-1]) + 1, total=count, correct=correct))
+            progress(dict(completed=min(start + step, count), total=count, correct=correct))
     return dict(
         score=100 * correct / count,
         correct=correct,
@@ -205,6 +223,71 @@ def adaptation_view(root, name, destination, *, rehearsal=None):
     return destination
 
 
+def retention_rows(data):
+    """One-based published assignments; each base control is scored exactly once."""
+    meta = metadata(data)
+    version = meta.get("assessment_version", 1)
+    if type(version) is not int or version not in (1, 2):
+        raise CourseError("Unsupported Visual Queries assessment schedule.")
+    if version == 1:
+        return {}
+    assignments = meta.get("retention_rows", {})
+    count = len(load_split(data, "base/validation")[2])
+    if (
+        not isinstance(assignments, dict)
+        or set(assignments) != set(meta["episodes"])
+        or any(not isinstance(v, list) or not v for v in assignments.values())
+    ):
+        raise CourseError("Missing post-adaptation base controls.")
+    flat = [i for values in assignments.values() for i in values]
+    if any(type(i) is not int for i in flat) or sorted(flat) != list(range(1, count + 1)):
+        raise CourseError("Base controls must partition every row exactly once.")
+    return {name: np.asarray(values, np.int64) - 1 for name, values in assignments.items()}
+
+
+def combine_results(parts):
+    result = dict(correct=0, questions=0, levels={}, language={})
+    for part in parts:
+        for field in ("correct", "questions"):
+            result[field] += part[field]
+        for field in ("levels", "language"):
+            for name, counts in part.get(field, {}).items():
+                target = result[field].setdefault(name, dict(correct=0, questions=0))
+                for key in target:
+                    target[key] += counts[key]
+    result["score"] = 100 * result["correct"] / result["questions"]
+    return result
+
+
+def evaluate_adapted(predict, data, name, progress=None):
+    """Use one saved adapted state for queries and its assigned old controls."""
+    controls = retention_rows(data)
+    split = f"adaptation/{name}/query"
+    if not controls:
+        return predict(split, progress=progress)
+    size = episode(data, name)["vocab_size"]
+    count = len(load_split(data, split)[2])
+    total = count + len(controls[name])
+
+    def report(offset):
+        if progress is None:
+            return None
+        return lambda event: progress(
+            dict(completed=offset + event["completed"], total=total)
+        )
+
+    query = predict(split, episode_id=name, progress=report(0))
+    old = predict(
+        "base/validation",
+        indices=controls[name],
+        episode_id=name,
+        vocab_size=size,
+        progress=report(count),
+    )
+    result = combine_results([query, old]) | dict(query=query, retention=old)
+    return result
+
+
 def run_benchmark(data, run_phase, *, progress=None):
     """run_phase(split, episode_id, progress) owns fresh loading and adaptation."""
     data = Path(data)
@@ -214,7 +297,11 @@ def run_benchmark(data, run_phase, *, progress=None):
     ]
     if not meta["episodes"]:
         raise CourseError("A complete benchmark must include adaptation episodes.")
-    counts = [len(load_split(data, split)[2]) for split, _ in phases]
+    controls = retention_rows(data)
+    counts = [
+        len(load_split(data, split)[2]) + (len(controls[name]) if name in controls else 0)
+        for split, name in phases
+    ]
     total, completed, correct = sum(counts), 0, 0
     details, levels, language = [], {}, {}
     for (split, name), count in zip(phases, counts):
@@ -234,8 +321,12 @@ def run_benchmark(data, run_phase, *, progress=None):
         if result["questions"] != count:
             raise CourseError("Incomplete evaluation phase.")
         completed += count
-        correct += result["correct"]
-        details.append(dict(episode=name, **result))
+        scored = name is not None or not controls
+        if scored:
+            correct += result["correct"]
+        details.append(dict(episode=name, scored=scored, **result))
+        if not scored:
+            continue
         for field, totals in (("levels", levels), ("language", language)):
             for group, record in result.get(field, {}).items():
                 target = totals.setdefault(group, dict(correct=0, questions=0))
@@ -246,10 +337,11 @@ def run_benchmark(data, run_phase, *, progress=None):
     } != {str(level): meta["scored_questions_per_level"] for level in range(1, 6)}:
         raise CourseError("The scored difficulty quotas are incomplete or unequal.")
     return dict(
-        score=100 * correct / total,
+        score=100 * correct / sum(r["questions"] for r in details if r["scored"]),
         correct=correct,
-        questions=total,
-        accuracy=correct / total,
+        questions=sum(r["questions"] for r in details if r["scored"]),
+        accuracy=correct / sum(r["questions"] for r in details if r["scored"]),
+        assessment_version=meta.get("assessment_version", 1),
         phases=details,
         levels=levels,
         language=language,
@@ -279,6 +371,27 @@ def adaptation_rows(result):
     ]
 
 
+def episode_results(result):
+    """Human per-episode counts, without counting the combined row twice."""
+    rows = []
+    for index, phase in enumerate(
+        (p for p in result.get("phases", []) if p.get("episode") is not None), 1
+    ):
+        if "retention" not in phase:
+            continue
+        values = {}
+        for name, metrics in (
+            ("old", phase["retention"]),
+            ("new", phase["query"]),
+            ("total", phase),
+        ):
+            values[name] = (
+                f"{metrics['correct']}/{metrics['questions']} ({100 * metrics['correct'] / metrics['questions']:.1f}%)"
+            )
+        rows.append(dict(episode=f"Adaptation {index:02d}", **values))
+    return rows
+
+
 def result_table(result, meta):
     """Summarize a complete benchmark without averaging episode percentages."""
 
@@ -290,7 +403,15 @@ def result_table(result, meta):
     timed = any(p.get("adaptation") for p in result["phases"])
     if timed:
         table[0] += ["Adaptation s / budget", "Stop", "Evaluated model"]
-    phases = [(episode_label(meta["episodes"], p["episode"]), p) for p in result["phases"]]
+    phases = []
+    for p in result["phases"]:
+        label = episode_label(meta["episodes"], p["episode"])
+        if p.get("scored") is False:
+            label += " (diagnostic)"
+        phases.append((label, p))
+        for key, suffix in (("retention", "old controls"), ("query", "episode queries")):
+            if key in p:
+                phases.append((f"  {suffix}", p[key]))
     for label, row in [*phases, ("Total", result)]:
         groups = row.get("language", {})
         table.append(
@@ -346,28 +467,46 @@ def evaluate_solution(solution, data, *, seed=0, device="cpu", run_dir=None, pro
                     (artifacts.parent / "training.json").read_text()
                 ).get("adaptation")
         identity = model_identity(solution, artifacts, device, seed)
-        current = dict(
-            data=str(data.resolve()),
-            data_hash=resource_hash,
-            split=split,
-            model=identity,
-            batches=[],
-            complete=False,
-        )
-        saved["runs"].append(current)
-        try:
-            instance = load_solution(solution, seed, artifact_dir=artifacts, device=device)
-            if model_identity(solution, artifacts, device, seed) != identity:
-                raise CourseError("Solution changed while loading; restart evaluation.")
-            result = evaluate(
-                instance, data, split, progress=report, on_batch=current["batches"].append
+        instance = load_solution(solution, seed, artifact_dir=artifacts, device=device)
+        if model_identity(solution, artifacts, device, seed) != identity:
+            raise CourseError("Solution changed while loading; restart evaluation.")
+
+        def predict(
+            split, *, indices=None, episode_id=None, vocab_size=None, progress=None
+        ):
+            current = dict(
+                data=str(data.resolve()),
+                data_hash=resource_hash,
+                split=split,
+                episode=episode_id,
+                model=identity,
+                batches=[],
+                complete=False,
             )
-            if adaptation is not None:
-                result["adaptation"] = adaptation
-            current["complete"] = True
-            return result
-        finally:
-            recording.save(path, saved)
+            saved["runs"].append(current)
+            try:
+                result = evaluate(
+                    instance,
+                    data,
+                    split,
+                    progress=progress,
+                    indices=indices,
+                    vocab_size=vocab_size,
+                    on_batch=current["batches"].append,
+                )
+                current["complete"] = True
+                return result
+            finally:
+                recording.save(path, saved)
+
+        result = (
+            predict(split, progress=report)
+            if name is None
+            else evaluate_adapted(predict, data, name, report)
+        )
+        if adaptation is not None:
+            result["adaptation"] = adaptation
+        return result
 
     try:
         result = run_benchmark(data, run, progress=progress)

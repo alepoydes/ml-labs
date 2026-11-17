@@ -55,7 +55,8 @@ For another lab, substitute its working directory and the ZIP path printed by
 its packaging command. Replace `<hash>` with the actual filename.
 `step_3_evaluate` tests the working directory on the lab's public benchmark;
 `step_5_check_submission` tests the packaged ZIP. Visual Queries evaluation includes
-base validation and all independent adaptation episodes. Edit and repeat training
+an initial base diagnostic and all independent adaptation episodes, with scored
+episode queries and old controls after adaptation. Edit and repeat training
 and evaluation as needed. Both commands
 run directly in your Python environment, with ordinary output and tracebacks.
 The ZIP check validates and extracts a fresh copy; it imposes no isolation or

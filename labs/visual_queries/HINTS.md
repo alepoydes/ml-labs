@@ -15,6 +15,9 @@ separate when comparing changes.
 Many questions share an image. Form internal validation folds by image so that
 related questions stay together. For adaptation, use a held-out part of support
 for checkpoint selection, and use queries only to assess the resulting model.
+Count new answer labels on both sides of the split: random image selection can
+leave a rare new class absent from validation. Preserve image groups when
+adjusting the split.
 Reserving complete public episodes provides a further check of the adaptation
 procedure's ability to handle unfamiliar additions.
 
